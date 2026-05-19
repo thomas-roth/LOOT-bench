@@ -11,11 +11,6 @@ uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu
 ```
 
 ### Keep local PyTorch wheels
-By default `uv sync` may prune packages that are not in `pyproject.toml`/`uv.lock`. If you install PyTorch manually and want to keep it:
-```
-uv sync --no-prune
-```
-
 When running scripts, skip auto-sync to avoid pruning local wheels:
 ```
 uv run --no-sync main.py

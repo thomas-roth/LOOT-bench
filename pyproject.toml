@@ -6,5 +6,5 @@ readme = "README.md"
 requires-python = ">=3.10, <3.14"
 dependencies = [
     "av>=17.0.1",
-    "genesis-world>=0.4.7",
+    "genesis-world[render]>=0.4.7",
 ]
