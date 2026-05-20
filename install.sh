@@ -8,6 +8,10 @@ set -euo pipefail # Exit script on error, undefined variable, or error in pipeli
 
 echo -e "${COLOR}(1/2) Initializing genesis-world submodule ...${NC}"
 git submodule update --init
+cd ext/genesis-world
+git sparse-checkout init --no-cone
+git sparse-checkout set examples
+cd ../..
 
 echo -e "${COLOR}(2/2) Installing packages ...${NC}"
 if command -v nvidia-smi &> /dev/null && nvidia-smi &> /dev/null; then
