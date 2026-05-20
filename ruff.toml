@@ -1,0 +1,23 @@
+line-length = 88
+target-version = "py310"
+
+[lint]
+select = [
+	"E",  # pycodestyle errors
+	"W",  # pycodestyle warnings
+	"F",  # Pyflakes
+	"I",  # isort
+	"B",  # flake8-bugbear
+	"UP", # pyupgrade
+	"SIM",# flake8-simplify
+	"C4", # flake8-comprehensions
+	"PIE" # flake8-pie
+]
+ignore = [
+	"E501" # line length handled by formatter
+]
+fixable = ["ALL"]
+
+[format]
+quote-style = "double"
+indent-style = "space"

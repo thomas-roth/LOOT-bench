@@ -1,0 +1,14 @@
+{
+  "typeCheckingMode": "strict",
+  "pythonVersion": "3.10",
+  "include": ["src"],
+  "exclude": [
+    "**/__pycache__",
+    ".venv",
+    "ext",
+    "**/build",
+    "**/dist",
+    "**/node_modules",
+    "**/.*"
+  ]
+}
