@@ -1,8 +1,10 @@
+from pathlib import Path
+
 import genesis as gs
-from genesis.ext.pyrender.overlay import ImGuiOverlayPlugin
 
+from examples.interactive_viewer import InteractiveViewer
 
-def init_scene():
+def add_entities():
     scene = gs.Scene(
         profiling_options=gs.options.ProfilingOptions(
             show_FPS=False,
@@ -25,13 +27,9 @@ def init_scene():
         )
     )
 
+    #important: dont build the scene
+    return scene
 
-    #scene.viewer.add_plugin(gs.vis.viewer_plugins.MouseInteractionPlugin())
-    plugin = ImGuiOverlayPlugin()
-    plugin.paused = True
-    scene.viewer.add_plugin(plugin)
 
-    scene.build()
-
-    return scene, plugin
-
+if __name__ == "__main__":
+    InteractiveViewer(Path(__file__).name).run()
