@@ -4,6 +4,7 @@ import genesis as gs
 
 from examples.interactive_viewer import InteractiveViewer
 
+
 def add_entities():
     scene = gs.Scene(
         profiling_options=gs.options.ProfilingOptions(

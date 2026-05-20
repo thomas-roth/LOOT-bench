@@ -1,0 +1,15 @@
+{
+  "typeCheckingMode": "basic", // "off", "basic", "strict"
+  "reportOptionalMemberAccess": "none", // don't flag attempts to access attribute/method of variable that could be None
+  "pythonVersion": "3.10",
+  "include": ["src"],
+  "exclude": [
+    "**/__pycache__",
+    ".venv",
+    "ext",
+    "**/build",
+    "**/dist",
+    "**/node_modules",
+    "**/.*"
+  ]
+}

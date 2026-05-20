@@ -7,8 +7,15 @@ cd g3a-bench
 bash install.sh
 ```
 
-## Running Scripts
-When running scripts, skip auto-sync to avoid pruning local wheels:
+## Linting and type checking
+Run the linter on all Python files:
 ```
-uv run --no-sync main.py
+uv run ruff check
 ```
+
+Run the type checker on the `src` folder:
+```
+uv run pyright
+```
+
+These checks also run automatically on staged Python files when committing (via pre-commit).

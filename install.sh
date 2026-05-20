@@ -29,3 +29,5 @@ if ! command -v uv &> /dev/null; then
 fi
 
 uv sync --extra "$INSTALL_EXTRA"
+
+uv run pre-commit install

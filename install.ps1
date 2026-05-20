@@ -43,3 +43,6 @@ if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
 
 uv sync --extra $INSTALL_EXTRA
 Watch-Command
+
+uv run pre-commit install
+
