@@ -15,3 +15,16 @@ When running scripts, skip auto-sync to avoid pruning local wheels:
 ```
 uv run --no-sync main.py
 ```
+
+## Linting and type checking
+Run the linter on all Python files:
+```
+uv run ruff check
+```
+
+Run the type checker on the `src` folder:
+```
+uv run pyright
+```
+
+These checks also run automatically on staged Python files when committing (via pre-commit).

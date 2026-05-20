@@ -1,8 +1,6 @@
-import math
-
 import genesis as gs
-import torch
 import numpy as np
+import torch
 
 gs.init(
     # logging_level='warning',
@@ -33,16 +31,17 @@ def init_scene():
         show_viewer=True,
     )
 
-    plane = scene.add_entity(gs.morphs.Plane())
+    scene.add_entity(gs.morphs.Plane())
 
     # with relative path also search genesis/assets
     robot = scene.add_entity(gs.morphs.MJCF(file='xml/franka_emika_panda/panda.xml'))
-    cube = scene.add_entity(gs.morphs.Box(
+    scene.add_entity(gs.morphs.Box(
         size = (0.08, 0.08, 0.08),
         pos = (0.65, 0.0, 0.13),
     ))
 
-    obj_elastic = scene.add_entity(
+    # elastic object
+    scene.add_entity(
         material=gs.materials.MPM.Elastic(),
         morph=gs.morphs.Box(
             pos=(0.0, -0.5, 0.25),
@@ -54,7 +53,8 @@ def init_scene():
         ),
     )
 
-    obj_sand = scene.add_entity(
+    # sand object
+    scene.add_entity(
         material=gs.materials.MPM.Sand(),
         morph=gs.morphs.Box(
             pos=(0.0, 0.0, 0.25),
@@ -65,7 +65,8 @@ def init_scene():
         ),
     )
 
-    obj_plastic = scene.add_entity(
+    # plastic object
+    scene.add_entity(
         material=gs.materials.MPM.Liquid(),
         morph=gs.morphs.Sphere(
             pos=(0.0, 0.5, 0.35),
@@ -76,7 +77,7 @@ def init_scene():
         ),
     )
 
-    rope = scene.add_entity(
+    scene.add_entity(
         gs.morphs.MJCF(file="xml/cable.xml"),
     )
 
@@ -93,18 +94,17 @@ def sample_random_action(robot):
         if joint.n_dofs > 0:
             lower, upper = joint.dofs_limit[0]
 
-            # normalize to 1D to handle 1-DOF & multi-DOF joints
-            if not isinstance(lower, torch.Tensor):
-                lower = torch.tensor([lower], device=gs.device)
-                upper = torch.tensor([upper], device=gs.device)
-            elif lower.dim() == 0:
-                lower = lower.unsqueeze(0)
-                upper = upper.unsqueeze(0)
+            if isinstance(lower, torch.Tensor):
+                lower = lower.detach().cpu().numpy()
+            if isinstance(upper, torch.Tensor):
+                upper = upper.detach().cpu().numpy()
+            lower = np.atleast_1d(lower)
+            upper = np.atleast_1d(upper)
 
             lows.append(lower)
             highs.append(upper)
-    lows = torch.cat(lows).cpu().numpy()
-    highs = torch.cat(highs).cpu().numpy()
+    lows = np.concatenate(lows)
+    highs = np.concatenate(highs)
 
     action = np.random.uniform(lows, highs, size=robot.n_dofs)
     return action
@@ -115,7 +115,7 @@ if __name__ == "__main__":
 
     cam.start_recording()
 
-    for i in range(1000):
+    for _ in range(1000):
         action = sample_random_action(robot)
 
         robot.control_dofs_position(action)

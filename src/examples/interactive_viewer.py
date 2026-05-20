@@ -1,8 +1,8 @@
-import genesis as gs
 import importlib.util
 import time
 from pathlib import Path
 
+import genesis as gs
 from genesis.ext.pyrender.overlay import ImGuiOverlayPlugin
 from genesis.vis.viewer_plugins.plugins.mouse_interaction import MouseInteractionPlugin
 
