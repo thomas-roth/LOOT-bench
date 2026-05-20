@@ -1,4 +1,4 @@
-[submodule "external/genesis-world"]
-	path = external/genesis-world
+[submodule "ext/genesis-world"]
+	path = ext/genesis-world
 	url = https://github.com/Genesis-Embodied-AI/genesis-world.git
 	branch = main
