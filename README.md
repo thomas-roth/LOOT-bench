@@ -2,7 +2,7 @@
 
 ## Installation
 ```
-git clone https://github.com/thomas-roth/g3a-bench.git
+git clone git@github.com:thomas-roth/g3a-bench.git
 cd g3a-bench
 bash install.sh
 ```
