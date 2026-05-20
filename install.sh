@@ -4,4 +4,4 @@ set -euo pipefail
 
 uv sync
 
-pre-commit install
+uv run pre-commit install
