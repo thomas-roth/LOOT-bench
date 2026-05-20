@@ -8,6 +8,7 @@ repos:
         types: [python]
       - id: pyright
         name: pyright
-        entry: uv run pyright
+        entry: uv run pyright --project pyrightconfig.json
         language: system
+        pass_filenames: false
         types: [python]
