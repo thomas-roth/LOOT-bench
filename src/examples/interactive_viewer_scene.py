@@ -2,7 +2,7 @@ from pathlib import Path
 
 import genesis as gs
 
-from examples.interactive_viewer import InteractiveViewer
+from src.examples.interactive_viewer import InteractiveViewer
 
 
 def add_entities():
