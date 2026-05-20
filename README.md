@@ -4,7 +4,7 @@
 ```
 git clone https://github.com/thomas-roth/g3a-bench.git
 cd g3a-bench
-sh install.sh
+bash install.sh
 ```
 
 ## Running Scripts
