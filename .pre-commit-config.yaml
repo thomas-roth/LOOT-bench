@@ -3,11 +3,11 @@ repos:
     hooks:
       - id: ruff
         name: ruff
-        entry: ruff check --config ruff.toml
+        entry: uv run ruff check --config ruff.toml
         language: system
         types: [python]
       - id: pyright
         name: pyright
-        entry: pyright
+        entry: uv run pyright
         language: system
         types: [python]
