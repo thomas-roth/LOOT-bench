@@ -30,7 +30,7 @@ class InteractiveViewer:
         self.scene = self.scene_builder.add_entities()
 
         # add interactive plugins before building the scene
-        self.scene.viewer.add_plugin(MouseInteractionPlugin())
+        self.scene.viewer.add_plugin(MouseInteractionPlugin(spring_const=100.0))
         self.plugin = ImGuiOverlayPlugin()
         self.plugin.paused = True
         self.scene.viewer.add_plugin(self.plugin)
