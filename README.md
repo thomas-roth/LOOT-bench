@@ -7,20 +7,32 @@ cd g3a-bench
 bash install.sh
 ```
 
-## Linting and type checking
-Run the linter on all Python files:
+## Code Quality Checks
+The project uses [Ruff](https://www.astral.sh/ruff) for linting and formatting and [Pyright](https://microsoft.github.io/pyright) for type checking.
+
+To run the linter on the current working directory (recursively):
 ```
 uv run ruff check
 ```
 
-Run the type checker on the `src` folder:
+To run the formatter on the current working directory (recursively):
+```
+uv run ruff format
+```
+
+To run the type checker on the `src` directory:
 ```
 uv run pyright
 ```
 
-These checks also run automatically on staged Python files when committing (via pre-commit).
-Run the pre-commit hooks manually on staged files:
-`uv run pre-commit`
-Run the pre-commit hooks manually on all files:
-`uv run pre-commit run --all-files`
+### Pre-Commit Hooks
+The project uses [pre-commit](https://pre-commit.com) to automatically run the code quality checks on staged Python files when committing.
 
+To manually run the pre-commit hooks on staged files:
+```
+uv run pre-commit
+```
+To manually run the pre-commit hooks on all files:
+```
+uv run pre-commit run --all-files
+```
