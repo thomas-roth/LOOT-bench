@@ -18,7 +18,7 @@ def init_scene():
         mpm_options=gs.options.MPMOptions(
             lower_bound=(-0.5, -1.0, 0.0),
             upper_bound=(0.5, 1.0, 1),
-            #particle_size=8e-3,
+            # particle_size=8e-3,
         ),
         vis_options=gs.options.VisOptions(
             visualize_mpm_boundary=True,
@@ -34,11 +34,13 @@ def init_scene():
     scene.add_entity(gs.morphs.Plane())
 
     # with relative path also search genesis/assets
-    robot = scene.add_entity(gs.morphs.MJCF(file='xml/franka_emika_panda/panda.xml'))
-    scene.add_entity(gs.morphs.Box(
-        size = (0.08, 0.08, 0.08),
-        pos = (0.65, 0.0, 0.13),
-    ))
+    robot = scene.add_entity(gs.morphs.MJCF(file="xml/franka_emika_panda/panda.xml"))
+    scene.add_entity(
+        gs.morphs.Box(
+            size=(0.08, 0.08, 0.08),
+            pos=(0.65, 0.0, 0.13),
+        )
+    )
 
     # elastic object
     scene.add_entity(
@@ -49,7 +51,7 @@ def init_scene():
         ),
         surface=gs.surfaces.Default(
             color=(1.0, 0.4, 0.4),
-            vis_mode='visual',
+            vis_mode="visual",
         ),
     )
 

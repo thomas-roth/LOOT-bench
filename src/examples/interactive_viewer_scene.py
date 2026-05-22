@@ -28,7 +28,7 @@ def add_entities():
         )
     )
 
-    #important: dont build the scene
+    # important: dont build the scene
     return scene
 
 

@@ -19,3 +19,8 @@ uv run pyright
 ```
 
 These checks also run automatically on staged Python files when committing (via pre-commit).
+Run the pre-commit hooks manually on staged files:
+`uv run pre-commit`
+Run the pre-commit hooks manually on all files:
+`uv run pre-commit run --all-files`
+

@@ -9,13 +9,17 @@ def init_scene():
     scene = gs.Scene(show_viewer=True)
 
     scene.add_entity(gs.morphs.Plane())
-    robot = scene.add_entity(gs.morphs.MJCF(file='xml/franka_emika_panda/panda.xml'), )
+    robot = scene.add_entity(
+        gs.morphs.MJCF(file="xml/franka_emika_panda/panda.xml"),
+    )
 
     # cube
-    scene.add_entity(gs.morphs.Box(
-        size=(0.08, 0.08, 0.08),
-        pos=(0.65, 0.0, 0.13),
-    ))
+    scene.add_entity(
+        gs.morphs.Box(
+            size=(0.08, 0.08, 0.08),
+            pos=(0.65, 0.0, 0.13),
+        )
+    )
 
     cam = scene.add_camera(res=(1280, 720), pos=(2, 0, 2), lookat=(0, 0, 0))
     scene.build()

@@ -8,6 +8,7 @@ from genesis.vis.viewer_plugins.plugins.mouse_interaction import MouseInteractio
 
 gs.init()
 
+
 class InteractiveViewer:
     def __init__(self, scene_file: str, sleep_s=0.01):
         self.scene_file = scene_file
@@ -18,7 +19,9 @@ class InteractiveViewer:
 
     def _load_scene_builder(self):
         module_path = Path(__file__).with_name(self.scene_file)
-        spec = importlib.util.spec_from_file_location("interactive_viewer_scene", module_path)
+        spec = importlib.util.spec_from_file_location(
+            "interactive_viewer_scene", module_path
+        )
         if spec is None or spec.loader is None:
             raise RuntimeError(f"Failed to load scene module from {module_path}")
         module = importlib.util.module_from_spec(spec)
