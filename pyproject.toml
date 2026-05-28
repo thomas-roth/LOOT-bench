@@ -8,7 +8,7 @@ dependencies = [
     "av>=17.0.1",
     "genesis-world[render]>=1.0.0",
     "pre-commit>=3.7.1",
-    "pyright>=1.1.409",
+    "pyright[nodejs]>=1.1.409",
     "ruff>=0.15.13",
 ]
 

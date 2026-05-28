@@ -33,4 +33,4 @@ def add_entities():
 
 
 if __name__ == "__main__":
-    InteractiveViewer(Path(__file__).name).run()
+    InteractiveViewer(Path(__file__)).run()

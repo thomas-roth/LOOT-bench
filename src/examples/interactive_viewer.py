@@ -10,18 +10,24 @@ gs.init()
 
 
 class InteractiveViewer:
-    def __init__(self, scene_file: str, sleep_s=0.01):
-        self.scene_file = scene_file
+    def __init__(
+        self, scene_file: str | Path, sleep_s=0.01, base_dir: Path | None = None
+    ):
+        self.scene_file = Path(scene_file)
         self.sleep_s = sleep_s
+        self.base_dir = base_dir or Path(__file__).resolve().parents[1]
         self.scene_builder = None
         self.scene = None
         self.plugin = None
 
     def _load_scene_builder(self):
-        module_path = Path(__file__).with_name(self.scene_file)
-        spec = importlib.util.spec_from_file_location(
-            "interactive_viewer_scene", module_path
-        )
+        module_path = self.scene_file
+        if not module_path.is_absolute():
+            module_path = (self.base_dir / module_path).resolve()
+        if not module_path.exists():
+            raise FileNotFoundError(f"Scene file not found: {module_path}")
+        module_name = f"interactive_scene_{module_path.stem}"
+        spec = importlib.util.spec_from_file_location(module_name, module_path)
         if spec is None or spec.loader is None:
             raise RuntimeError(f"Failed to load scene module from {module_path}")
         module = importlib.util.module_from_spec(spec)
