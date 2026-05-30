@@ -17,7 +17,11 @@ cpu = [
     "torch",
     "torchvision",
 ]
-cuda = [
+cu129 = [
+    "torch",
+    "torchvision",
+]
+cu130 = [
     "torch",
     "torchvision",
 ]
@@ -26,13 +30,19 @@ cuda = [
 conflicts = [
     [
         { extra = "cpu" },
-        { extra = "cuda" },
+        { extra = "cu129" },
+        { extra = "cu130" },
     ],
 ]
 
 [[tool.uv.index]]
 name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu129"
+url = "https://download.pytorch.org/whl/cu129"
 explicit = true
 
 [[tool.uv.index]]
@@ -43,10 +53,11 @@ explicit = true
 [tool.uv.sources]
 torch = [
     { index = "pytorch-cpu", extra = "cpu" },
-    { index = "pytorch-cu130", extra = "cuda" },
+    { index = "pytorch-cu129", extra = "cu129" },
+    { index = "pytorch-cu130", extra = "cu130" },
 ]
 torchvision = [
     { index = "pytorch-cpu", extra = "cpu" },
-    { index = "pytorch-cu130", extra = "cuda" },
+    { index = "pytorch-cu129", extra = "cu129" },
+    { index = "pytorch-cu130", extra = "cu130" },
 ]
-
