@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import genesis as gs
 import numpy as np
 import torch
@@ -61,4 +63,6 @@ if __name__ == "__main__":
         scene.step()
         cam.render()
 
-    cam.stop_recording()
+    output_dir = Path(__file__).resolve().parents[2] / "out" / "examples"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    cam.stop_recording(save_to_filename=str(output_dir / "hello_genesis.mp4"))
