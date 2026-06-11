@@ -1,3 +1,5 @@
+# TODO: when benchmarks ready add extra parts from https://github.com/mujocolab/anymal_c_velocity/tree/main
+
 [project]
 name = "g3a-bench"
 version = "0.1.0"
@@ -5,8 +7,6 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10, <3.14"
 dependencies = [
-    "av>=17.0.1",
-    "genesis-world[render]>=1.0.0",
     "pre-commit>=3.7.1",
     "pyright[nodejs]>=1.1.409",
     "ruff>=0.15.13",
@@ -14,50 +14,16 @@ dependencies = [
 
 [project.optional-dependencies]
 cpu = [
-    "torch",
-    "torchvision",
+    "mjlab[cpu]>=1.4.0",
 ]
-cu129 = [
-    "torch",
-    "torchvision",
-]
-cu130 = [
-    "torch",
-    "torchvision",
+cu128 = [
+    "mjlab[cu128]>=1.4.0",
 ]
 
 [tool.uv]
 conflicts = [
     [
         { extra = "cpu" },
-        { extra = "cu129" },
-        { extra = "cu130" },
+        { extra = "cu128" },
     ],
-]
-
-[[tool.uv.index]]
-name = "pytorch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
-explicit = true
-
-[[tool.uv.index]]
-name = "pytorch-cu129"
-url = "https://download.pytorch.org/whl/cu129"
-explicit = true
-
-[[tool.uv.index]]
-name = "pytorch-cu130"
-url = "https://download.pytorch.org/whl/cu130"
-explicit = true
-
-[tool.uv.sources]
-torch = [
-    { index = "pytorch-cpu", extra = "cpu" },
-    { index = "pytorch-cu129", extra = "cu129" },
-    { index = "pytorch-cu130", extra = "cu130" },
-]
-torchvision = [
-    { index = "pytorch-cpu", extra = "cpu" },
-    { index = "pytorch-cu129", extra = "cu129" },
-    { index = "pytorch-cu130", extra = "cu130" },
 ]

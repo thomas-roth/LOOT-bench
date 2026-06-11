@@ -15,7 +15,8 @@ select = [
 	"PIE" # flake8-pie
 ]
 ignore = [
-	"E501" # line length handled by formatter
+	"E501", # line length handled by formatter
+	"SIM102" # nested/collapsible if statements
 ]
 fixable = ["ALL"]
 
