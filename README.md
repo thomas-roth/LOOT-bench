@@ -54,12 +54,17 @@ Train:
 uv run g3a-train G3a-Cube-Stack3-Dk1 --env.scene.num-envs 1024
 ```
 
-Continue training 
+Play:
+```shell
+uv run g3a-play G3a-Cube-Stack3-Dk1 --checkpoint-file "logs/rsl_rl/cube_stack3_dk1/2026-06-13_13-39-28/model_500.pt"
+```
+
+Continue training:
 ```shell
 uv run g3a-train G3a-Cube-Stack3-Dk1 --env.scene.num-envs 1024 --agent.resume True --agent.load-run 2026-06-13_13-39-28
 ```
 
-Check results while training
+Play while training (can't use `uv run` as it is blocked by trainging process):
 ```shell
-& ".venv\Scripts\python.exe" g3a_bench/scripts/play.py G3a-Cube-Stack3-Dk1 --checkpoint-file "logs/rsl_rl/cube_stack3_dk1/2026-06-13_13-39-28/model_5300.pt"
+& ".venv\Scripts\python.exe" g3a_bench/scripts/play.py G3a-Cube-Stack3-Dk1 --checkpoint-file "logs/rsl_rl/cube_stack3_dk1/2026-06-13_13-39-28/model_500.pt"
 ```
