@@ -1,0 +1,77 @@
+import mujoco
+from mjlab.asset_zoo.robots import (
+    YAM_ACTION_SCALE,
+    get_yam_robot_cfg,
+)
+from mjlab.entity import EntityCfg
+from mjlab.envs import ManagerBasedRlEnvCfg
+from mjlab.envs.mdp.actions import JointPositionActionCfg
+from scene_env_cfg import make_lift_cube_env_cfg
+
+_CUBE_XML = (
+    "/home/minhtrung/Documents/UNI/G3a/my_mjlab_project/src/test/assets/cube.xml"
+)
+_BUTTONS_XML = (
+    "/home/minhtrung/Documents/UNI/G3a/my_mjlab_project/src/test/assets/buttons.xml"
+)
+_DRAWER_XML = (
+    "/home/minhtrung/Documents/UNI/G3a/my_mjlab_project/src/test/assets/drawer.xml"
+)
+_WINDOW_XML = (
+    "/home/minhtrung/Documents/UNI/G3a/my_mjlab_project/src/test/assets/window.xml"
+)
+
+
+def get_cube_spec(
+    cube_size: float = 0.04,
+    mass: float = 0.05,
+    rgba: tuple[float, float, float, float] = (0.8, 0.2, 0.2, 1.0),
+) -> mujoco.MjSpec:
+    return mujoco.MjSpec.from_file(str(_CUBE_XML))
+
+
+def get_window_spec(
+    size: tuple[float, float] = (0.2, 0.2),
+    mass: float = 0.1,
+) -> mujoco.MjSpec:
+    return mujoco.MjSpec.from_file(str(_WINDOW_XML))
+
+
+def get_buttons_spec(
+    size: tuple[float, float] = (0.1, 0.1),
+    mass: float = 0.1,
+) -> mujoco.MjSpec:
+    return mujoco.MjSpec.from_file(str(_BUTTONS_XML))
+
+
+def get_drawer_spec(
+    size: tuple[float, float] = (0.2, 0.1),
+    mass: float = 0.1,
+) -> mujoco.MjSpec:
+    return mujoco.MjSpec.from_file(str(_DRAWER_XML))
+
+
+def yam_scene_env_cfg(
+    play: bool = False,
+) -> ManagerBasedRlEnvCfg:
+    cfg = make_lift_cube_env_cfg()
+
+    cfg.scene.entities = {
+        "robot": get_yam_robot_cfg(),
+        "cube": EntityCfg(spec_fn=get_cube_spec),
+        "window": EntityCfg(spec_fn=get_window_spec),
+        "buttons": EntityCfg(spec_fn=get_buttons_spec),
+        "drawer": EntityCfg(spec_fn=get_drawer_spec),
+    }
+
+    joint_pos_action = cfg.actions["joint_pos"]
+    assert isinstance(joint_pos_action, JointPositionActionCfg)
+    joint_pos_action.scale = YAM_ACTION_SCALE
+
+    cfg.viewer.body_name = "arm"
+
+    if play:
+        cfg.episode_length_s = int(1e9)
+        cfg.observations["actor"].enable_corruption = False
+
+    return cfg
