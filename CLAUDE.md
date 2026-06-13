@@ -7,12 +7,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 `g3a-bench` is a suite of long-horizon robot-manipulation benchmark tasks for the
 KIT "G3A Praktikum" course, built on the **mjlab** framework (MuJoCo + PyTorch
 vectorized RL, RSL-RL PPO). It is an installable package (`g3a_bench`, hatchling,
-src layout) whose job is to **register tasks into mjlab's global registry** and
+flat layout) whose job is to **register tasks into mjlab's global registry** and
 provide the robot assets and task definitions; the actual training/playing loop
 is mjlab's.
 
-Three task categories, each with variants, registered for two robots
-(`-Dk1`, `-Yam`) → task ids look like `G3a-<Category>-<Variant>-<Robot>`:
+Three task categories, each with variants, currently registered for one robot
+(`-Dk1`) → task ids look like `G3a-<Category>-<Variant>-<Robot>`:
 `tasks/cube` (piece stacking / dominoes), `tasks/insertion` (peg insertion +
 shape sorter), `tasks/ball` (golf / push / throw a ball to a target).
 
@@ -34,25 +34,20 @@ uv run pre-commit run --all-files
 # Train / play a task (these wrap mjlab after importing g3a_bench to register tasks)
 uv run g3a-train G3a-Cube-Stack3-Dk1 --env.scene.num-envs 2048
 uv run g3a-play  G3a-Cube-Stack3-Dk1
+
+# Verification scripts (g3a_bench/tests/)
+uv run g3a-build-sim-registered-tasks   # build+reset+step all 24 registered tasks
+uv run g3a-check-success-reward         # teleport objects and verify success metrics fire
 ```
 
-There is **no pytest suite**. Verify changes by (a) listing tasks, (b) building
-an env and stepping it, (c) optionally teleporting objects to goals to check the
-success metric — all via short throwaway scripts, e.g.:
-
-```python
-import g3a_bench                                   # registers all tasks
-from mjlab.tasks.registry import list_tasks, load_env_cfg
-from mjlab.envs import ManagerBasedRlEnv
-cfg = load_env_cfg("G3a-Insertion-Sorter4-Dk1"); cfg.scene.num_envs = 16
-env = ManagerBasedRlEnv(cfg=cfg, device="cuda"); env.reset()
-env.step(torch.zeros((env.num_envs, env.action_manager.action.shape[1]), device="cuda"))
-```
+There is **no pytest suite**. Use `g3a-build-sim-registered-tasks` (all tasks, fast) and
+`g3a-check-success-reward` (teleport-based success-metric check for representatives of
+each category) to validate changes. Both accept `--cpu` to force CPU-only execution.
 
 ## Architecture
 
 ### Task category pattern (most work happens here)
-Every category under `src/g3a_bench/tasks/<cat>/` follows the **same layout**, so
+Every category under `g3a_bench/tasks/<cat>/` follows the **same layout**, so
 adding/editing a category means mirroring an existing one:
 
 - `variants.py` — frozen dataclass `*VariantCfg` enumerating the task variations

@@ -66,5 +66,6 @@ for one second.
 Train e.g. with:
 
 ```bash
-uv run g3a-train G3a-Cube-Stack3-Dk1 --env.scene.num-envs 2048
+uv run g3a-train G3a-Cube-Stack3-Dk1 --env.scene.num-envs 1024
+& ".venv\Scripts\python.exe" src/g3a_bench/scripts/play.py G3a-Cube-Stack3-Dk1 --checkpoint-file "out/model_3200_copy.pt"
 ```

@@ -83,7 +83,7 @@ class BallCommand(CommandTerm):
         speed = torch.norm(self.ball_vel_w, dim=-1)
         within = d_xy < self.target_radius
         if self.variant.target == "hole":
-            dropped = self.ball_pos_w[:, 2] < self.surface_z - 0.012
+            dropped = self.ball_pos_w[:, 2] < self.surface_z
             at_target = within & dropped
         else:
             on_surface = self.ball_pos_w[:, 2] < self.surface_z + 3 * BALL_RADIUS
