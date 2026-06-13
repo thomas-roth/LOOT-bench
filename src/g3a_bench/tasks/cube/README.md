@@ -51,7 +51,7 @@ for one second.
 
 ## Variants
 
-| Task id (`-Dk1` / `-Yam`)   | Description                                       |
+| Task id (`-Dk1`)            | Description                                       |
 | --------------------------- | ------------------------------------------------- |
 | `G3a-Cube-Stack3`           | stack 3 red cubes                                 |
 | `G3a-Cube-Stack3Ordered`    | stack red, green, blue cubes in this order        |

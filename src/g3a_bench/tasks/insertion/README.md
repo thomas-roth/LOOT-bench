@@ -59,7 +59,7 @@ inserted for `hold_time` (0.5 s).
 
 ## Variants
 
-| Task id (`-Dk1` / `-Yam`)      | Description                                       |
+| Task id (`-Dk1`)               | Description                                       |
 | ------------------------------ | ------------------------------------------------- |
 | `G3a-Insertion-PegCylinder`    | cylinder peg into a vertical round bore           |
 | `G3a-Insertion-PegCuboid`      | rectangular peg into a vertical rectangular bore  |

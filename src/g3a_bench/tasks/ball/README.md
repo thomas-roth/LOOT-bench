@@ -51,7 +51,7 @@ terminates successfully when the ball stays at target and at rest for
 
 ## Variants
 
-| Task id (`-Dk1` / `-Yam`) | Description                                       |
+| Task id (`-Dk1`)          | Description                                       |
 | ------------------------- | ------------------------------------------------- |
 | `G3a-Ball-GolfMarked`     | hit the ball onto a marked disk                   |
 | `G3a-Ball-GolfU`          | hit the ball into a U pocket                      |

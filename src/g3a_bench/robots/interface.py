@@ -4,6 +4,8 @@ Tasks are written against this interface instead of hardcoding robot details
 (site names, collision geom patterns, action scales). Adding a robot to the
 benchmark means adding one `ManipulatorInterface` instance and registering the
 task variants for it in each task's `config/` package.
+
+The interface can be implemented with other robots for example YAM from mjlab asset zoo
 """
 
 from collections.abc import Callable
@@ -38,18 +40,4 @@ def get_dk1_interface() -> ManipulatorInterface:
         ee_subtree="link6-7",
         finger_pad_geoms=r"finger_(left|right)_pad_collision",
         viewer_body="base",
-    )
-
-
-def get_yam_interface() -> ManipulatorInterface:
-    from mjlab.asset_zoo.robots import YAM_ACTION_SCALE, get_yam_robot_cfg
-
-    return ManipulatorInterface(
-        name="Yam",
-        entity_cfg_fn=get_yam_robot_cfg,
-        action_scale=YAM_ACTION_SCALE,
-        grasp_site="grasp_site",
-        ee_subtree="link_6",
-        finger_pad_geoms=r"[lr]f_down(6|7|8|9|10|11)_collision",
-        viewer_body="arm",
     )
