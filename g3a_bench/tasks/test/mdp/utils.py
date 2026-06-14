@@ -63,7 +63,6 @@ UNLOCKED_DAMPING = 2.0
 def apply_drawer_window_locks(env):
     import mujoco
     import numpy as np
-    import torch
 
     mj_model = env.sim.mj_model
     wp_model = env.sim.wp_model
@@ -82,26 +81,18 @@ def apply_drawer_window_locks(env):
     drawer_dof_id = mj_model.jnt_dofadr[drawer_joint_id]
     window_dof_id = mj_model.jnt_dofadr[window_joint_id]
 
-    button_states = env.scene_button_states
+    button_states = env.scene_button_states  # (num_envs, 2)
 
-    drawer_unlocked = button_states[:, 0] > 0.5
-    window_unlocked = button_states[:, 1] > 0.5
+    # wp_model.dof_damping is a global model property with shape (1, ndof),
+    # shared across all parallel envs. Use env-0 as the representative state.
+    drawer_unlocked = bool(button_states[0, 0] > 0.5)
+    window_unlocked = bool(button_states[0, 1] > 0.5)
 
-    drawer_damping = torch.where(
-        drawer_unlocked,
-        torch.full_like(button_states[:, 0], UNLOCKED_DAMPING),
-        torch.full_like(button_states[:, 0], LOCKED_DAMPING),
+    damping_np = wp_model.dof_damping.numpy().copy()  # (1, ndof)
+    damping_np[0, drawer_dof_id] = (
+        UNLOCKED_DAMPING if drawer_unlocked else LOCKED_DAMPING
     )
-
-    window_damping = torch.where(
-        window_unlocked,
-        torch.full_like(button_states[:, 1], UNLOCKED_DAMPING),
-        torch.full_like(button_states[:, 1], LOCKED_DAMPING),
+    damping_np[0, window_dof_id] = (
+        UNLOCKED_DAMPING if window_unlocked else LOCKED_DAMPING
     )
-
-    damping_np = wp_model.dof_damping.numpy().copy()
-
-    damping_np[:, drawer_dof_id] = drawer_damping.detach().cpu().numpy()
-    damping_np[:, window_dof_id] = window_damping.detach().cpu().numpy()
-
     wp_model.dof_damping.assign(damping_np.astype(np.float32))

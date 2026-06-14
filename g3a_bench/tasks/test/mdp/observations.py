@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import torch
 from mjlab.entity import Entity
@@ -8,6 +8,16 @@ from mjlab.managers.scene_entity_config import SceneEntityCfg
 
 if TYPE_CHECKING:
     from mjlab.envs import ManagerBasedRlEnv
+
+    from g3a_bench.tasks.test.mdp.commands import SceneTaskCommand
+
+
+def _scene_command(env) -> SceneTaskCommand:
+    from g3a_bench.tasks.test.mdp.commands import (
+        SceneTaskCommand,  # local: avoids circular import
+    )
+
+    return cast(SceneTaskCommand, env.command_manager.get_term("scene_task"))
 
 
 def root_pos_w(
@@ -170,3 +180,23 @@ def gripper_contact_zero(env: ManagerBasedRlEnv) -> torch.Tensor:
     """
     num_envs = env.scene.num_envs
     return torch.zeros((num_envs, 1), device=env.device)
+
+
+def scene_target_cube_pos(env) -> torch.Tensor:
+    """Goal cube position for the current scene task. Shape: (num_envs, 3)"""
+    return _scene_command(env).target_cube_pos
+
+
+def scene_target_button_states(env) -> torch.Tensor:
+    """Goal logical button states for the current scene task. Shape: (num_envs, 2)"""
+    return _scene_command(env).target_button_states
+
+
+def scene_target_drawer_pos(env) -> torch.Tensor:
+    """Goal drawer joint position for the current scene task. Shape: (num_envs, 1)"""
+    return _scene_command(env).target_drawer_pos.unsqueeze(-1)
+
+
+def scene_target_window_pos(env) -> torch.Tensor:
+    """Goal window joint position for the current scene task. Shape: (num_envs, 1)"""
+    return _scene_command(env).target_window_pos.unsqueeze(-1)

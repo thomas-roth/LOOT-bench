@@ -1,9 +1,22 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
 import torch
 from mjlab.entity import Entity
 
+if TYPE_CHECKING:
+    from g3a_bench.tasks.test.mdp.commands import SceneTaskCommand
+
 SUCCESS_TOLERANCE = 0.04
+
+
+def _scene_command(env) -> SceneTaskCommand:
+    from g3a_bench.tasks.test.mdp.commands import (
+        SceneTaskCommand,  # local: avoids circular import
+    )
+
+    return cast(SceneTaskCommand, env.command_manager.get_term("scene_task"))
 
 
 def _joint_pos_by_name(
@@ -32,74 +45,23 @@ def _root_pos(
     return entity.data.root_link_pos_w
 
 
-def _ensure_scene_targets(env):
-    """Create temporary fixed targets if they do not exist yet.
-
-    This is Step 4 target logic.
-    Later Step 6 should replace this with a real command/task system.
-    """
-    num_envs = env.scene.num_envs
-    device = env.device
-
-    if not hasattr(env, "scene_target_cube_pos"):
-        env.scene_target_cube_pos = torch.tensor(
-            [0.35, 0.05, 0.02],
-            device=device,
-        ).repeat(num_envs, 1)
-
-    if not hasattr(env, "scene_target_button_states"):
-        env.scene_target_button_states = torch.ones(
-            (num_envs, 2),
-            device=device,
-        )
-
-    if not hasattr(env, "scene_target_drawer_pos"):
-        env.scene_target_drawer_pos = torch.full(
-            (num_envs,),
-            -0.16,
-            device=device,
-        )
-
-    if not hasattr(env, "scene_target_window_pos"):
-        env.scene_target_window_pos = torch.full(
-            (num_envs,),
-            0.2,
-            device=device,
-        )
-
-
 def cube_success(
     env,
     tolerance: float = SUCCESS_TOLERANCE,
 ) -> torch.Tensor:
-    """OGBench-style cube success.
-
-    Success if cube position is within tolerance of target cube position.
-    """
-    _ensure_scene_targets(env)
-
+    """OGBench-style cube success."""
+    cmd = _scene_command(env)
     cube_pos = _root_pos(env, "cube")
-    target_pos = env.scene_target_cube_pos
-
-    distance = torch.norm(cube_pos - target_pos, dim=-1)
+    distance = torch.norm(cube_pos - cmd.target_cube_pos, dim=-1)
     return distance <= tolerance
 
 
 def button_successes(env) -> torch.Tensor:
-    """OGBench-style button successes.
-
-    Shape: (num_envs, 2)
-    """
-    _ensure_scene_targets(env)
-
+    """OGBench-style button successes. Shape: (num_envs, 2)"""
+    cmd = _scene_command(env)
     if not hasattr(env, "scene_button_states"):
-        return torch.zeros(
-            (env.scene.num_envs, 2),
-            device=env.device,
-            dtype=torch.bool,
-        )
-
-    return env.scene_button_states == env.scene_target_button_states
+        return torch.zeros((env.scene.num_envs, 2), device=env.device, dtype=torch.bool)
+    return env.scene_button_states == cmd.target_button_states
 
 
 def drawer_success(
@@ -107,15 +69,11 @@ def drawer_success(
     tolerance: float = SUCCESS_TOLERANCE,
 ) -> torch.Tensor:
     """OGBench-style drawer success."""
-    _ensure_scene_targets(env)
-
+    cmd = _scene_command(env)
     drawer_pos = _joint_pos_by_name(
-        env,
-        entity_name="drawer",
-        joint_name="drawer_slide",
+        env, entity_name="drawer", joint_name="drawer_slide"
     )
-
-    return torch.abs(drawer_pos - env.scene_target_drawer_pos) <= tolerance
+    return torch.abs(drawer_pos - cmd.target_drawer_pos) <= tolerance
 
 
 def window_success(
@@ -123,15 +81,11 @@ def window_success(
     tolerance: float = SUCCESS_TOLERANCE,
 ) -> torch.Tensor:
     """OGBench-style window success."""
-    _ensure_scene_targets(env)
-
+    cmd = _scene_command(env)
     window_pos = _joint_pos_by_name(
-        env,
-        entity_name="window",
-        joint_name="window_slide",
+        env, entity_name="window", joint_name="window_slide"
     )
-
-    return torch.abs(window_pos - env.scene_target_window_pos) <= tolerance
+    return torch.abs(window_pos - cmd.target_window_pos) <= tolerance
 
 
 def scene_successes(env) -> torch.Tensor:

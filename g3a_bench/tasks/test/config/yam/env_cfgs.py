@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import mujoco
 from mjlab.asset_zoo.robots import (
     YAM_ACTION_SCALE,
@@ -6,20 +8,14 @@ from mjlab.asset_zoo.robots import (
 from mjlab.entity import EntityCfg
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs.mdp.actions import JointPositionActionCfg
-from scene_env_cfg import make_lift_cube_env_cfg
 
-_CUBE_XML = (
-    "/home/minhtrung/Documents/UNI/G3a/my_mjlab_project/src/test/assets/cube.xml"
-)
-_BUTTONS_XML = (
-    "/home/minhtrung/Documents/UNI/G3a/my_mjlab_project/src/test/assets/buttons.xml"
-)
-_DRAWER_XML = (
-    "/home/minhtrung/Documents/UNI/G3a/my_mjlab_project/src/test/assets/drawer.xml"
-)
-_WINDOW_XML = (
-    "/home/minhtrung/Documents/UNI/G3a/my_mjlab_project/src/test/assets/window.xml"
-)
+from g3a_bench.tasks.test.scene_env_cfg import make_lift_cube_env_cfg
+
+_ASSETS = Path(__file__).parents[2] / "assets"
+_CUBE_XML = _ASSETS / "cube.xml"
+_BUTTONS_XML = _ASSETS / "buttons.xml"
+_DRAWER_XML = _ASSETS / "drawer.xml"
+_WINDOW_XML = _ASSETS / "window.xml"
 
 
 def get_cube_spec(

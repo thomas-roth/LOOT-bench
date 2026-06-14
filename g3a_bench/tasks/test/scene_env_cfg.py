@@ -1,10 +1,12 @@
-import mdp as scene_mdp
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs.mdp.actions import JointPositionActionCfg
 from mjlab.managers.action_manager import ActionTermCfg
+from mjlab.managers.command_manager import CommandTermCfg
 from mjlab.managers.event_manager import EventTermCfg
 from mjlab.managers.observation_manager import ObservationGroupCfg, ObservationTermCfg
+from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
+from mjlab.managers.termination_manager import TerminationTermCfg
 from mjlab.scene import SceneCfg
 from mjlab.sim import MujocoCfg, SimulationCfg
 from mjlab.tasks.velocity import mdp
@@ -12,9 +14,11 @@ from mjlab.terrains import TerrainEntityCfg
 from mjlab.utils.noise import UniformNoiseCfg as Unoise
 from mjlab.viewer import ViewerConfig
 
+from g3a_bench.tasks.test import mdp as scene_mdp
+
 
 def make_lift_cube_env_cfg() -> ManagerBasedRlEnvCfg:
-    """Create base cube lifting task configuration."""
+    """Create base scene task configuration."""
 
     actor_terms = {
         "joint_pos": ObservationTermCfg(
@@ -185,6 +189,19 @@ def make_lift_cube_env_cfg() -> ManagerBasedRlEnvCfg:
                 ),
             },
         ),
+        # Goal targets (needed for multi-task: policy must know what to achieve).
+        "target_cube_pos": ObservationTermCfg(
+            func=scene_mdp.scene_target_cube_pos,
+        ),
+        "target_button_states": ObservationTermCfg(
+            func=scene_mdp.scene_target_button_states,
+        ),
+        "target_drawer_pos": ObservationTermCfg(
+            func=scene_mdp.scene_target_drawer_pos,
+        ),
+        "target_window_pos": ObservationTermCfg(
+            func=scene_mdp.scene_target_window_pos,
+        ),
     }
 
     critic_terms = {**actor_terms}
@@ -201,6 +218,12 @@ def make_lift_cube_env_cfg() -> ManagerBasedRlEnvCfg:
             scale=0.5,  # Override per-robot.
             use_default_offset=True,
         )
+    }
+
+    commands: dict[str, CommandTermCfg] = {
+        "scene_task": scene_mdp.SceneTaskCommandCfg(
+            resampling_time_range=(1.0e9, 1.0e9),
+        ),
     }
 
     events = {
@@ -232,6 +255,14 @@ def make_lift_cube_env_cfg() -> ManagerBasedRlEnvCfg:
         ),
     }
 
+    rewards = {
+        "scene": RewardTermCfg(func=scene_mdp.scene_ogbench_reward, weight=1.0),
+    }
+
+    terminations = {
+        "time_out": TerminationTermCfg(func=scene_mdp.time_out, time_out=True),
+    }
+
     return ManagerBasedRlEnvCfg(
         scene=SceneCfg(
             terrain=TerrainEntityCfg(terrain_type="plane"),
@@ -240,10 +271,10 @@ def make_lift_cube_env_cfg() -> ManagerBasedRlEnvCfg:
         ),
         observations=observations,
         actions=actions,
-        commands={},
+        commands=commands,
         events=events,
-        rewards={},
-        terminations={},
+        rewards=rewards,
+        terminations=terminations,
         curriculum={},
         viewer=ViewerConfig(
             origin_type=ViewerConfig.OriginType.ASSET_BODY,
