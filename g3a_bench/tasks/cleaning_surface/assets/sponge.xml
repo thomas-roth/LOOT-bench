@@ -1,0 +1,11 @@
+<mujoco model="sponge">
+  <worldbody>
+    <body name="sponge">
+      <freejoint name="sponge_joint"/>
+      <geom name="sponge_geom" type="box" size="0.03 0.02 0.0075"
+            rgba="0.95 0.95 0.3 1.0" density="600"
+            friction="0.9 0.05 0.01" solref="0.004 1"
+            contype="3" conaffinity="3" group="1"/>
+    </body>
+  </worldbody>
+</mujoco>

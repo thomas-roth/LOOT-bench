@@ -1,0 +1,9 @@
+<mujoco model="bin">
+  <worldbody>
+    <body name="bin">
+      <geom name="bin_geom" type="box" size="0.08 0.08 0.004"
+            rgba="0.2 0.75 0.25 0.6"
+            contype="0" conaffinity="0" group="1"/>
+    </body>
+  </worldbody>
+</mujoco>

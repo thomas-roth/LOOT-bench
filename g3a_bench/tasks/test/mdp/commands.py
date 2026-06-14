@@ -184,7 +184,6 @@ class SceneTaskCommand(CommandTerm):
     @property
     def command(self) -> torch.Tensor:
         """Current goal vector. Shape: (num_envs, 7)."""
-        env = self._env
         return torch.cat(
             [
                 self.target_cube_pos,  # (E, 3)
