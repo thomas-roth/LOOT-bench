@@ -1,0 +1,42 @@
+<mujoco>
+    <include file="../objects/assets/peg_block_dependencies.xml"/>
+    <include file="../objects/assets/peg_insert_dependencies.xml"/>
+    <include file="../objects/assets/xyz_base_dependencies.xml"/>
+
+    <worldbody>
+      <include file="../objects/assets/xyz_base.xml"/>
+
+        <body name="peg" pos="0 0.6 0.03">
+          <inertial pos="0 0 0" mass="0.1" diaginertia="100000 100000 100000"/>
+          <geom name="peg" euler="0 1.57 0" size="0.015 0.015 0.12" type="box" mass=".1" rgba="0.3 1 0.3 1" conaffinity="1" contype="1" group="1"/>
+          <joint name="peg_free" type="free" limited="false" damping="0.005"/>
+          <site name="pegHead" pos="-0.1 0 0" size="0.005" rgba="0.8 0 0 1"/>
+          <site name="pegEnd" pos="0.1 0 0" size="0.005" rgba="0.8 0 0 1"/>
+          <site name="pegGrasp" pos=".03 .0 .01" size="0.005" rgba="0.8 0 0 1"/>
+        </body>
+
+        <body name="box" euler="0 0 1.57" pos="-0.3 0.6 0">
+          <include file="../objects/assets/peg_block.xml"/>
+        </body>
+        <site name="goal" pos="0 0.6 0.05" size="0.01" rgba="0.8 0 0 1"/>
+    </worldbody>
+
+    <!-- Included after worldbody so xyz_base's "base" body (not
+         basic_scene's "tablelink") is body[0] - mjlab's EntityCfg
+         forces body[0].pos to init_state.pos=(0,0,0), which would
+         otherwise wipe out tablelink's pos="0 .6 0". -->
+    <include file="../scene/basic_scene.xml"/>
+
+    <actuator>
+        <position ctrllimited="true" ctrlrange="-1 1" joint="r_close" kp="400"  user="1"/>
+        <position ctrllimited="true" ctrlrange="-1 1" joint="l_close" kp="400"  user="1"/>
+    </actuator>
+    <equality>
+        <!-- relpose/torquescale set explicitly so they match native MetaWorld's
+             compile-time auto-computed values (eq_data = [0,0,0, 0,0,0, -1,0,0,0, 5]).
+             Without this, mjlab's MjSpec.attach() recomputes relpose from the merged
+             qpos0 and gets a wrong offset (~1.14,0.16,0.32), so the weld fails to pull
+             the hand to the mocap target and the arm hangs in the wrong pose. -->
+        <weld body1="mocap" body2="hand" relpose="0 0 0 1 0 0 0" torquescale="5" solref="0.02 1"></weld>
+    </equality>
+</mujoco>
