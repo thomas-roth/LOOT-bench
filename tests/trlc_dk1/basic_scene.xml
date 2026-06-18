@@ -1,0 +1,49 @@
+<mujoco model="trlc_dk1 scene">
+  <visual>
+    <headlight ambient="0.4 0.4 0.4" diffuse="0.8 0.8 0.8" />
+  </visual>
+
+  <asset>
+    <texture
+            type="skybox"
+            builtin="gradient"
+            rgb1="0.6 0.7 0.9"
+            rgb2="0.9 0.9 0.95"
+            width="64"
+            height="64"
+        />
+    <texture
+            name="grid"
+            type="2d"
+            builtin="checker"
+            rgb1="0.2 0.3 0.4"
+            rgb2="0.9 0.9 0.9"
+            width="300"
+            height="300"
+        />
+    <material
+            name="grid"
+            texture="grid"
+            texrepeat="5 5"
+            texuniform="true"
+            reflectance="0.2"
+        />
+  </asset>
+
+  <worldbody>
+    <camera
+            name="lookat"
+            pos="0.6 -0.6 0.5"
+            xyaxes="1 1 0 -0.4 0.4 0.8"
+            fovy="45"
+        />
+    <geom name="floor" type="plane" size="2 2 0.1" material="grid" />
+  </worldbody>
+
+  <include file="../../g3a_bench/robots/trlc_dk1/xmls/dk1.xml" />
+
+  <!-- meshdir must come after the include and point at the robot's assets
+       relative to this file: it overrides dk1.xml's own `meshdir="assets"`,
+       which would otherwise resolve against this scene's directory and fail. -->
+  <compiler meshdir="../../g3a_bench/robots/trlc_dk1/xmls/assets" />
+</mujoco>

@@ -31,7 +31,7 @@ To run the formatter on the current working directory (recursively):
 uv run ruff format
 ```
 
-To run the type checker on the `src` directory:
+To run the type checker on the `g3a_bench` directory:
 ```bash
 uv run pyright
 ```
