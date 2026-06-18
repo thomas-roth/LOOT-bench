@@ -5,10 +5,9 @@ Source: https://github.com/robot-learning-co/trlc-dk1 (Apache-2.0), urdf/followe
 
 MuJoCo cannot load GLB, so each visual GLB is split into one OBJ per material
 color (scene-graph transforms applied) so the MJCF can color the parts.
-Collision STLs are copied unchanged (MuJoCo uses their convex hulls).
 
 Usage:
-    python convert_meshes.py <path-to-trlc-dk1-repo>
+    python convert_glb_meshes_to_obj.py <path-to-trlc-dk1-repo>
 """
 
 import json
