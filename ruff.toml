@@ -16,7 +16,8 @@ select = [
 ]
 ignore = [
 	"E501", # line length handled by formatter
-	"SIM102" # nested/collapsible if statements
+	"SIM102", # nested/collapsible if statements
+	"W293", # blank line contains whitespace
 ]
 fixable = ["ALL"]
 
