@@ -6,7 +6,7 @@ Two ways to eyeball the DK1 robot on a floor with a skybox. Run both from the **
 
 ## Via the mjlab config pipeline (`basic_scene.py`)
 
-Builds the robot through `get_dk1_robot_cfg()` -> `Entity`, i.e. the same path training uses. Use this to check the assembled `EntityCfg`.
+Builds the robot through `get_unimanual_dk1_robot_cfg()` -> `Entity`, i.e. the same path training uses. Use this to check the assembled `EntityCfg`.
 
 ```bash
 uv run python tests/trlc_dk1/basic_scene.py

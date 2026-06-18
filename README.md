@@ -48,23 +48,23 @@ To manually run the pre-commit hooks on all files:
 uv run pre-commit run --all-files
 ```
 
-## Example G3a-Cube-Stack3-Dk1
+## Example G3a-Cube-Stack3-Dk1_uni
 Train:
 ```shell
-uv run g3a-train G3a-Cube-Stack3-Dk1 --env.scene.num-envs 1024
+uv run g3a-train G3a-Cube-Stack3-Dk1_uni --env.scene.num-envs 1024
 ```
 
 Play:
 ```shell
-uv run g3a-play G3a-Cube-Stack3-Dk1 --checkpoint-file "logs/rsl_rl/cube_stack3_dk1/2026-06-13_13-39-28/model_500.pt"
+uv run g3a-play G3a-Cube-Stack3-Dk1_uni --checkpoint-file "logs/rsl_rl/cube_stack3_dk1_uni/2026-06-13_13-39-28/model_500.pt"
 ```
 
 Continue training:
 ```shell
-uv run g3a-train G3a-Cube-Stack3-Dk1 --env.scene.num-envs 1024 --agent.resume True --agent.load-run 2026-06-13_13-39-28
+uv run g3a-train G3a-Cube-Stack3-Dk1_uni --env.scene.num-envs 1024 --agent.resume True --agent.load-run 2026-06-13_13-39-28
 ```
 
 Play while training (can't use `uv run` as it is blocked by trainging process):
 ```shell
-& ".venv\Scripts\python.exe" g3a_bench/scripts/play.py G3a-Cube-Stack3-Dk1 --checkpoint-file "logs/rsl_rl/cube_stack3_dk1/2026-06-13_13-39-28/model_500.pt"
+& ".venv\Scripts\python.exe" g3a_bench/scripts/play.py G3a-Cube-Stack3-Dk1_uni --checkpoint-file "logs/rsl_rl/cube_stack3_dk1_uni/2026-06-13_13-39-28/model_500.pt"
 ```

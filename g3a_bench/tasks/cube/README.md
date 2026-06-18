@@ -51,7 +51,7 @@ for one second.
 
 ## Variants
 
-| Task id (`-Dk1`)            | Description                                       |
+| Task id (`-Dk1_uni`)        | Description                                       |
 | --------------------------- | ------------------------------------------------- |
 | `G3a-Cube-Stack3`           | stack 3 red cubes                                 |
 | `G3a-Cube-Stack3Ordered`    | stack red, green, blue cubes in this order        |
@@ -66,6 +66,6 @@ for one second.
 Train e.g. with:
 
 ```bash
-uv run g3a-train G3a-Cube-Stack3-Dk1 --env.scene.num-envs 1024
-& ".venv\Scripts\python.exe" src/g3a_bench/scripts/play.py G3a-Cube-Stack3-Dk1 --checkpoint-file "out/model_3200_copy.pt"
+uv run g3a-train G3a-Cube-Stack3-Dk1_uni --env.scene.num-envs 1024
+& ".venv\Scripts\python.exe" g3a_bench/scripts/play.py G3a-Cube-Stack3-Dk1_uni --checkpoint-file "out/model_3200_copy.pt"
 ```

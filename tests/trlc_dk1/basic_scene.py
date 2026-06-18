@@ -1,4 +1,7 @@
-"""Launch the DK1 robot in the MuJoCo viewer with a floor and skybox."""
+"""Launch the DK1 robot in the MuJoCo viewer with a floor and skybox.
+
+See tests/trlc_dk1/README.md.
+"""
 
 import mujoco
 import mujoco.viewer

@@ -24,8 +24,8 @@ from g3a_bench.robots.trlc_dk1.dk1_collision import (
 # Interface identifiers (consumed by get_unimanual_dk1_interface or get_bimanual_dk1_interface).
 ##
 
-DK1_UNIMANUAL_NAME = "Dk1_unimanual"
-DK1_BIMANUAL_NAME = "Dk1_bimanual"
+DK1_UNIMANUAL_NAME = "Dk1_uni"
+DK1_BIMANUAL_NAME = "Dk1_bi"
 DK1_GRASP_SITE = "grasp_site"
 DK1_EE_SUBTREE = "link6-7"
 DK1_VIEWER_BODY = "base"

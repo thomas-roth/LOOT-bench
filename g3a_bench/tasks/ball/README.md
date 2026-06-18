@@ -51,7 +51,7 @@ terminates successfully when the ball stays at target and at rest for
 
 ## Variants
 
-| Task id (`-Dk1`)          | Description                                       |
+| Task id (`-Dk1_uni`)      | Description                                       |
 | ------------------------- | ------------------------------------------------- |
 | `G3a-Ball-GolfMarked`     | hit the ball onto a marked disk                   |
 | `G3a-Ball-GolfU`          | hit the ball into a U pocket                      |
@@ -65,5 +65,5 @@ terminates successfully when the ball stays at target and at rest for
 Train e.g. with:
 
 ```bash
-uv run g3a-train G3a-Ball-PushU-Dk1 --env.scene.num-envs 2048
+uv run g3a-train G3a-Ball-PushU-Dk1_uni --env.scene.num-envs 2048
 ```

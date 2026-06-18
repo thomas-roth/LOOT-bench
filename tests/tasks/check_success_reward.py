@@ -1,17 +1,6 @@
 """Teleport-based success-reward check for the three task categories.
 
-Teleports objects to their goal positions and checks that the command term's
-success metric fires correctly.  Covers one representative per category plus
-the structurally unusual variants: Domino5, Sorter4, TwoSheet, GolfHole,
-PushHole, and the horizontal bore (PegCylinderH).
-
-Usage::
-
-    uv run g3a-check-success-reward           # run all metric checks
-    uv run g3a-check-success-reward --cpu     # force CPU even when a GPU is present
-
-These tests confirm that the success metric *can* fire when objects are placed
-correctly.  They do not verify that reward shaping will guide a policy there.
+See tests/tasks/README.md.
 """
 
 from __future__ import annotations
@@ -149,7 +138,9 @@ def _teleport_ball(cmd: BallCommand, env: ManagerBasedRlEnv, device: str) -> Non
 # ---------------------------------------------------------------------------
 
 
-def _check_cube_stack(device: str, task_id: str = "G3a-Cube-Stack3-Dk1") -> str | None:
+def _check_cube_stack(
+    device: str, task_id: str = "G3a-Cube-Stack3-Dk1_uni"
+) -> str | None:
     from typing import cast
 
     env = _make_env(task_id, device)
@@ -165,7 +156,7 @@ def _check_cube_stack(device: str, task_id: str = "G3a-Cube-Stack3-Dk1") -> str 
 
 
 def _check_cube_domino(device: str) -> str | None:
-    return _check_cube_stack(device, "G3a-Cube-Domino5-Dk1")
+    return _check_cube_stack(device, "G3a-Cube-Domino5-Dk1_uni")
 
 
 def _check_insertion_single(device: str, task_id: str) -> str | None:
@@ -187,7 +178,7 @@ def _check_insertion_single(device: str, task_id: str) -> str | None:
 def _check_insertion_twosheet(device: str) -> str | None:
     from typing import cast
 
-    env = _make_env("G3a-Insertion-TwoSheet-Dk1", device)
+    env = _make_env("G3a-Insertion-TwoSheet-Dk1_uni", device)
     cmd = cast(InsertionCommand, env.command_manager.get_term("insertion"))
     zeros = _zeros(env, device)
     env.step(zeros)
@@ -221,15 +212,15 @@ def _check_ball(device: str, task_id: str) -> str | None:
 
 _CHECKS: list[tuple[str, str]] = [
     # (label, task_id or special key)
-    ("Cube  Stack3        ", "G3a-Cube-Stack3-Dk1"),
-    ("Cube  Domino5       ", "G3a-Cube-Domino5-Dk1"),
-    ("Ins   PegCylinder   ", "G3a-Insertion-PegCylinder-Dk1"),
-    ("Ins   PegCylinderH  ", "G3a-Insertion-PegCylinderH-Dk1"),
-    ("Ins   Sorter4       ", "G3a-Insertion-Sorter4-Dk1"),
-    ("Ins   TwoSheet      ", "G3a-Insertion-TwoSheet-Dk1"),
-    ("Ball  PushMarked    ", "G3a-Ball-PushMarked-Dk1"),
-    ("Ball  GolfHole      ", "G3a-Ball-GolfHole-Dk1"),
-    ("Ball  PushHole      ", "G3a-Ball-PushHole-Dk1"),
+    ("Cube  Stack3        ", "G3a-Cube-Stack3-Dk1_uni"),
+    ("Cube  Domino5       ", "G3a-Cube-Domino5-Dk1_uni"),
+    ("Ins   PegCylinder   ", "G3a-Insertion-PegCylinder-Dk1_uni"),
+    ("Ins   PegCylinderH  ", "G3a-Insertion-PegCylinderH-Dk1_uni"),
+    ("Ins   Sorter4       ", "G3a-Insertion-Sorter4-Dk1_uni"),
+    ("Ins   TwoSheet      ", "G3a-Insertion-TwoSheet-Dk1_uni"),
+    ("Ball  PushMarked    ", "G3a-Ball-PushMarked-Dk1_uni"),
+    ("Ball  GolfHole      ", "G3a-Ball-GolfHole-Dk1_uni"),
+    ("Ball  PushHole      ", "G3a-Ball-PushHole-Dk1_uni"),
 ]
 
 

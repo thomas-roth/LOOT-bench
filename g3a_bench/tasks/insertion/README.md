@@ -59,7 +59,7 @@ inserted for `hold_time` (0.5 s).
 
 ## Variants
 
-| Task id (`-Dk1`)               | Description                                       |
+| Task id (`-Dk1_uni`)           | Description                                       |
 | ------------------------------ | ------------------------------------------------- |
 | `G3a-Insertion-PegCylinder`    | cylinder peg into a vertical round bore           |
 | `G3a-Insertion-PegCuboid`      | rectangular peg into a vertical rectangular bore  |
@@ -72,5 +72,5 @@ inserted for `hold_time` (0.5 s).
 Train e.g. with:
 
 ```bash
-uv run g3a-train G3a-Insertion-Sorter4-Dk1 --env.scene.num-envs 2048
+uv run g3a-train G3a-Insertion-Sorter4-Dk1_uni --env.scene.num-envs 2048
 ```

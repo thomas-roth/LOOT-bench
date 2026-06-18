@@ -12,7 +12,7 @@ provide the robot assets and task definitions; the actual training/playing loop
 is mjlab's.
 
 Three task categories, each with variants, currently registered for one robot
-(`-Dk1`) → task ids look like `G3a-<Category>-<Variant>-<Robot>`:
+(`-Dk1_uni`) → task ids look like `G3a-<Category>-<Variant>-<Robot>`:
 `tasks/cube` (piece stacking / dominoes), `tasks/insertion` (peg insertion +
 shape sorter), `tasks/ball` (golf / push / throw a ball to a target).
 
@@ -32,17 +32,16 @@ uv run pyright             # type check (config in pyrightconfig.json, basic mod
 uv run pre-commit run --all-files
 
 # Train / play a task (these wrap mjlab after importing g3a_bench to register tasks)
-uv run g3a-train G3a-Cube-Stack3-Dk1 --env.scene.num-envs 2048
-uv run g3a-play  G3a-Cube-Stack3-Dk1
+uv run g3a-train G3a-Cube-Stack3-Dk1_uni --env.scene.num-envs 2048
+uv run g3a-play  G3a-Cube-Stack3-Dk1_uni
 
-# Verification scripts (g3a_bench/tests/)
-uv run g3a-build-sim-registered-tasks   # build+reset+step all 24 registered tasks
-uv run g3a-check-success-reward         # teleport objects and verify success metrics fire
+# Verification scripts (see tests/tasks/README.md), not installed as console scripts
+uv run python tests/tasks/build_sim_registered_tasks.py
+uv run python tests/tasks/check_success_reward.py
 ```
 
-There is **no pytest suite**. Use `g3a-build-sim-registered-tasks` (all tasks, fast) and
-`g3a-check-success-reward` (teleport-based success-metric check for representatives of
-each category) to validate changes. Both accept `--cpu` to force CPU-only execution.
+There is **no pytest suite**. See `tests/tasks/README.md` for what each verification
+script covers; both accept `--cpu` to force CPU-only execution.
 
 ## Architecture
 
@@ -76,18 +75,21 @@ registers everything.
 ### Robot-agnostic design
 Tasks never hardcode robot details. `robots/interface.py` defines
 `ManipulatorInterface` (name, entity-cfg factory, action scale, grasp site,
-end-effector subtree, finger-pad geom regex, viewer body). `get_dk1_interface()`
-and `get_yam_interface()` (YAM comes from `mjlab.asset_zoo`) are the two robots;
-`config/__init__.py` registers each variant against both. To support a new
-robot, add one `ManipulatorInterface` instance — the env cfgs read everything
-they need from it.
+end-effector subtree, finger-pad geom regex, viewer body). Each robot package
+exposes its own `get_<robot>_interface()` factory —
+`robots/trlc_dk1/__init__.py` has `get_unimanual_dk1_interface()` and
+`get_bimanual_dk1_interface()`, `robots/yam/__init__.py` has
+`get_yam_interface()` (YAM comes from `mjlab.asset_zoo`). Currently only the
+unimanual DK1 is registered against tasks (see `config/__init__.py` in each
+task category). To support a new robot, add one `ManipulatorInterface`
+instance — the env cfgs read everything they need from it.
 
 ### DK1 robot asset
 The TRLC-DK1 has no public MJCF; it was converted from the official URDF
 (github.com/robot-learning-co/trlc-dk1) into `robots/trlc_dk1/xmls/dk1.xml`
 (hand-written) plus per-color OBJ visual meshes split out of the source GLBs by
-`robots/trlc_dk1/scripts/convert_meshes.py` (a one-time tool, not part of the
-runtime). `dk1_constants.py` exposes `get_dk1_robot_cfg()` /
+`robots/trlc_dk1/utils/convert_glb_meshes_to_obj.py` (a one-time tool, not part
+of the runtime). `dk1_constants.py` exposes `get_unimanual_dk1_robot_cfg()` /
 `get_bimanual_dk1_robot_cfg()` and the action scales. Home pose q2=1.7, q3=1.7,
 q4=-1.5708 puts the downward gripper at ≈(0.30, 0, 0.20); the gripper is a
 rack-and-pinion pair coupled by an equality constraint (only `gripper_left`

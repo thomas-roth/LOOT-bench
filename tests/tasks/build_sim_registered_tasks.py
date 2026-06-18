@@ -1,10 +1,4 @@
-"""Build, reset, and step every registered G3a task.
-
-Usage::
-
-    uv run g3a-build-sim-registered-tasks            # test all registered G3a-* tasks
-    uv run g3a-build-sim-registered-tasks --cpu      # force CPU even when a GPU is present
-"""
+"""Build, reset, and step every registered G3A task. See tests/tasks/README.md."""
 
 import argparse
 import sys
