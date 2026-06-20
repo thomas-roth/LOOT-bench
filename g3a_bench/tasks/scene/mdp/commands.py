@@ -8,11 +8,10 @@ from typing import TYPE_CHECKING
 import torch
 from mjlab.managers.command_manager import CommandTerm, CommandTermCfg
 
-from g3a_bench.tasks.test.mdp.rewards import scene_success
-from g3a_bench.tasks.test.mdp.utils import (
+from g3a_bench.tasks.scene.mdp.rewards import scene_success
+from g3a_bench.tasks.scene.mdp.utils import (
     detect_new_button_presses,
     get_button_positions,
-    toggle_button_states,
 )
 
 if TYPE_CHECKING:
@@ -269,10 +268,10 @@ class SceneTaskCommand(CommandTerm):
         new_presses = detect_new_button_presses(
             self.prev_button_positions, cur_button_pos
         )
-        self.scene_button_states = toggle_button_states(
-            self.scene_button_states, new_presses
+        self.scene_button_states[new_presses] = (
+            1.0 - self.scene_button_states[new_presses]
         )
-        self.prev_button_positions = cur_button_pos
+        self.prev_button_positions = cur_button_pos.clone()
         self._apply_locks()
 
     def _apply_locks(self) -> None:

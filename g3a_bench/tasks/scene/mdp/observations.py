@@ -7,7 +7,7 @@ from mjlab.entity import Entity
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.utils.lab_api.math import quat_apply, quat_inv
 
-from g3a_bench.tasks.test.mdp.utils import get_scene_command
+from g3a_bench.tasks.scene.mdp.utils import get_scene_command
 
 if TYPE_CHECKING:
     from mjlab.envs import ManagerBasedRlEnv
@@ -171,16 +171,6 @@ def gripper_opening(
     entity: Entity = env.scene[asset_cfg.name]
     qpos = entity.data.joint_pos[:, asset_cfg.joint_ids]
     return qpos.sum(dim=-1, keepdim=True)
-
-
-def gripper_contact_zero(env: ManagerBasedRlEnv) -> torch.Tensor:
-    """Placeholder gripper contact.
-
-    OGBench includes gripper_contact, but for MJLab we should add a real
-    contact sensor later. For now this returns 0.
-    """
-    num_envs = env.scene.num_envs
-    return torch.zeros((num_envs, 1), device=env.device)
 
 
 # ---- Relative vector observations ----

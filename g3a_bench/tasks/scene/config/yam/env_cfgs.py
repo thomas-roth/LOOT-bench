@@ -9,7 +9,7 @@ from mjlab.entity import EntityCfg
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs.mdp.actions import JointPositionActionCfg
 
-from g3a_bench.tasks.test.scene_env_cfg import make_lift_cube_env_cfg
+from g3a_bench.tasks.scene.scene_env_cfg import make_scene_env_cfg
 
 _ASSETS = Path(__file__).parents[2] / "assets"
 _CUBE_XML = _ASSETS / "cube.xml"
@@ -50,7 +50,7 @@ def get_drawer_spec(
 def yam_scene_env_cfg(
     play: bool = False,
 ) -> ManagerBasedRlEnvCfg:
-    cfg = make_lift_cube_env_cfg()
+    cfg = make_scene_env_cfg()
 
     cfg.scene.entities = {
         "robot": get_yam_robot_cfg(),

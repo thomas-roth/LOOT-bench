@@ -3,7 +3,7 @@ from __future__ import annotations
 import torch
 from mjlab.entity import Entity
 
-from g3a_bench.tasks.test.mdp.utils import get_scene_command
+from g3a_bench.tasks.scene.mdp.utils import get_scene_command
 
 SUCCESS_TOLERANCE = 0.04
 

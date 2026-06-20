@@ -14,12 +14,12 @@ from mjlab.terrains import TerrainEntityCfg
 from mjlab.utils.noise import UniformNoiseCfg as Unoise
 from mjlab.viewer import ViewerConfig
 
-from g3a_bench.tasks.test import mdp as scene_mdp
+from g3a_bench.tasks.scene import mdp as scene_mdp
 
 _ROBOT_GRASP_CFG = SceneEntityCfg("robot", site_names=("grasp_site",))
 
 
-def make_lift_cube_env_cfg() -> ManagerBasedRlEnvCfg:
+def make_scene_env_cfg() -> ManagerBasedRlEnvCfg:
     """Create base scene task configuration."""
 
     actor_terms = {
@@ -57,10 +57,6 @@ def make_lift_cube_env_cfg() -> ManagerBasedRlEnvCfg:
                     ),
                 ),
             },
-        ),
-        # Placeholder for now.
-        "gripper_contact": ObservationTermCfg(
-            func=scene_mdp.gripper_contact_zero,
         ),
         # Cube — relative vectors.
         "ee_to_cube": ObservationTermCfg(

@@ -6,13 +6,13 @@ import torch
 from mjlab.entity import Entity
 
 if TYPE_CHECKING:
-    from g3a_bench.tasks.test.mdp.commands import SceneTaskCommand
+    from g3a_bench.tasks.scene.mdp.commands import SceneTaskCommand
 
 BUTTON_PRESS_THRESHOLD = -0.02
 
 
 def get_scene_command(env) -> SceneTaskCommand:
-    from g3a_bench.tasks.test.mdp.commands import SceneTaskCommand  # noqa: I001 lazy: avoids circular init
+    from g3a_bench.tasks.scene.mdp.commands import SceneTaskCommand  # noqa: I001 lazy: avoids circular init
 
     return cast(SceneTaskCommand, env.command_manager.get_term("scene_task"))
 
