@@ -8,20 +8,6 @@ from g3a_bench.tasks.test.mdp.utils import get_scene_command
 SUCCESS_TOLERANCE = 0.04
 
 
-def _joint_pos_by_name(
-    env,
-    entity_name: str,
-    joint_name: str,
-) -> torch.Tensor:
-    """Return one joint position.
-
-    Shape: (num_envs,)
-    """
-    entity: Entity = env.scene[entity_name]
-    joint_id = entity.joint_names.index(joint_name)
-    return entity.data.joint_pos[:, joint_id]
-
-
 def _root_pos(
     env,
     entity_name: str,
@@ -57,9 +43,7 @@ def drawer_success(
 ) -> torch.Tensor:
     """OGBench-style drawer success."""
     cmd = get_scene_command(env)
-    drawer_pos = _joint_pos_by_name(
-        env, entity_name="drawer", joint_name="drawer_slide"
-    )
+    drawer_pos = cmd._drawer.data.joint_pos[:, cmd._drawer_joint_slot[0]]
     return torch.abs(drawer_pos - cmd.target_drawer_pos) <= tolerance
 
 
@@ -69,9 +53,7 @@ def window_success(
 ) -> torch.Tensor:
     """OGBench-style window success."""
     cmd = get_scene_command(env)
-    window_pos = _joint_pos_by_name(
-        env, entity_name="window", joint_name="window_slide"
-    )
+    window_pos = cmd._window.data.joint_pos[:, cmd._window_joint_slot[0]]
     return torch.abs(window_pos - cmd.target_window_pos) <= tolerance
 
 

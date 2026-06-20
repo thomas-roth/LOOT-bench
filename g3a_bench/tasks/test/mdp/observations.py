@@ -234,17 +234,17 @@ def ee_to_site_distance(
 def drawer_to_goal(env) -> torch.Tensor:
     """target_drawer_pos - current drawer_slide. Shape: (num_envs, 1)"""
     cmd = get_scene_command(env)
-    drawer: Entity = env.scene["drawer"]
-    joint_id = list(drawer.joint_names).index("drawer_slide")
-    return (cmd.target_drawer_pos - drawer.data.joint_pos[:, joint_id]).unsqueeze(-1)
+    return (
+        cmd.target_drawer_pos - cmd._drawer.data.joint_pos[:, cmd._drawer_joint_slot[0]]
+    ).unsqueeze(-1)
 
 
 def window_to_goal(env) -> torch.Tensor:
     """target_window_pos - current window_slide. Shape: (num_envs, 1)"""
     cmd = get_scene_command(env)
-    window: Entity = env.scene["window"]
-    joint_id = list(window.joint_names).index("window_slide")
-    return (cmd.target_window_pos - window.data.joint_pos[:, joint_id]).unsqueeze(-1)
+    return (
+        cmd.target_window_pos - cmd._window.data.joint_pos[:, cmd._window_joint_slot[0]]
+    ).unsqueeze(-1)
 
 
 def scene_target_button_states(env) -> torch.Tensor:
