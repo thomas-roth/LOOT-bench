@@ -1,23 +1,18 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 import torch
 from mjlab.entity import Entity
 from mjlab.managers.scene_entity_config import SceneEntityCfg
+from mjlab.utils.lab_api.math import quat_apply, quat_inv
+
+from g3a_bench.tasks.test.mdp.utils import get_scene_command
 
 if TYPE_CHECKING:
     from mjlab.envs import ManagerBasedRlEnv
 
-    from g3a_bench.tasks.test.mdp.commands import SceneTaskCommand
-
-
-def _scene_command(env) -> SceneTaskCommand:
-    from g3a_bench.tasks.test.mdp.commands import (
-        SceneTaskCommand,  # local: avoids circular import
-    )
-
-    return cast(SceneTaskCommand, env.command_manager.get_term("scene_task"))
+_DEFAULT_ROBOT_CFG = SceneEntityCfg("robot")
 
 
 def root_pos_w(
@@ -99,16 +94,11 @@ def button_state_from_joint(
 
 
 def logical_button_states(env) -> torch.Tensor:
-    """Return persistent logical button states.
+    """Return persistent logical button states from the command.
 
     Shape: (num_envs, 2)
-
-    If not initialized yet, return zeros.
     """
-    if not hasattr(env, "scene_button_states"):
-        return torch.zeros((env.scene.num_envs, 2), device=env.device)
-
-    return env.scene_button_states
+    return get_scene_command(env).scene_button_states
 
 
 def site_yaw_cos_sin(
@@ -182,21 +172,70 @@ def gripper_contact_zero(env: ManagerBasedRlEnv) -> torch.Tensor:
     return torch.zeros((num_envs, 1), device=env.device)
 
 
-def scene_target_cube_pos(env) -> torch.Tensor:
-    """Goal cube position for the current scene task. Shape: (num_envs, 3)"""
-    return _scene_command(env).target_cube_pos
+# ---- Relative vector observations ----
+
+
+def ee_to_object_distance(
+    env: ManagerBasedRlEnv,
+    object_name: str,
+    asset_cfg: SceneEntityCfg = _DEFAULT_ROBOT_CFG,
+) -> torch.Tensor:
+    """EE-to-object vector in robot base frame. Shape: (num_envs, 3)"""
+    robot: Entity = env.scene[asset_cfg.name]
+    ee_pos_w = robot.data.site_pos_w[:, asset_cfg.site_ids].squeeze(1)
+    obj_pos_w = env.scene[object_name].data.root_link_pos_w
+    return quat_apply(quat_inv(robot.data.root_link_quat_w), obj_pos_w - ee_pos_w)
+
+
+def object_to_goal_distance(
+    env: ManagerBasedRlEnv,
+    object_name: str,
+    asset_cfg: SceneEntityCfg = _DEFAULT_ROBOT_CFG,
+) -> torch.Tensor:
+    """Object-to-goal vector in robot base frame. Shape: (num_envs, 3)
+
+    Goal is target_cube_pos from the scene_task command.
+    """
+    cmd = get_scene_command(env)
+    robot: Entity = env.scene[asset_cfg.name]
+    obj_pos_w = env.scene[object_name].data.root_link_pos_w
+    return quat_apply(
+        quat_inv(robot.data.root_link_quat_w), cmd.target_cube_pos - obj_pos_w
+    )
+
+
+def ee_to_site_distance(
+    env: ManagerBasedRlEnv,
+    robot_cfg: SceneEntityCfg,
+    site_cfg: SceneEntityCfg,
+) -> torch.Tensor:
+    """EE-to-named-site vector in robot base frame. Shape: (num_envs, 3)
+
+    Use for drawer handle, window handle, button top.
+    """
+    robot: Entity = env.scene[robot_cfg.name]
+    ee_pos_w = robot.data.site_pos_w[:, robot_cfg.site_ids].squeeze(1)
+    target_entity: Entity = env.scene[site_cfg.name]
+    site_pos_w = target_entity.data.site_pos_w[:, site_cfg.site_ids].squeeze(1)
+    return quat_apply(quat_inv(robot.data.root_link_quat_w), site_pos_w - ee_pos_w)
+
+
+def drawer_to_goal(env) -> torch.Tensor:
+    """target_drawer_pos - current drawer_slide. Shape: (num_envs, 1)"""
+    cmd = get_scene_command(env)
+    drawer: Entity = env.scene["drawer"]
+    joint_id = list(drawer.joint_names).index("drawer_slide")
+    return (cmd.target_drawer_pos - drawer.data.joint_pos[:, joint_id]).unsqueeze(-1)
+
+
+def window_to_goal(env) -> torch.Tensor:
+    """target_window_pos - current window_slide. Shape: (num_envs, 1)"""
+    cmd = get_scene_command(env)
+    window: Entity = env.scene["window"]
+    joint_id = list(window.joint_names).index("window_slide")
+    return (cmd.target_window_pos - window.data.joint_pos[:, joint_id]).unsqueeze(-1)
 
 
 def scene_target_button_states(env) -> torch.Tensor:
     """Goal logical button states for the current scene task. Shape: (num_envs, 2)"""
-    return _scene_command(env).target_button_states
-
-
-def scene_target_drawer_pos(env) -> torch.Tensor:
-    """Goal drawer joint position for the current scene task. Shape: (num_envs, 1)"""
-    return _scene_command(env).target_drawer_pos.unsqueeze(-1)
-
-
-def scene_target_window_pos(env) -> torch.Tensor:
-    """Goal window joint position for the current scene task. Shape: (num_envs, 1)"""
-    return _scene_command(env).target_window_pos.unsqueeze(-1)
+    return get_scene_command(env).target_button_states

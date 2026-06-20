@@ -16,6 +16,8 @@ from mjlab.viewer import ViewerConfig
 
 from g3a_bench.tasks.test import mdp as scene_mdp
 
+_ROBOT_GRASP_CFG = SceneEntityCfg("robot", site_names=("grasp_site",))
+
 
 def make_lift_cube_env_cfg() -> ManagerBasedRlEnvCfg:
     """Create base scene task configuration."""
@@ -30,17 +32,17 @@ def make_lift_cube_env_cfg() -> ManagerBasedRlEnvCfg:
             noise=Unoise(n_min=-1.5, n_max=1.5),
         ),
         "actions": ObservationTermCfg(func=mdp.last_action),
-        # End-effector / gripper site.
+        # End-effector site.
         "ee_pos": ObservationTermCfg(
             func=scene_mdp.site_pos_w,
             params={
-                "asset_cfg": SceneEntityCfg("robot", site_names=("grasp_site",)),
+                "asset_cfg": _ROBOT_GRASP_CFG,
             },
         ),
         "ee_yaw": ObservationTermCfg(
             func=scene_mdp.site_yaw_cos_sin,
             params={
-                "asset_cfg": SceneEntityCfg("robot", site_names=("grasp_site",)),
+                "asset_cfg": _ROBOT_GRASP_CFG,
             },
         ),
         # Approximate gripper opening.
@@ -60,14 +62,14 @@ def make_lift_cube_env_cfg() -> ManagerBasedRlEnvCfg:
         "gripper_contact": ObservationTermCfg(
             func=scene_mdp.gripper_contact_zero,
         ),
-        # Cube.
-        "cube_pos": ObservationTermCfg(
-            func=scene_mdp.root_pos_w,
-            params={"entity_name": "cube"},
+        # Cube — relative vectors.
+        "ee_to_cube": ObservationTermCfg(
+            func=scene_mdp.ee_to_object_distance,
+            params={"object_name": "cube", "asset_cfg": _ROBOT_GRASP_CFG},
         ),
-        "cube_quat": ObservationTermCfg(
-            func=scene_mdp.root_quat_w,
-            params={"entity_name": "cube"},
+        "cube_to_goal": ObservationTermCfg(
+            func=scene_mdp.object_to_goal_distance,
+            params={"object_name": "cube", "asset_cfg": _ROBOT_GRASP_CFG},
         ),
         "cube_yaw": ObservationTermCfg(
             func=scene_mdp.root_yaw_cos_sin,
@@ -127,7 +129,7 @@ def make_lift_cube_env_cfg() -> ManagerBasedRlEnvCfg:
         "logical_button_states": ObservationTermCfg(
             func=scene_mdp.logical_button_states,
         ),
-        # Drawer.
+        # Drawer — joint state + relative handle + goal delta.
         "drawer_pos": ObservationTermCfg(
             func=scene_mdp.joint_pos,
             params={
@@ -140,10 +142,11 @@ def make_lift_cube_env_cfg() -> ManagerBasedRlEnvCfg:
                 "asset_cfg": SceneEntityCfg("drawer", joint_names=("drawer_slide",)),
             },
         ),
-        "drawer_handle_pos": ObservationTermCfg(
-            func=scene_mdp.site_pos_w,
+        "ee_to_drawer_handle": ObservationTermCfg(
+            func=scene_mdp.ee_to_site_distance,
             params={
-                "asset_cfg": SceneEntityCfg(
+                "robot_cfg": _ROBOT_GRASP_CFG,
+                "site_cfg": SceneEntityCfg(
                     "drawer",
                     site_names=("drawer_handle_center",),
                 ),
@@ -158,7 +161,8 @@ def make_lift_cube_env_cfg() -> ManagerBasedRlEnvCfg:
                 ),
             },
         ),
-        # Window.
+        "drawer_to_goal": ObservationTermCfg(func=scene_mdp.drawer_to_goal),
+        # Window — joint state + relative handle + goal delta.
         "window_pos": ObservationTermCfg(
             func=scene_mdp.joint_pos,
             params={
@@ -171,10 +175,11 @@ def make_lift_cube_env_cfg() -> ManagerBasedRlEnvCfg:
                 "asset_cfg": SceneEntityCfg("window", joint_names=("window_slide",)),
             },
         ),
-        "window_handle_pos": ObservationTermCfg(
-            func=scene_mdp.site_pos_w,
+        "ee_to_window_handle": ObservationTermCfg(
+            func=scene_mdp.ee_to_site_distance,
             params={
-                "asset_cfg": SceneEntityCfg(
+                "robot_cfg": _ROBOT_GRASP_CFG,
+                "site_cfg": SceneEntityCfg(
                     "window",
                     site_names=("window_handle_center",),
                 ),
@@ -189,18 +194,10 @@ def make_lift_cube_env_cfg() -> ManagerBasedRlEnvCfg:
                 ),
             },
         ),
+        "window_to_goal": ObservationTermCfg(func=scene_mdp.window_to_goal),
         # Goal targets (needed for multi-task: policy must know what to achieve).
-        "target_cube_pos": ObservationTermCfg(
-            func=scene_mdp.scene_target_cube_pos,
-        ),
         "target_button_states": ObservationTermCfg(
             func=scene_mdp.scene_target_button_states,
-        ),
-        "target_drawer_pos": ObservationTermCfg(
-            func=scene_mdp.scene_target_drawer_pos,
-        ),
-        "target_window_pos": ObservationTermCfg(
-            func=scene_mdp.scene_target_window_pos,
         ),
     }
 
@@ -245,14 +242,6 @@ def make_lift_cube_env_cfg() -> ManagerBasedRlEnvCfg:
                 "asset_cfg": SceneEntityCfg("robot", joint_names=(".*",)),
             },
         ),
-        "reset_scene_logic": EventTermCfg(
-            func=scene_mdp.reset_scene_logic,
-            mode="reset",
-        ),
-        "update_scene_logic": EventTermCfg(
-            func=scene_mdp.update_scene_logic,
-            mode="step",
-        ),
     }
 
     rewards = {
@@ -261,6 +250,7 @@ def make_lift_cube_env_cfg() -> ManagerBasedRlEnvCfg:
 
     terminations = {
         "time_out": TerminationTermCfg(func=scene_mdp.time_out, time_out=True),
+        "cube_out_of_bounds": TerminationTermCfg(func=scene_mdp.cube_out_of_bounds),
     }
 
     return ManagerBasedRlEnvCfg(

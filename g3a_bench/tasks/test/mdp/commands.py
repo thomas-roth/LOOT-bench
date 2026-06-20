@@ -9,7 +9,11 @@ import torch
 from mjlab.managers.command_manager import CommandTerm, CommandTermCfg
 
 from g3a_bench.tasks.test.mdp.rewards import scene_success
-from g3a_bench.tasks.test.mdp.utils import apply_drawer_window_locks
+from g3a_bench.tasks.test.mdp.utils import (
+    detect_new_button_presses,
+    get_button_positions,
+    toggle_button_states,
+)
 
 if TYPE_CHECKING:
     from mjlab.envs.manager_based_rl_env import ManagerBasedRlEnv
@@ -178,6 +182,12 @@ class SceneTaskCommand(CommandTerm):
         self.target_drawer_pos = torch.zeros(E, device=dev)
         self.target_window_pos = torch.zeros(E, device=dev)
 
+        # Task state — owned by the command (not monkey-patched onto env).
+        self.scene_button_states = torch.zeros(E, 2, device=dev)
+        self.prev_button_positions = torch.zeros(E, 2, device=dev)
+        self.drawer_lock_target = torch.zeros(E, device=dev)
+        self.window_lock_target = torch.zeros(E, device=dev)
+
         self.episode_success = torch.zeros(E, device=dev)
         self.metrics["episode_success"] = torch.zeros(E, device=dev)
 
@@ -245,21 +255,73 @@ class SceneTaskCommand(CommandTerm):
             env_ids=env_ids,
         )
 
-        # ---- Initial button logical states (overrides reset_scene_logic zeros) ----
-        env.scene_button_states[env_ids] = self._init_button_states[task_ids]
-
-        # ---- Re-apply global damping based on env-0 button state ----
-        apply_drawer_window_locks(env)
+        # ---- Initial button logical states and lock targets ----
+        self.scene_button_states[env_ids] = self._init_button_states[task_ids]
+        self.prev_button_positions[env_ids] = get_button_positions(env)[env_ids]
+        self.drawer_lock_target[env_ids] = self._init_drawer_pos[task_ids]
+        self.window_lock_target[env_ids] = self._init_window_pos[task_ids]
 
         self.episode_success[env_ids] = 0.0
+
+    def _update_command(self) -> None:
+        env = self._env
+        cur_button_pos = get_button_positions(env)
+        new_presses = detect_new_button_presses(
+            self.prev_button_positions, cur_button_pos
+        )
+        self.scene_button_states = toggle_button_states(
+            self.scene_button_states, new_presses
+        )
+        self.prev_button_positions = cur_button_pos
+        self._apply_locks()
+
+    def _apply_locks(self) -> None:
+        """Clamp locked drawer/window joints per-env via data writes (no model mutation)."""
+        cur_drawer = self._drawer.data.joint_pos[:, self._drawer_joint_slot[0]]
+        cur_window = self._window.data.joint_pos[:, self._window_joint_slot[0]]
+
+        drawer_unlocked = self.scene_button_states[:, 0] > 0.5
+        window_unlocked = self.scene_button_states[:, 1] > 0.5
+
+        # Track current position while unlocked; hold stored target while locked.
+        self.drawer_lock_target = torch.where(
+            drawer_unlocked, cur_drawer, self.drawer_lock_target
+        )
+        self.window_lock_target = torch.where(
+            window_unlocked, cur_window, self.window_lock_target
+        )
+
+        drawer_locked = (~drawer_unlocked).nonzero(as_tuple=False).squeeze(-1)
+        window_locked = (~window_unlocked).nonzero(as_tuple=False).squeeze(-1)
+
+        if drawer_locked.numel() > 0:
+            self._drawer.write_joint_position_to_sim(
+                self.drawer_lock_target[drawer_locked].unsqueeze(-1),
+                joint_ids=self._drawer_joint_slot,
+                env_ids=drawer_locked,
+            )
+            self._drawer.write_joint_velocity_to_sim(
+                torch.zeros(drawer_locked.numel(), 1, device=self.device),
+                joint_ids=self._drawer_joint_slot,
+                env_ids=drawer_locked,
+            )
+
+        if window_locked.numel() > 0:
+            self._window.write_joint_position_to_sim(
+                self.window_lock_target[window_locked].unsqueeze(-1),
+                joint_ids=self._window_joint_slot,
+                env_ids=window_locked,
+            )
+            self._window.write_joint_velocity_to_sim(
+                torch.zeros(window_locked.numel(), 1, device=self.device),
+                joint_ids=self._window_joint_slot,
+                env_ids=window_locked,
+            )
 
     def _update_metrics(self) -> None:
         success = scene_success(self._env).float()
         self.episode_success = torch.maximum(self.episode_success, success)
         self.metrics["episode_success"] = self.episode_success
-
-    def _update_command(self) -> None:
-        pass
 
     @staticmethod
     def _identity_quat(n: int, device: str) -> torch.Tensor:

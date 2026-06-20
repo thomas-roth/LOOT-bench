@@ -1,22 +1,11 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
-
 import torch
 from mjlab.entity import Entity
 
-if TYPE_CHECKING:
-    from g3a_bench.tasks.test.mdp.commands import SceneTaskCommand
+from g3a_bench.tasks.test.mdp.utils import get_scene_command
 
 SUCCESS_TOLERANCE = 0.04
-
-
-def _scene_command(env) -> SceneTaskCommand:
-    from g3a_bench.tasks.test.mdp.commands import (
-        SceneTaskCommand,  # local: avoids circular import
-    )
-
-    return cast(SceneTaskCommand, env.command_manager.get_term("scene_task"))
 
 
 def _joint_pos_by_name(
@@ -50,7 +39,7 @@ def cube_success(
     tolerance: float = SUCCESS_TOLERANCE,
 ) -> torch.Tensor:
     """OGBench-style cube success."""
-    cmd = _scene_command(env)
+    cmd = get_scene_command(env)
     cube_pos = _root_pos(env, "cube")
     distance = torch.norm(cube_pos - cmd.target_cube_pos, dim=-1)
     return distance <= tolerance
@@ -58,10 +47,8 @@ def cube_success(
 
 def button_successes(env) -> torch.Tensor:
     """OGBench-style button successes. Shape: (num_envs, 2)"""
-    cmd = _scene_command(env)
-    if not hasattr(env, "scene_button_states"):
-        return torch.zeros((env.scene.num_envs, 2), device=env.device, dtype=torch.bool)
-    return env.scene_button_states == cmd.target_button_states
+    cmd = get_scene_command(env)
+    return cmd.scene_button_states == cmd.target_button_states
 
 
 def drawer_success(
@@ -69,7 +56,7 @@ def drawer_success(
     tolerance: float = SUCCESS_TOLERANCE,
 ) -> torch.Tensor:
     """OGBench-style drawer success."""
-    cmd = _scene_command(env)
+    cmd = get_scene_command(env)
     drawer_pos = _joint_pos_by_name(
         env, entity_name="drawer", joint_name="drawer_slide"
     )
@@ -81,7 +68,7 @@ def window_success(
     tolerance: float = SUCCESS_TOLERANCE,
 ) -> torch.Tensor:
     """OGBench-style window success."""
-    cmd = _scene_command(env)
+    cmd = get_scene_command(env)
     window_pos = _joint_pos_by_name(
         env, entity_name="window", joint_name="window_slide"
     )
