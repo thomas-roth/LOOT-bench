@@ -55,9 +55,23 @@ def yam_scene_env_cfg(
     cfg.scene.entities = {
         "robot": get_yam_robot_cfg(),
         "cube": EntityCfg(spec_fn=get_cube_spec),
-        "window": EntityCfg(spec_fn=get_window_spec),
-        "buttons": EntityCfg(spec_fn=get_buttons_spec),
-        "drawer": EntityCfg(spec_fn=get_drawer_spec),
+        "buttons": EntityCfg(
+            spec_fn=get_buttons_spec,
+            init_state=EntityCfg.InitialStateCfg(pos=(0.0, 0.0, 0.0)),
+        ),
+        "drawer": EntityCfg(
+            spec_fn=get_drawer_spec,
+            init_state=EntityCfg.InitialStateCfg(
+                pos=(0.33, -0.42, 0.084),
+                rot=(0.0, 0.0, 0.0, 1.0),  # wxyz: 180° around Z
+            ),
+        ),
+        "window": EntityCfg(
+            spec_fn=get_window_spec,
+            init_state=EntityCfg.InitialStateCfg(
+                pos=(0.30, 0.30, 0.202),
+            ),
+        ),
     }
 
     joint_pos_action = cfg.actions["joint_pos"]

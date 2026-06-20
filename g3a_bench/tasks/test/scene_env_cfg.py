@@ -34,7 +34,7 @@ def make_lift_cube_env_cfg() -> ManagerBasedRlEnvCfg:
         "actions": ObservationTermCfg(func=mdp.last_action),
         # End-effector site.
         "ee_pos": ObservationTermCfg(
-            func=scene_mdp.site_pos_w,
+            func=scene_mdp.ee_pos_b,
             params={
                 "asset_cfg": _ROBOT_GRASP_CFG,
             },
@@ -240,6 +240,33 @@ def make_lift_cube_env_cfg() -> ManagerBasedRlEnvCfg:
                 "position_range": (0.0, 0.0),
                 "velocity_range": (0.0, 0.0),
                 "asset_cfg": SceneEntityCfg("robot", joint_names=(".*",)),
+            },
+        ),
+        "reset_buttons": EventTermCfg(
+            func=mdp.reset_root_state_uniform,
+            mode="reset",
+            params={
+                "pose_range": {},
+                "velocity_range": {},
+                "asset_cfg": SceneEntityCfg("buttons"),
+            },
+        ),
+        "reset_drawer": EventTermCfg(
+            func=mdp.reset_root_state_uniform,
+            mode="reset",
+            params={
+                "pose_range": {},
+                "velocity_range": {},
+                "asset_cfg": SceneEntityCfg("drawer"),
+            },
+        ),
+        "reset_window": EventTermCfg(
+            func=mdp.reset_root_state_uniform,
+            mode="reset",
+            params={
+                "pose_range": {},
+                "velocity_range": {},
+                "asset_cfg": SceneEntityCfg("window"),
             },
         ),
     }

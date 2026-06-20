@@ -53,6 +53,17 @@ def site_pos_w(
     return entity.data.site_pos_w[:, asset_cfg.site_ids].squeeze(1)
 
 
+def ee_pos_b(
+    env: ManagerBasedRlEnv,
+    asset_cfg: SceneEntityCfg,
+) -> torch.Tensor:
+    """EE site position in robot base frame. Shape: (num_envs, 3)"""
+    entity: Entity = env.scene[asset_cfg.name]
+    ee_pos_w = entity.data.site_pos_w[:, asset_cfg.site_ids].squeeze(1)
+    robot_pos_w = entity.data.root_link_pos_w
+    return quat_apply(quat_inv(entity.data.root_link_quat_w), ee_pos_w - robot_pos_w)
+
+
 def joint_pos(
     env: ManagerBasedRlEnv,
     asset_cfg: SceneEntityCfg,
