@@ -9,7 +9,7 @@ from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.managers.termination_manager import TerminationTermCfg
 from mjlab.scene import SceneCfg
 from mjlab.sim import MujocoCfg, SimulationCfg
-from mjlab.tasks.velocity import mdp
+from mjlab.tasks.manipulation import mdp
 from mjlab.terrains import TerrainEntityCfg
 from mjlab.utils.noise import UniformNoiseCfg as Unoise
 from mjlab.viewer import ViewerConfig
@@ -272,7 +272,7 @@ def make_scene_env_cfg() -> ManagerBasedRlEnvCfg:
     }
 
     terminations = {
-        "time_out": TerminationTermCfg(func=scene_mdp.time_out, time_out=True),
+        "time_out": TerminationTermCfg(func=mdp.time_out, time_out=True),
         "cube_out_of_bounds": TerminationTermCfg(func=scene_mdp.cube_out_of_bounds),
     }
 
