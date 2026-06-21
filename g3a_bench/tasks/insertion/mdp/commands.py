@@ -25,7 +25,13 @@ from mjlab.entity import Entity
 from mjlab.managers.command_manager import CommandTerm, CommandTermCfg
 from mjlab.utils.lab_api.math import quat_from_euler_xyz
 
-from g3a_bench.tasks.insertion.assets import BOARD_POS, SHEET_HALF_Z, socket_layout
+from g3a_bench.tasks.insertion.assets import (
+    BOARD_POS,
+    SHEET_HALF_Z,
+    TRAY_POS,
+    TRAY_SPAWN_HALF,
+    socket_layout,
+)
 from g3a_bench.tasks.insertion.variants import PEG_HALF_LEN, InsertionVariantCfg
 
 if TYPE_CHECKING:
@@ -41,8 +47,6 @@ class InsertionCommandCfg(CommandTermCfg):
     variant: InsertionVariantCfg
     sheet_name: str | None = None
     """Movable top sheet entity (two-sheet variant only)."""
-    workspace_x: tuple[float, float] = (0.15, 0.27)
-    workspace_y: tuple[float, float] = (-0.18, 0.18)
     sheet_align_tol: float = 0.010
     """Max top-sheet/bottom-hole offset to count as aligned."""
 
@@ -94,10 +98,14 @@ class InsertionCommand(CommandTerm):
         self.episode_success = torch.zeros(E, device=dev)
         self._half_len = PEG_HALF_LEN
 
-        # Jittered scatter grid in front of the board.
-        x0, x1 = cfg.workspace_x
-        y0, y1 = cfg.workspace_y
-        nx, ny = 2, 6
+        # Pegs are spawned upright into the parts tray ("Werkbox"): a jittered
+        # grid over the tray's spawn region (env-local; env origins are added at
+        # spawn time). Same for every variant.
+        tx, ty, _ = TRAY_POS
+        hx, hy = TRAY_SPAWN_HALF
+        x0, x1 = tx - hx, tx + hx
+        y0, y1 = ty - hy, ty + hy
+        nx, ny = 2, 4
         cx = torch.linspace(x0, x1, nx + 1, device=dev)
         cy = torch.linspace(y0, y1, ny + 1, device=dev)
         self._cells = torch.cartesian_prod(
@@ -197,7 +205,7 @@ class InsertionCommand(CommandTerm):
         self.episode_success[env_ids] = 0.0
         self.inserted[env_ids] = 0.0
 
-        # Scatter pegs upright on distinct jittered cells in front of the board.
+        # Scatter pegs upright on distinct jittered cells inside the parts tray.
         pick = torch.argsort(torch.rand(n, self._cells.shape[0], device=dev), dim=1)[
             :, :N
         ]

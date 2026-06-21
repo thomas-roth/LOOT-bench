@@ -23,7 +23,9 @@ from mjlab.viewer import ViewerConfig
 from g3a_bench.tasks.insertion import mdp as ins_mdp
 from g3a_bench.tasks.insertion.assets import (
     BOARD_POS,
+    DECOR_POS,
     get_board_spec,
+    get_decor_spec,
     get_peg_spec,
     get_sheet_board_spec,
     get_sheet_spec,
@@ -49,7 +51,13 @@ def make_insertion_env_cfg(
     sheet_name = "sheet" if two_sheet else None
 
     board_init = EntityCfg.InitialStateCfg(pos=BOARD_POS)
-    entities: dict[str, EntityCfg] = {}
+    entities: dict[str, EntityCfg] = {
+        # Shared visual-only workstation dressing (same for every variant).
+        "decor": EntityCfg(
+            spec_fn=get_decor_spec,
+            init_state=EntityCfg.InitialStateCfg(pos=DECOR_POS),
+        ),
+    }
     if two_sheet:
         entities["board"] = EntityCfg(
             spec_fn=lambda v=variant: get_sheet_board_spec(v), init_state=board_init
@@ -139,6 +147,15 @@ def make_insertion_env_cfg(
                 "pose_range": {},
                 "velocity_range": {},
                 "asset_cfg": SceneEntityCfg("board"),
+            },
+        ),
+        "reset_decor": EventTermCfg(
+            func=mdp.reset_root_state_uniform,
+            mode="reset",
+            params={
+                "pose_range": {},
+                "velocity_range": {},
+                "asset_cfg": SceneEntityCfg("decor"),
             },
         ),
         "reset_robot_joints": EventTermCfg(

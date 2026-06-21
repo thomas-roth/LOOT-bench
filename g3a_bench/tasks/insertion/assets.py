@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from pathlib import Path
 
 import mujoco
 import numpy as np
@@ -40,6 +41,19 @@ SHEET_MASS = 0.12
 
 # Board placement in the robot workspace (board body frame origin, env-local).
 BOARD_POS = (0.34, 0.0, 0.0)
+
+# Shared, variant-independent scene dressing built from an MJCF + STL meshes
+# (see decor/). It is purely visual (no collisions), so its body sits at the
+# env origin and its geom poses are already env-local.
+DECOR_XML = Path(__file__).resolve().parent / "decor" / "workstation_decor.xml"
+DECOR_POS = (0.0, 0.0, 0.0)
+
+# Parts tray ("Werkbox"): centre (env-local) and the half-extents of the region
+# pegs are spawned into on every reset, inset from the tray walls so upright
+# pegs clear them. Must match the tray mesh footprint in
+# decor/make_decor_meshes.py and the tray geom pos in workstation_decor.xml.
+TRAY_POS = (0.16, 0.0, 0.0)
+TRAY_SPAWN_HALF = (0.05, 0.12)
 
 # Bore wall thickness and base-plate thickness.
 WALL_T = 0.006
@@ -285,6 +299,16 @@ def get_sheet_board_spec(
     )
     _add_walls(board, frame, 2 * SHEET_HALF_Z, PALETTE["gray"])
     return spec
+
+
+def get_decor_spec() -> mujoco.MjSpec:
+    """Fixed-base, visual-only workstation dressing loaded from MJCF + STL meshes.
+
+    Unlike the procedural ``get_*_spec`` builders, this asset is authored as a
+    real ``workstation_decor.xml`` referencing generated STL meshes, so the same
+    dressing appears in every insertion variant.
+    """
+    return mujoco.MjSpec.from_file(str(DECOR_XML))
 
 
 def get_sheet_spec(variant: InsertionVariantCfg, name: str = "sheet") -> mujoco.MjSpec:
