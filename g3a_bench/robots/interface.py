@@ -39,3 +39,7 @@ class ManipulatorInterface:
     """Actuator name expressions for the gripper, driven by a direct joint
     action alongside the EEF controller. Empty means no separate gripper action
     (only used in the ``"eef"`` action mode)."""
+    camera_name: str | None = None
+    """Name of an existing MJCF camera to use for vision observations (prefixed,
+    e.g. ``"robot/head_camera"``). ``None`` means the robot has no camera wired,
+    so the ``"camera"`` observation mode is unavailable for it."""

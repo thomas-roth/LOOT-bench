@@ -12,9 +12,10 @@ import re
 
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs.mdp.actions import DifferentialIKActionCfg, JointPositionActionCfg
-from mjlab.sensor import ContactSensorCfg
+from mjlab.sensor import CameraSensorCfg, ContactSensorCfg
 
 from g3a_bench.robots.interface import ManipulatorInterface
+from g3a_bench.tasks.insertion.insertion_env_cfg import _CAMERA_OBS_NAME
 
 # Term keys whose ``asset_cfg`` points at the grasp site. The two_sheet variant
 # adds "sheet_rel_grasp"/"sheet_alignment"; absent keys are skipped so the same
@@ -58,6 +59,12 @@ def wire_manipulator_into_env(
         if sensor.name == "ee_ground_collision":
             assert isinstance(sensor, ContactSensorCfg)
             sensor.primary.pattern = manipulator.ee_subtree
+        elif sensor.name == _CAMERA_OBS_NAME:
+            assert isinstance(sensor, CameraSensorCfg)
+            assert manipulator.camera_name is not None, (
+                f"obs_mode='camera' needs a camera_name on '{manipulator.name}'"
+            )
+            sensor.camera_name = manipulator.camera_name
 
     cfg.viewer.body_name = manipulator.viewer_body
 
