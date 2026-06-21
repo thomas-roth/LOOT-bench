@@ -8,6 +8,10 @@ Opens an interactive MuJoCo window showing the cube task environment
 replaying leader actions from a recorded dataset.
 """
 
+# Load lerobot/HF-datasets native libs before mjlab/mujoco-warp to avoid a
+# native import-order segfault (HF `datasets` vs mujoco-warp). Must precede mjlab.
+import lerobot.datasets.lerobot_dataset  # noqa: F401,E402,I001
+
 import torch
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.rl import RslRlVecEnvWrapper
@@ -55,6 +59,8 @@ def main():
                 reader._load_episode()
                 frame = reader.read()
 
+            if frame.leader_action is None:
+                raise RuntimeError("DatasetReader frame is missing an action")
             raw_action = lerobot_to_mjlab_raw_action(frame.leader_action)
             return torch.from_numpy(raw_action).unsqueeze(0).to(device)
 

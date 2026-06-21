@@ -24,6 +24,10 @@ Usage:
     uv run --extra cpu python g3a_bench/scripts/live_bridge/live_record.py --headless
 """
 
+# Load lerobot/HF-datasets native libs before mjlab/mujoco-warp to avoid a
+# native import-order segfault (HF `datasets` vs mujoco-warp). Must precede mjlab.
+import lerobot.datasets.lerobot_dataset  # noqa: F401,E402,I001
+
 import argparse
 import threading
 import time

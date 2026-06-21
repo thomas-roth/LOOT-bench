@@ -11,6 +11,10 @@ After the episode finishes, the viewer keeps running (hold-last-action mode)
 until you close the window or press Ctrl+C.
 """
 
+# Load lerobot/HF-datasets native libs before mjlab/mujoco-warp to avoid a
+# native import-order segfault (HF `datasets` vs mujoco-warp). Must precede mjlab.
+import lerobot.datasets.lerobot_dataset  # noqa: F401,E402,I001
+
 import traceback
 from pathlib import Path
 
@@ -126,6 +130,8 @@ class _ReplayAndRecord:
                 timestamp=0.0,
             )
 
+        if frame.leader_action is None:
+            raise RuntimeError("DatasetReader frame is missing an action")
         self._last_action_np = frame.leader_action
         self._last_robot_obs = frame.joint_pos
         if self._fallback_action_np is None:
