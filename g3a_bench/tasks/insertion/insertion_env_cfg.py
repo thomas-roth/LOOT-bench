@@ -20,7 +20,6 @@ from mjlab.terrains import TerrainEntityCfg
 from mjlab.utils.noise import UniformNoiseCfg as Unoise
 from mjlab.viewer import ViewerConfig
 
-from g3a_bench.robots.interface import ManipulatorInterface
 from g3a_bench.tasks.insertion import mdp as ins_mdp
 from g3a_bench.tasks.insertion.assets import (
     BOARD_POS,
@@ -36,15 +35,21 @@ COMMAND_NAME = "insertion"
 
 def make_insertion_env_cfg(
     variant: InsertionVariantCfg,
-    robot: ManipulatorInterface,
     play: bool = False,
 ) -> ManagerBasedRlEnvCfg:
+    """Build the robot-agnostic insertion cfg.
+
+    Robot-specific knobs are left as placeholders here (empty grasp site, action
+    scale, friction geoms, end-effector subtree, viewer body, and no ``"robot"``
+    scene entity). Fill them by calling ``wire_manipulator_into_env`` with a
+    concrete ``ManipulatorInterface`` before registering the task.
+    """
     two_sheet = variant.kind == "two_sheet"
     peg_names = tuple(f"peg_{i}" for i in range(len(variant.peg_shapes)))
     sheet_name = "sheet" if two_sheet else None
 
     board_init = EntityCfg.InitialStateCfg(pos=BOARD_POS)
-    entities: dict[str, EntityCfg] = {"robot": robot.entity_cfg_fn()}
+    entities: dict[str, EntityCfg] = {}
     if two_sheet:
         entities["board"] = EntityCfg(
             spec_fn=lambda v=variant: get_sheet_board_spec(v), init_state=board_init
@@ -61,7 +66,7 @@ def make_insertion_env_cfg(
             spec_fn=lambda s=shape, c=color, n=name: get_peg_spec(s, c, n)
         )
 
-    grasp_cfg = SceneEntityCfg("robot", site_names=(robot.grasp_site,))
+    grasp_cfg = SceneEntityCfg("robot", site_names=())  # Set per-robot.
 
     actor_terms = {
         "joint_pos": ObservationTermCfg(
@@ -105,7 +110,7 @@ def make_insertion_env_cfg(
         "joint_pos": JointPositionActionCfg(
             entity_name="robot",
             actuator_names=(".*",),
-            scale=robot.action_scale,
+            scale=0.5,  # Set per-robot.
             use_default_offset=True,
         )
     }
@@ -149,7 +154,7 @@ def make_insertion_env_cfg(
             mode="startup",
             func=dr.geom_friction,
             params={
-                "asset_cfg": SceneEntityCfg("robot", geom_names=robot.finger_pad_geoms),
+                "asset_cfg": SceneEntityCfg("robot", geom_names=()),  # Set per-robot.
                 "operation": "abs",
                 "distribution": "uniform",
                 "axes": [0],
@@ -160,7 +165,8 @@ def make_insertion_env_cfg(
 
     ee_ground_collision_cfg = ContactSensorCfg(
         name="ee_ground_collision",
-        primary=ContactMatch(mode="subtree", pattern=robot.ee_subtree, entity="robot"),
+        # pattern set per-robot.
+        primary=ContactMatch(mode="subtree", pattern="", entity="robot"),
         secondary=ContactMatch(mode="body", pattern="terrain"),
         fields=("found", "force"),
         reduce="none",
@@ -266,7 +272,7 @@ def make_insertion_env_cfg(
         viewer=ViewerConfig(
             origin_type=ViewerConfig.OriginType.ASSET_BODY,
             entity_name="robot",
-            body_name=robot.viewer_body,
+            body_name="",  # Set per-robot.
             distance=1.5,
             elevation=-15.0,
             azimuth=150.0,
