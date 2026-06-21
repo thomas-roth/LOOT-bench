@@ -2,31 +2,28 @@ from __future__ import annotations
 
 import mujoco
 import torch
-
 from mjlab.entity import Entity
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 
 _SITE_ID_CACHE: dict[str, int] = {}
 
-_PEG_GRASP_CFG = SceneEntityCfg("sawyer", site_names=("pegGrasp",))
-_PEG_HEAD_CFG = SceneEntityCfg("sawyer", site_names=("pegHead",))
-_GOAL_CFG = SceneEntityCfg("sawyer", site_names=("goal",))
+# Peg sites live on the "peg" entity, end-effector/gripper on "sawyer",
+# the goal marker and the box-mouth collision corners on "box"/"world".
+_PEG_GRASP_CFG = SceneEntityCfg("peg", site_names=("pegGrasp",))
+_PEG_HEAD_CFG = SceneEntityCfg("peg", site_names=("pegHead",))
+_GOAL_CFG = SceneEntityCfg("world", site_names=("goal",))
 _EEF_CFG = SceneEntityCfg("sawyer", joint_names=("r_close", "l_close"))
 _EEF_RIGHT_CFG = SceneEntityCfg("sawyer", site_names=("rightEndEffector",))
 _EEF_LEFT_CFG = SceneEntityCfg("sawyer", site_names=("leftEndEffector",))
 _EEF_SITE_CFG = SceneEntityCfg("sawyer", site_names=("endEffector",))
 _EEF_BRC1_CFG = SceneEntityCfg(
-    "sawyer", site_names=("bottom_right_corner_collision_box_1",)
+    "box", site_names=("bottom_right_corner_collision_box_1",)
 )
-_EEF_TLC1_CFG = SceneEntityCfg(
-    "sawyer", site_names=("top_left_corner_collision_box_1",)
-)
+_EEF_TLC1_CFG = SceneEntityCfg("box", site_names=("top_left_corner_collision_box_1",))
 _EEF_BRC2_CFG = SceneEntityCfg(
-    "sawyer", site_names=("bottom_right_corner_collision_box_2",)
+    "box", site_names=("bottom_right_corner_collision_box_2",)
 )
-_EEF_TLC2_CFG = SceneEntityCfg(
-    "sawyer", site_names=("top_left_corner_collision_box_2",)
-)
+_EEF_TLC2_CFG = SceneEntityCfg("box", site_names=("top_left_corner_collision_box_2",))
 
 
 def _site_pos(asset: Entity, cfg: SceneEntityCfg) -> torch.Tensor:
@@ -63,8 +60,9 @@ def eef_to_peg_vec(
     peg_cfg: SceneEntityCfg = _PEG_GRASP_CFG,
     eef_cfg: SceneEntityCfg = _EEF_SITE_CFG,
 ) -> torch.Tensor:
-    asset: Entity = env.scene[peg_cfg.name]
-    return _site_pos(asset, peg_cfg) - _site_pos(asset, eef_cfg)
+    return _site_pos(env.scene[peg_cfg.name], peg_cfg) - _site_pos(
+        env.scene[eef_cfg.name], eef_cfg
+    )
 
 
 def peg_to_goal_vec(
@@ -72,8 +70,9 @@ def peg_to_goal_vec(
     peg_cfg: SceneEntityCfg = _PEG_HEAD_CFG,
     goal_cfg: SceneEntityCfg = _GOAL_CFG,
 ) -> torch.Tensor:
-    asset: Entity = env.scene[peg_cfg.name]
-    return _site_pos(asset, goal_cfg) - _site_pos(asset, peg_cfg)
+    return _site_pos(env.scene[goal_cfg.name], goal_cfg) - _site_pos(
+        env.scene[peg_cfg.name], peg_cfg
+    )
 
 
 def gripper_openness(env, eef_cfg: SceneEntityCfg = _EEF_CFG) -> torch.Tensor:
@@ -82,7 +81,10 @@ def gripper_openness(env, eef_cfg: SceneEntityCfg = _EEF_CFG) -> torch.Tensor:
     return q.sum(dim=-1, keepdim=True)
 
 
-def peg_quat(env, asset_cfg: SceneEntityCfg = SceneEntityCfg("sawyer")) -> torch.Tensor:
+_PEG_CFG = SceneEntityCfg("peg")
+
+
+def peg_quat(env, asset_cfg: SceneEntityCfg = _PEG_CFG) -> torch.Tensor:
     sim = env.unwrapped.sim
     mj_model = sim.mj_model
     jid = mujoco.mj_name2id(

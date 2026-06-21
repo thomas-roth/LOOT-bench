@@ -3,7 +3,6 @@ from __future__ import annotations
 import math
 
 import torch
-
 from mjlab.entity import Entity
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 
@@ -50,16 +49,19 @@ def peg_insertion_reward(
         asset: Entity = env.scene["sawyer"]
         return torch.zeros(env.num_envs, device=asset.data.joint_pos.device)
 
-    asset: Entity = env.scene[peg_cfg.name]
+    def sp(cfg: SceneEntityCfg) -> torch.Tensor:
+        # Sites are spread across entities (peg / sawyer / box); resolve each
+        # against its own entity.
+        return _site_pos(env.scene[cfg.name], cfg)
 
-    peg_pos = _site_pos(asset, peg_cfg)
-    peg_head = _site_pos(asset, peg_head_cfg)
-    right_finger = _site_pos(asset, _EEF_RIGHT_CFG)
-    left_finger = _site_pos(asset, _EEF_LEFT_CFG)
-    brc1 = _site_pos(asset, _EEF_BRC1_CFG)
-    tlc1 = _site_pos(asset, _EEF_TLC1_CFG)
-    brc2 = _site_pos(asset, _EEF_BRC2_CFG)
-    tlc2 = _site_pos(asset, _EEF_TLC2_CFG)
+    peg_pos = sp(peg_cfg)
+    peg_head = sp(peg_head_cfg)
+    right_finger = sp(_EEF_RIGHT_CFG)
+    left_finger = sp(_EEF_LEFT_CFG)
+    brc1 = sp(_EEF_BRC1_CFG)
+    tlc1 = sp(_EEF_TLC1_CFG)
+    brc2 = sp(_EEF_BRC2_CFG)
+    tlc2 = sp(_EEF_TLC2_CFG)
 
     goal = env.unwrapped.target_pos
     tcp = (right_finger + left_finger) / 2.0
@@ -89,9 +91,7 @@ def peg_insertion_reward(
     )
 
     lifted = (peg_pos[:, 2] - 0.01 > env.unwrapped.obj_init_pos[:, 2]).float()
-    grasped_and_lifted = (
-        (tcp_to_obj < 0.08).float() * (tcp_open > 0).float() * lifted
-    )
+    grasped_and_lifted = (tcp_to_obj < 0.08).float() * (tcp_open > 0).float() * lifted
     object_grasped = torch.where(
         grasped_and_lifted > 0,
         torch.ones_like(object_grasped),

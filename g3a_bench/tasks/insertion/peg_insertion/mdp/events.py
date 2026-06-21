@@ -3,8 +3,6 @@ from __future__ import annotations
 import mujoco
 import torch
 
-from mjlab.managers.scene_entity_config import SceneEntityCfg
-
 # MetaWorld's SawyerXYZEnv._reset_hand(): mocap target + open-gripper ctrl
 # while the <weld body1="mocap" body2="hand"> equality constraint pulls the
 # arm joints (right_j0-right_j6) from qpos0=0 into a reaching pose.
@@ -25,6 +23,10 @@ _MIN_PEG_BOX_DIST = 0.1  # native rejects samples closer than this in xy
 # up directly in front of the hole (shared y) for a clean, reproducible scene.
 _PEG_FIXED_XY = (0.04132, 0.66940)
 _BOX_FIXED_XY = (-0.28088, 0.66940)
+
+# Box orientation: 90 deg about z (matches the old euler="0 0 1.57"), as a
+# (w, x, y, z) quaternion. Applied via the box's mocap pose.
+_BOX_QUAT = (0.7073883, 0.0, 0.0, 0.7068252)
 
 
 def _sample_peg_box_xy() -> tuple[tuple[float, float], tuple[float, float]]:
@@ -48,24 +50,25 @@ def reset_peg_and_box(
     env,
     env_ids: torch.Tensor,
     randomize: bool = False,
-    asset_cfg: SceneEntityCfg = SceneEntityCfg("sawyer"),
 ) -> None:
+    # Peg / box / goal / mocap now live in separate mjlab entities, each
+    # attached under its own "<entity>/" name prefix.
     sim = env.unwrapped.sim
     mj_model = sim.mj_model
-    prefix = f"{asset_cfg.name}/"
 
-    peg_jnt_id = mujoco.mj_name2id(
-        mj_model, mujoco.mjtObj.mjOBJ_JOINT, prefix + "peg_free"
-    )
+    peg_jnt_id = mujoco.mj_name2id(mj_model, mujoco.mjtObj.mjOBJ_JOINT, "peg/peg_free")
     peg_qpos_adr = int(mj_model.jnt_qposadr[peg_jnt_id])
     peg_dof_adr = int(mj_model.jnt_dofadr[peg_jnt_id])
-    box_bid = mujoco.mj_name2id(mj_model, mujoco.mjtObj.mjOBJ_BODY, prefix + "box")
-    goal_sid = mujoco.mj_name2id(mj_model, mujoco.mjtObj.mjOBJ_SITE, prefix + "goal")
-    peg_head_sid = mujoco.mj_name2id(
-        mj_model, mujoco.mjtObj.mjOBJ_SITE, prefix + "pegHead"
-    )
-    mocap_bid = mujoco.mj_name2id(mj_model, mujoco.mjtObj.mjOBJ_BODY, prefix + "mocap")
+    goal_sid = mujoco.mj_name2id(mj_model, mujoco.mjtObj.mjOBJ_SITE, "world/goal")
+    peg_head_sid = mujoco.mj_name2id(mj_model, mujoco.mjtObj.mjOBJ_SITE, "peg/pegHead")
+    mocap_bid = mujoco.mj_name2id(mj_model, mujoco.mjtObj.mjOBJ_BODY, "sawyer/mocap")
     mocap_idx = int(mj_model.body_mocapid[mocap_bid])
+    # The box is a fixed-base entity, so mjlab wraps it in a "box/mocap_base"
+    # mocap body; its world pose is driven through that mocap, not body_pos.
+    box_mocap_bid = mujoco.mj_name2id(
+        mj_model, mujoco.mjtObj.mjOBJ_BODY, "box/mocap_base"
+    )
+    box_mocap_idx = int(mj_model.body_mocapid[box_mocap_bid])
 
     device = env_ids.device
     num_envs = env.num_envs
@@ -81,9 +84,7 @@ def reset_peg_and_box(
     for env_id in env_ids:
         i = int(env_id)
         sim.data.mocap_pos[i, mocap_idx] = torch.tensor(_HAND_INIT_POS, device=device)
-        sim.data.mocap_quat[i, mocap_idx] = torch.tensor(
-            _HAND_INIT_QUAT, device=device
-        )
+        sim.data.mocap_quat[i, mocap_idx] = torch.tensor(_HAND_INIT_QUAT, device=device)
 
     sim.data.ctrl[env_ids, 0] = -1.0
     sim.data.ctrl[env_ids, 1] = 1.0
@@ -113,13 +114,12 @@ def reset_peg_and_box(
             [peg_x, peg_y, peg_z], device=device
         )
 
-        sim.model.body_pos[i, box_bid] = torch.tensor(
+        sim.data.mocap_pos[i, box_mocap_idx] = torch.tensor(
             [box_x, box_y, box_z], device=device
         )
+        sim.data.mocap_quat[i, box_mocap_idx] = torch.tensor(_BOX_QUAT, device=device)
 
-        target = torch.tensor(
-            [box_x + 0.030, box_y, box_z + 0.130], device=device
-        )
+        target = torch.tensor([box_x + 0.030, box_y, box_z + 0.130], device=device)
         sim.model.site_pos[i, goal_sid] = target
         env.unwrapped.target_pos[i] = target
 

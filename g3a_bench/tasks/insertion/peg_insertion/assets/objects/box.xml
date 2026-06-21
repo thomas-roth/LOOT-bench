@@ -1,0 +1,16 @@
+<mujoco>
+    <!-- Box (with hole) as a standalone static mjlab entity (prefix "box/").
+         The box is fixed-base, so mjlab auto-wraps it in a "box/mocap_base"
+         mocap body and positions it per-env via the mocap pose. The box body
+         therefore sits at the wrapper origin (identity pos/rot); its world pose
+         (including the 90 deg z-rotation) is set entirely through the mocap
+         pose in the reset event. Asset paths resolve relative to
+         assets/objects/. -->
+    <include file="assets/peg_block_dependencies.xml"/>
+
+    <worldbody>
+        <body name="box" pos="0 0 0">
+            <include file="assets/peg_block.xml"/>
+        </body>
+    </worldbody>
+</mujoco>
