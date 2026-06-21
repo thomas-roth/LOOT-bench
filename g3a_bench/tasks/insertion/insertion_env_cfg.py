@@ -1,9 +1,11 @@
 """Environment configuration for the object-insertion task category."""
 
+from typing import Literal
+
 from mjlab.entity import EntityCfg
 from mjlab.envs import ManagerBasedRlEnvCfg, mdp
 from mjlab.envs.mdp import dr
-from mjlab.envs.mdp.actions import JointPositionActionCfg
+from mjlab.envs.mdp.actions import DifferentialIKActionCfg, JointPositionActionCfg
 from mjlab.managers.action_manager import ActionTermCfg
 from mjlab.managers.command_manager import CommandTermCfg
 from mjlab.managers.curriculum_manager import CurriculumTermCfg
@@ -34,10 +36,53 @@ from g3a_bench.tasks.insertion.variants import InsertionVariantCfg
 
 COMMAND_NAME = "insertion"
 
+ActionMode = Literal["eef", "joint"]
+"""``"eef"``: task-space end-effector control (differential IK) for the arm plus
+a direct gripper joint action -- the standard mode. ``"joint"``: the original
+joint-position (angle-based) control over all actuators, kept as an option."""
+
+
+def _make_actions(action_mode: ActionMode) -> dict[str, ActionTermCfg]:
+    """Build the action block for the chosen control mode.
+
+    Robot-specific fields (actuator names, IK frame, scales) are left as
+    placeholders and filled by ``wire_manipulator_into_env``.
+    """
+    if action_mode == "joint":
+        return {
+            "joint_pos": JointPositionActionCfg(
+                entity_name="robot",
+                actuator_names=(".*",),
+                scale=0.5,  # Set per-robot.
+                use_default_offset=True,
+            )
+        }
+    # EEF mode: differential-IK on the arm + a direct gripper joint action.
+    return {
+        "arm": DifferentialIKActionCfg(
+            entity_name="robot",
+            actuator_names=(),  # Arm joints set per-robot.
+            frame_type="site",
+            frame_name="",  # Grasp site set per-robot.
+            use_relative_mode=True,
+            delta_pos_scale=0.05,  # Action [-1,1] -> up to 5 cm EEF move/step.
+            delta_ori_scale=0.1,  # Action [-1,1] -> up to 0.1 rad/step.
+            orientation_weight=1.0,  # 6D pose tracking (peg axis alignment).
+            joint_limit_weight=1.0,  # Steer away from joint limits.
+        ),
+        "gripper": JointPositionActionCfg(
+            entity_name="robot",
+            actuator_names=(),  # Gripper joints set per-robot.
+            scale=1.0,  # Set per-robot.
+            use_default_offset=True,
+        ),
+    }
+
 
 def make_insertion_env_cfg(
     variant: InsertionVariantCfg,
     play: bool = False,
+    action_mode: ActionMode = "eef",
 ) -> ManagerBasedRlEnvCfg:
     """Build the robot-agnostic insertion cfg.
 
@@ -45,6 +90,9 @@ def make_insertion_env_cfg(
     scale, friction geoms, end-effector subtree, viewer body, and no ``"robot"``
     scene entity). Fill them by calling ``wire_manipulator_into_env`` with a
     concrete ``ManipulatorInterface`` before registering the task.
+
+    ``action_mode`` selects task-space EEF control (``"eef"``, the standard) or
+    joint-position control (``"joint"``); see :data:`ActionMode`.
     """
     two_sheet = variant.kind == "two_sheet"
     peg_names = tuple(f"peg_{i}" for i in range(len(variant.peg_shapes)))
@@ -114,14 +162,7 @@ def make_insertion_env_cfg(
         "critic": ObservationGroupCfg(dict(actor_terms), enable_corruption=False),
     }
 
-    actions: dict[str, ActionTermCfg] = {
-        "joint_pos": JointPositionActionCfg(
-            entity_name="robot",
-            actuator_names=(".*",),
-            scale=0.5,  # Set per-robot.
-            use_default_offset=True,
-        )
-    }
+    actions = _make_actions(action_mode)
 
     commands: dict[str, CommandTermCfg] = {
         COMMAND_NAME: ins_mdp.InsertionCommandCfg(

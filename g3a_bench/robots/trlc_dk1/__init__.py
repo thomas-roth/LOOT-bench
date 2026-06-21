@@ -24,6 +24,10 @@ def get_unimanual_dk1_interface() -> ManipulatorInterface:
         ee_subtree=DK1_EE_SUBTREE,
         finger_pad_geoms=DK1_PAD_GEOM_PATTERN,
         viewer_body=DK1_VIEWER_BODY,
+        # Arm joints driven by the EEF/IK controller; gripper kept on its own
+        # joint action (only gripper_left is actuated, see dk1_actuators).
+        arm_actuators=tuple(f"joint{i}" for i in range(1, 7)),
+        gripper_actuators=("gripper_left",),
     )
 
 

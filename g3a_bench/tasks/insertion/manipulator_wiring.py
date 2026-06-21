@@ -8,8 +8,10 @@ the insertion-specific term layout (grasp-site terms differ from the cube
 example, and the ``two_sheet`` variant adds extra grasp-site terms).
 """
 
+import re
+
 from mjlab.envs import ManagerBasedRlEnvCfg
-from mjlab.envs.mdp.actions import JointPositionActionCfg
+from mjlab.envs.mdp.actions import DifferentialIKActionCfg, JointPositionActionCfg
 from mjlab.sensor import ContactSensorCfg
 
 from g3a_bench.robots.interface import ManipulatorInterface
@@ -35,9 +37,7 @@ def wire_manipulator_into_env(
     """
     cfg.scene.entities["robot"] = manipulator.entity_cfg_fn()
 
-    action = cfg.actions["joint_pos"]
-    assert isinstance(action, JointPositionActionCfg)
-    action.scale = manipulator.action_scale
+    _wire_actions(cfg, manipulator)
 
     grasp = (manipulator.grasp_site,)
     for group in cfg.observations.values():
@@ -60,3 +60,45 @@ def wire_manipulator_into_env(
             sensor.primary.pattern = manipulator.ee_subtree
 
     cfg.viewer.body_name = manipulator.viewer_body
+
+
+def _wire_actions(cfg: ManagerBasedRlEnvCfg, manipulator: ManipulatorInterface) -> None:
+    """Fill robot-specific action fields for whichever action mode is active.
+
+    ``"joint"`` mode has a single ``"joint_pos"`` term; ``"eef"`` mode has an
+    ``"arm"`` differential-IK term plus a ``"gripper"`` joint term (see
+    ``make_insertion_env_cfg``).
+    """
+    if "joint_pos" in cfg.actions:  # joint (angle-based) control.
+        action = cfg.actions["joint_pos"]
+        assert isinstance(action, JointPositionActionCfg)
+        action.scale = manipulator.action_scale
+        return
+
+    # EEF control: IK drives the arm via the grasp site, gripper stays direct.
+    arm = cfg.actions["arm"]
+    assert isinstance(arm, DifferentialIKActionCfg)
+    arm.actuator_names = manipulator.arm_actuators
+    arm.frame_name = manipulator.grasp_site
+
+    gripper = cfg.actions["gripper"]
+    assert isinstance(gripper, JointPositionActionCfg)
+    gripper.actuator_names = manipulator.gripper_actuators
+    gripper.scale = _scale_for(manipulator.action_scale, manipulator.gripper_actuators)
+
+
+def _scale_for(
+    action_scale: dict[str, float] | float, actuators: tuple[str, ...]
+) -> dict[str, float] | float:
+    """Restrict a per-actuator scale dict to ``actuators`` (pass scalars through).
+
+    The full ``action_scale`` dict covers every actuator; a per-term action only
+    accepts scales for its own targets, so keys outside ``actuators`` are dropped.
+    """
+    if not isinstance(action_scale, dict):
+        return action_scale
+    return {
+        name: val
+        for name, val in action_scale.items()
+        if any(re.fullmatch(pat, name) for pat in actuators)
+    }
