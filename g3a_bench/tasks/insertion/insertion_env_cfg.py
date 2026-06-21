@@ -232,22 +232,15 @@ def make_insertion_env_cfg(
         history_length=4,
     )
 
+    # Sparse reward design: the task signal is only the (near-)binary outcome of
+    # actually inserting pegs -- no dense distance/depth shaping. This is meant to
+    # be paired with a demonstration pipeline (GELLO teleop -> offline-to-online
+    # RL), which supplies the exploration that dense shaping previously provided.
+    # The dense terms (``staged_next_socket_reward``, ``insertion_depth_reward``,
+    # ``sheet_alignment_reward``) are left defined in ``mdp/rewards.py`` so this is
+    # a one-line switch back if needed.
     rewards = {
-        "staged_next_socket": RewardTermCfg(
-            func=ins_mdp.staged_next_socket_reward,
-            weight=1.0,
-            params={
-                "command_name": COMMAND_NAME,
-                "reaching_std": 0.2,
-                "bringing_std": 0.3,
-                "asset_cfg": grasp_cfg,
-            },
-        ),
-        "insertion_depth": RewardTermCfg(
-            func=ins_mdp.insertion_depth_reward,
-            weight=2.0,
-            params={"command_name": COMMAND_NAME},
-        ),
+        # Sparse task signal: only fires when pegs are genuinely inserted.
         "inserted_count": RewardTermCfg(
             func=ins_mdp.inserted_count_reward,
             weight=2.0,
@@ -255,9 +248,10 @@ def make_insertion_env_cfg(
         ),
         "success": RewardTermCfg(
             func=ins_mdp.success_reward,
-            weight=2.0,
+            weight=5.0,
             params={"command_name": COMMAND_NAME},
         ),
+        # Regularization (not task shaping): keep motions smooth and feasible.
         "action_rate_l2": RewardTermCfg(func=mdp.action_rate_l2, weight=-0.01),
         "joint_pos_limits": RewardTermCfg(
             func=mdp.joint_pos_limits,
@@ -273,17 +267,6 @@ def make_insertion_env_cfg(
             },
         ),
     }
-    if two_sheet:
-        rewards["sheet_alignment"] = RewardTermCfg(
-            func=ins_mdp.sheet_alignment_reward,
-            weight=1.5,
-            params={
-                "command_name": COMMAND_NAME,
-                "reaching_std": 0.2,
-                "bringing_std": 0.05,
-                "asset_cfg": grasp_cfg,
-            },
-        )
 
     terminations = {
         "time_out": TerminationTermCfg(func=mdp.time_out, time_out=True),
