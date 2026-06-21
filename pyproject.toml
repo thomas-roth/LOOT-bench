@@ -27,10 +27,12 @@ packages = ["g3a_bench"]
 [project.optional-dependencies]
 cpu = [
     "torch",
+    "torchvision",
     "mjlab[cpu]>=1.4.0",
 ]
 cu128 = [
     "torch",
+    "torchvision",
     "mjlab[cu128]>=1.4.0",
 ]
 
@@ -54,6 +56,10 @@ explicit = true
 
 [tool.uv.sources]
 torch = [
+    { index = "pytorch-cpu", extra = "cpu" },
+    { index = "pytorch-cu128", extra = "cu128" },
+]
+torchvision = [
     { index = "pytorch-cpu", extra = "cpu" },
     { index = "pytorch-cu128", extra = "cu128" },
 ]

@@ -197,6 +197,31 @@ class LiveReader(Reader):
             timestamp=time.time(),
         )
 
+    def send_action(self, action_np: np.ndarray) -> dict[str, Any]:
+        """Send a (7,) numpy action to the real follower arm.
+
+        Converts the standard bridge format (numpy array of
+        [joint_1..joint_6, gripper]) to the dict format expected by
+        DK1Follower.send_action() and sends it.
+
+        Args:
+            action_np: (7,) array — joints in radians, gripper in [0, 1].
+        Returns:
+            The action dict that was sent to the follower.
+        """
+        if self._follower is None:
+            raise RuntimeError("Follower not connected. Call .connect() first.")
+        action_dict = {
+            "joint_1.pos": float(action_np[0]),
+            "joint_2.pos": float(action_np[1]),
+            "joint_3.pos": float(action_np[2]),
+            "joint_4.pos": float(action_np[3]),
+            "joint_5.pos": float(action_np[4]),
+            "joint_6.pos": float(action_np[5]),
+            "gripper.pos": float(action_np[6]),
+        }
+        return self._follower.send_action(action_dict)
+
     def close(self):
         if self._follower is not None:
             self._follower.disconnect()

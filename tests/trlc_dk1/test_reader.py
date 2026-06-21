@@ -117,7 +117,9 @@ class TestDatasetReaderIntegration:
         assert len(frames) == 10
         # Timestamps should increase
         timestamps = [f.timestamp for f in frames]
-        assert all(t2 >= t1 for t1, t2 in zip(timestamps, timestamps[1:], strict=True))
+        assert all(
+            t2 >= t1 for t1, t2 in zip(timestamps[:-1], timestamps[1:], strict=True)
+        )
         reader.close()
 
 
@@ -142,9 +144,22 @@ class TestLiveReader:
         mock_leader_cls.assert_not_called()
         reader.close()
 
+    @patch(
+        "g3a_bench.scripts.live_bridge.reader.DK1FollowerConfig",
+        return_value=MagicMock(),
+    )
+    @patch(
+        "g3a_bench.scripts.live_bridge.reader.DK1LeaderConfig", return_value=MagicMock()
+    )
     @patch("g3a_bench.scripts.live_bridge.reader.DK1Follower")
     @patch("g3a_bench.scripts.live_bridge.reader.DK1Leader")
-    def test_connect_on_init(self, mock_leader_cls, mock_follower_cls):
+    def test_connect_on_init(
+        self,
+        mock_leader_cls,
+        mock_follower_cls,
+        mock_leader_cfg_cls,
+        mock_follower_cfg_cls,
+    ):
         from g3a_bench.scripts.live_bridge.reader import LiveReader
 
         reader = LiveReader(
@@ -158,9 +173,22 @@ class TestLiveReader:
         mock_leader_cls.return_value.connect.assert_called_once()
         reader.close()
 
+    @patch(
+        "g3a_bench.scripts.live_bridge.reader.DK1FollowerConfig",
+        return_value=MagicMock(),
+    )
+    @patch(
+        "g3a_bench.scripts.live_bridge.reader.DK1LeaderConfig", return_value=MagicMock()
+    )
     @patch("g3a_bench.scripts.live_bridge.reader.DK1Follower")
     @patch("g3a_bench.scripts.live_bridge.reader.DK1Leader")
-    def test_read_returns_readerframe(self, mock_leader_cls, mock_follower_cls):
+    def test_read_returns_readerframe(
+        self,
+        mock_leader_cls,
+        mock_follower_cls,
+        mock_leader_cfg_cls,
+        mock_follower_cfg_cls,
+    ):
         from g3a_bench.scripts.live_bridge.reader import LiveReader
 
         # Mock observation from follower
@@ -199,9 +227,22 @@ class TestLiveReader:
         assert "wrist" in frame.cameras
         reader.close()
 
+    @patch(
+        "g3a_bench.scripts.live_bridge.reader.DK1FollowerConfig",
+        return_value=MagicMock(),
+    )
+    @patch(
+        "g3a_bench.scripts.live_bridge.reader.DK1LeaderConfig", return_value=MagicMock()
+    )
     @patch("g3a_bench.scripts.live_bridge.reader.DK1Follower")
     @patch("g3a_bench.scripts.live_bridge.reader.DK1Leader")
-    def test_close_disconnects(self, mock_leader_cls, mock_follower_cls):
+    def test_close_disconnects(
+        self,
+        mock_leader_cls,
+        mock_follower_cls,
+        mock_leader_cfg_cls,
+        mock_follower_cfg_cls,
+    ):
         from g3a_bench.scripts.live_bridge.reader import LiveReader
 
         mock_follower = MagicMock()
@@ -217,3 +258,73 @@ class TestLiveReader:
         reader.close()
         mock_follower.disconnect.assert_called_once()
         mock_leader.disconnect.assert_called_once()
+
+    @patch(
+        "g3a_bench.scripts.live_bridge.reader.DK1FollowerConfig",
+        return_value=MagicMock(),
+    )
+    @patch(
+        "g3a_bench.scripts.live_bridge.reader.DK1LeaderConfig", return_value=MagicMock()
+    )
+    @patch("g3a_bench.scripts.live_bridge.reader.DK1Follower")
+    @patch("g3a_bench.scripts.live_bridge.reader.DK1Leader")
+    def test_send_action(
+        self,
+        mock_leader_cls,
+        mock_follower_cls,
+        mock_leader_cfg_cls,
+        mock_follower_cfg_cls,
+    ):
+        from g3a_bench.scripts.live_bridge.reader import LiveReader
+
+        mock_follower = MagicMock()
+        mock_follower_cls.return_value = mock_follower
+
+        reader = LiveReader(
+            follower_port="/dev/ttyACM_test",
+            leader_port="/dev/ttyUSB_test",
+            connect_on_init=True,
+        )
+
+        action_np = np.array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7], dtype=np.float32)
+        result = reader.send_action(action_np)
+
+        mock_follower.send_action.assert_called_once()
+        sent = mock_follower.send_action.call_args[0][0]
+        assert sent == {
+            "joint_1.pos": float(action_np[0]),
+            "joint_2.pos": float(action_np[1]),
+            "joint_3.pos": float(action_np[2]),
+            "joint_4.pos": float(action_np[3]),
+            "joint_5.pos": float(action_np[4]),
+            "joint_6.pos": float(action_np[5]),
+            "gripper.pos": float(action_np[6]),
+        }
+        assert result == mock_follower.send_action.return_value
+        reader.close()
+
+    @patch(
+        "g3a_bench.scripts.live_bridge.reader.DK1FollowerConfig",
+        return_value=MagicMock(),
+    )
+    @patch(
+        "g3a_bench.scripts.live_bridge.reader.DK1LeaderConfig", return_value=MagicMock()
+    )
+    @patch("g3a_bench.scripts.live_bridge.reader.DK1Follower")
+    @patch("g3a_bench.scripts.live_bridge.reader.DK1Leader")
+    def test_send_action_raises_without_connect(
+        self,
+        mock_leader_cls,
+        mock_follower_cls,
+        mock_leader_cfg_cls,
+        mock_follower_cfg_cls,
+    ):
+        from g3a_bench.scripts.live_bridge.reader import LiveReader
+
+        reader = LiveReader(
+            follower_port="/dev/ttyACM_test",
+            leader_port="/dev/ttyUSB_test",
+            connect_on_init=False,
+        )
+        with pytest.raises(RuntimeError, match="not connected"):
+            reader.send_action(np.zeros(7))
