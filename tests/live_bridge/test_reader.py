@@ -206,11 +206,17 @@ class TestLiveReader:
         }
         mock_follower_cls.return_value = mock_follower
 
-        # Mock leader action
+        # Mock leader action — real contract: get_action() returns a dict.
         mock_leader = MagicMock()
-        mock_leader.get_action.return_value = np.array(
-            [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], dtype=np.float32
-        )
+        mock_leader.get_action.return_value = {
+            "joint_1.pos": 0.0,
+            "joint_2.pos": 0.0,
+            "joint_3.pos": 0.0,
+            "joint_4.pos": 0.0,
+            "joint_5.pos": 0.0,
+            "joint_6.pos": 0.0,
+            "gripper.pos": 0.0,
+        }
         mock_leader_cls.return_value = mock_leader
 
         reader = LiveReader(
@@ -312,6 +318,49 @@ class TestLiveReader:
     )
     @patch("g3a_bench.scripts.live_bridge.reader.DK1Follower")
     @patch("g3a_bench.scripts.live_bridge.reader.DK1Leader")
+    def test_read_leader_action_dict_is_unpacked_in_order(
+        self, mock_leader_cls, mock_follower_cls, mock_leader_cfg, mock_follower_cfg
+    ):
+        from g3a_bench.scripts.live_bridge.reader import LiveReader
+
+        mock_follower = MagicMock()
+        mock_follower.get_observation.return_value = {
+            f"joint_{i}.pos": 0.0 for i in range(1, 7)
+        } | {"gripper.pos": 0.0}
+        mock_follower_cls.return_value = mock_follower
+
+        mock_leader = MagicMock()
+        # REAL contract: get_action() returns a dict, not an array.
+        mock_leader.get_action.return_value = {
+            "joint_1.pos": 0.1,
+            "joint_2.pos": 0.2,
+            "joint_3.pos": 0.3,
+            "joint_4.pos": 0.4,
+            "joint_5.pos": 0.5,
+            "joint_6.pos": 0.6,
+            "gripper.pos": 0.7,
+        }
+        mock_leader_cls.return_value = mock_leader
+
+        reader = LiveReader("/dev/ttyACM_x", "/dev/ttyUSB_x", connect_on_init=True)
+        frame = reader.read()
+        assert frame.leader_action is not None
+        assert frame.leader_action.shape == (7,)
+        assert frame.leader_action.dtype == np.float32
+        np.testing.assert_allclose(
+            frame.leader_action, [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7], rtol=1e-6
+        )
+        reader.close()
+
+    @patch(
+        "g3a_bench.scripts.live_bridge.reader.DK1FollowerConfig",
+        return_value=MagicMock(),
+    )
+    @patch(
+        "g3a_bench.scripts.live_bridge.reader.DK1LeaderConfig", return_value=MagicMock()
+    )
+    @patch("g3a_bench.scripts.live_bridge.reader.DK1Follower")
+    @patch("g3a_bench.scripts.live_bridge.reader.DK1Leader")
     def test_send_action_raises_without_connect(
         self,
         mock_leader_cls,
@@ -328,3 +377,63 @@ class TestLiveReader:
         )
         with pytest.raises(RuntimeError, match="not connected"):
             reader.send_action(np.zeros(7))
+
+
+class _FakePort:
+    """Minimal stand-in for a pyserial ListPortInfo (device/description/vid)."""
+
+    def __init__(self, device, desc="", vid=None):
+        self.device = device
+        self.description = desc
+        self.vid = vid
+
+
+def test_find_ports_uses_pyserial(monkeypatch):
+    """_find_ports() classifies leader/follower from pyserial's enumeration
+    (cross-platform), not from Linux-only /dev globbing."""
+    import g3a_bench.scripts.live_bridge.reader as reader_mod
+
+    fake = [
+        _FakePort("COM3", "USB Serial (GELLO)"),
+        _FakePort("COM4", "DM CAN follower"),
+    ]
+    monkeypatch.setattr(reader_mod, "_list_comports", lambda: fake, raising=False)
+
+    leader, follower = reader_mod._find_ports()
+    assert leader == "COM3"
+    assert follower == "COM4"
+
+
+def test_find_ports_prefers_device_path(monkeypatch):
+    """Linux tty paths are unambiguous and must win over description text, so
+    role assignment never depends on enumeration order."""
+    import g3a_bench.scripts.live_bridge.reader as reader_mod
+
+    # Deliberately list the follower first to prove ordering doesn't matter.
+    fake = [
+        _FakePort("/dev/ttyACM0", "some adapter"),
+        _FakePort("/dev/ttyUSB0", "some adapter"),
+    ]
+    monkeypatch.setattr(reader_mod, "_list_comports", lambda: fake, raising=False)
+
+    leader, follower = reader_mod._find_ports()
+    assert leader == "/dev/ttyUSB0"
+    assert follower == "/dev/ttyACM0"
+
+
+def test_find_ports_ftdi_vid_identifies_leader(monkeypatch):
+    """The Windows-swap fix: when both ports report ambiguous "USB Serial
+    Device" text, the FTDI vendor id pins the leader and the other port
+    becomes the follower by elimination (instead of a silent swap)."""
+    import g3a_bench.scripts.live_bridge.reader as reader_mod
+
+    # Follower listed first, both with leader-colliding description text.
+    fake = [
+        _FakePort("COM7", "USB Serial Device", vid=0x0483),  # STM CDC follower
+        _FakePort("COM5", "USB Serial Device", vid=reader_mod._FTDI_VID),  # leader
+    ]
+    monkeypatch.setattr(reader_mod, "_list_comports", lambda: fake, raising=False)
+
+    leader, follower = reader_mod._find_ports()
+    assert leader == "COM5"
+    assert follower == "COM7"

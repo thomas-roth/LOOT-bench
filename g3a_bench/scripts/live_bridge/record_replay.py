@@ -41,6 +41,10 @@ def main():
     # 1. Load cube task config (play mode: infinite, no noise).
     cfg = load_env_cfg("G3a-Cube-Stack3-Dk1_uni", play=True)
     cfg.terminations["time_out"].time_out = False
+    # Drop ee_ground_collision: it survives the play-mode termination pop, and a
+    # single >10 N gripper-vs-ground contact in the replayed trajectory would
+    # auto-reset the env mid-episode (auto_reset=True) and corrupt the recording.
+    cfg.terminations.pop("ee_ground_collision", None)
 
     # 2. Create environment.
     env = ManagerBasedRlEnv(cfg=cfg, device=device)
@@ -56,12 +60,20 @@ def main():
     logs_dir = LOGS_DIR
     repo_id = "sim_replay_cube_stack3"
     dataset_root = logs_dir / repo_id
-    recorder = Recorder(repo_id=repo_id, fps=50, obs_dim=53, root=str(dataset_root))
+    # Derive the sim observation width from the env rather than hardcoding it,
+    # so a different task (with a different actor-obs size) still records a
+    # correctly-shaped dataset.
+    obs_dim = int(env.get_observations()["actor"].shape[-1])
+    recorder = Recorder(
+        repo_id=repo_id, fps=50, obs_dim=obs_dim, root=str(dataset_root)
+    )
     save_path = logs_dir / repo_id
     print(f"[INFO] Recording to {save_path}")
 
     # 5. Policy that reads dataset + records results.
-    replay = _ReplayAndRecord(reader, recorder, total_frames, device)
+    replay = _ReplayAndRecord(
+        reader, recorder, total_frames, device, task="G3a-Cube-Stack3-Dk1_uni"
+    )
 
     # 6. Launch native viewer with recording.
     print("[INFO] Starting Native MuJoCo viewer (recording enabled)")
@@ -92,11 +104,13 @@ class _ReplayAndRecord:
         recorder: Recorder,
         total_frames: int,
         device: str,
+        task: str = "",
     ):
         self.reader = reader
         self.recorder = recorder
         self.total_frames = total_frames
         self.device = device
+        self.task = task
         self.frames_recorded = 0
         self.recording_finished = False
 
@@ -152,6 +166,7 @@ class _ReplayAndRecord:
             self._last_action_np,
             rew,
             done,
+            task=self.task,
             robot_obs=self._last_robot_obs,
         )
         self.frames_recorded += 1

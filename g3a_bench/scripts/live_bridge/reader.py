@@ -110,17 +110,137 @@ class DatasetReader(Reader):
         pass
 
 
-def _find_ports() -> tuple[str | None, str | None]:
-    """Auto-detect leader and follower serial ports.
+# Substring hints (lowercase) used to classify enumerated serial ports.
+# Leader = GELLO / Dynamixel USB-serial adapter (FTDI/U2D2 -> ttyUSB on Linux,
+# usbserial on macOS). Follower = DM-motor CAN/CDC-ACM adapter (ttyACM on
+# Linux, usbmodem on macOS).
+_LEADER_PORT_HINTS = (
+    "gello",
+    "ftdi",
+    "u2d2",
+    "dynamixel",
+    "usb-serial",
+    "usb serial",
+    "usbserial",
+    "ttyusb",
+)
+_FOLLOWER_PORT_HINTS = ("can", "cdc", "ttyacm", "usbmodem")
 
-    Heuristic: leader (GELLO / Dynamixel) appears as ttyUSB*,
-    follower (DM motors) appears as ttyACM*.
-    Falls back gracefully — returns None for any not found.
+
+def _list_comports() -> list:
+    """Return available serial ports via pyserial (cross-platform).
+
+    Wrapped in its own function so it can be monkeypatched in tests and so a
+    missing/broken pyserial degrades to an empty list rather than raising.
     """
-    tty_usb = sorted(Path("/dev").glob("ttyUSB*"))
-    tty_acm = sorted(Path("/dev").glob("ttyACM*"))
-    leader = str(tty_usb[0]) if tty_usb else None
-    follower = str(tty_acm[0]) if tty_acm else None
+    try:
+        from serial.tools import list_ports
+
+        return list(list_ports.comports())
+    except Exception:
+        return []
+
+
+def _port_text(port) -> str:
+    parts = [
+        getattr(port, "device", "") or "",
+        getattr(port, "description", "") or "",
+        getattr(port, "manufacturer", "") or "",
+    ]
+    return " ".join(parts).lower()
+
+
+# USB vendor id that strongly identifies the leader regardless of OS-supplied
+# description text. The GELLO/Dynamixel U2D2 adapter is an FTDI device; the
+# DM-motor follower adapter is not, so an FTDI port is the leader.
+_FTDI_VID = 0x0403
+
+
+def _role_from_device_path(device: str) -> str | None:
+    """Linux /dev names are unambiguous: ttyUSB*=leader, ttyACM*=follower."""
+    d = device.lower()
+    if "ttyusb" in d:
+        return "leader"
+    if "ttyacm" in d:
+        return "follower"
+    return None
+
+
+def _find_ports() -> tuple[str | None, str | None]:
+    """Auto-detect (leader, follower) serial ports, cross-platform.
+
+    Classification is layered strongest-first so the result can't silently
+    swap roles:
+
+      1. Linux device path (``ttyUSB``=leader, ``ttyACM``=follower) — unambiguous.
+      2. FTDI USB vendor id → leader (the U2D2/GELLO adapter is FTDI; the DM-motor
+         follower adapter is not). This resolves Windows ``COMx`` ports where the
+         driver description is ambiguous.
+      3. Description/manufacturer substring hints (weak — a CDC follower often
+         reports "USB Serial Device", which collides with the leader hints).
+      4. Two-port elimination: if exactly one role is known and one port is left,
+         the leftover fills the other role.
+
+    When a role is resolved only by the weak steps (3/4), a warning is printed
+    because that path can mis-assign on Windows — pass explicit ports to be sure.
+    Falls back to Linux ``/dev`` globbing when enumeration yields nothing.
+    """
+    ports = _list_comports()
+    if not ports:
+        # Fallback: Linux /dev globbing (original behaviour).
+        tty_usb = sorted(Path("/dev").glob("ttyUSB*"))
+        tty_acm = sorted(Path("/dev").glob("ttyACM*"))
+        leader = str(tty_usb[0]) if tty_usb else None
+        follower = str(tty_acm[0]) if tty_acm else None
+        return leader, follower
+
+    leader: str | None = None
+    follower: str | None = None
+    unresolved: list = []
+    used_weak = False
+
+    # Pass 1 — strong signals: Linux device path, then FTDI vendor id (leader).
+    for p in ports:
+        device = getattr(p, "device", None)
+        role = _role_from_device_path(device or "")
+        if role is None and getattr(p, "vid", None) == _FTDI_VID:
+            role = "leader"
+        if role == "leader" and leader is None:
+            leader = device
+        elif role == "follower" and follower is None:
+            follower = device
+        else:
+            unresolved.append(p)
+
+    # Pass 2 — weak signals: description/manufacturer substring hints.
+    leftover: list[str | None] = []
+    for p in unresolved:
+        device = getattr(p, "device", None)
+        text = _port_text(p)
+        if leader is None and any(h in text for h in _LEADER_PORT_HINTS):
+            leader = device
+            used_weak = True
+        elif follower is None and any(h in text for h in _FOLLOWER_PORT_HINTS):
+            follower = device
+            used_weak = True
+        else:
+            leftover.append(device)
+
+    # Pass 3 — two-port elimination for a single remaining unclassified port.
+    if leader is None and follower is not None and len(leftover) == 1:
+        leader = leftover[0]
+        used_weak = True
+    elif follower is None and leader is not None and len(leftover) == 1:
+        follower = leftover[0]
+        used_weak = True
+
+    if used_weak:
+        print(
+            "[WARN] Serial ports auto-detected from ambiguous USB description "
+            "text (no Linux tty path or FTDI vendor id). On Windows this can "
+            "swap leader/follower — verify, or pass --follower-port / "
+            "--leader-port explicitly."
+        )
     return leader, follower
 
 
@@ -143,7 +263,7 @@ class LiveReader(Reader):
                 "lerobot_robot_trlc_dk1 not installed — cannot connect to real robot. "
                 "Run: uv pip install -e /path/to/trlc-dk1"
             )
-        assert DK1Follower is not None  # help pyright narrow after guard
+        assert DK1Follower is not None
         # Auto-detect any unspecified ports
         if follower_port is None or leader_port is None:
             auto_leader, auto_follower = _find_ports()
@@ -186,10 +306,23 @@ class LiveReader(Reader):
         for cam_name in ("context", "wrist"):
             if cam_name in obs:
                 cameras[cam_name] = obs[cam_name]
-        # Get leader action if connected
+        # Get leader action if connected. get_action() returns a dict
+        # {joint_1.pos..joint_6.pos, gripper.pos}; unpack in fixed order.
         leader_action = None
         if self._leader is not None:
-            leader_action = np.asarray(self._leader.get_action(), dtype=np.float32)
+            la = self._leader.get_action()
+            leader_action = np.array(
+                [
+                    la["joint_1.pos"],
+                    la["joint_2.pos"],
+                    la["joint_3.pos"],
+                    la["joint_4.pos"],
+                    la["joint_5.pos"],
+                    la["joint_6.pos"],
+                    la["gripper.pos"],
+                ],
+                dtype=np.float32,
+            )
         return ReaderFrame(
             joint_pos=joint_pos,
             leader_action=leader_action,

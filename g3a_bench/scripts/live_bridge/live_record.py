@@ -19,9 +19,6 @@ Usage:
     Optionally specify ports:
     uv run --extra cpu python g3a_bench/scripts/live_bridge/live_record.py \
         --follower-port /dev/ttyACM0 --leader-port /dev/ttyUSB0
-
-    Headless (no window, server):
-    uv run --extra cpu python g3a_bench/scripts/live_bridge/live_record.py --headless
 """
 
 # Load lerobot/HF-datasets native libs before mjlab/mujoco-warp to avoid a
@@ -53,6 +50,7 @@ def _hw_loop(
     action_list: list,
     robot_obs_list: list,
     shutdown_flag: list,
+    hw_failed: list,
     follower_port: str | None,
     leader_port: str | None,
 ):
@@ -66,6 +64,8 @@ def _hw_loop(
         action_list: Single-element list updated with latest (7,) leader action.
         robot_obs_list: Single-element list updated with latest (7,) robot obs.
         shutdown_flag: Single-element list; set [True] to stop the loop.
+        hw_failed: Single-element list; set [True] if the loop crashes so the
+            viewer can abort instead of recording frozen frames.
         follower_port: Serial port for follower arm.
         leader_port: Serial port for leader (GELLO) controller.
     """
@@ -93,6 +93,13 @@ def _hw_loop(
                 time.sleep(sleep_time)
     except KeyboardInterrupt:
         pass
+    except Exception:
+        # A serial hiccup / unplug must not leave the sim silently recording a
+        # frozen stale action. Flag it so the viewer aborts the session cleanly.
+        hw_failed[0] = True
+        shutdown_flag[0] = True
+        print("[HW] ERROR — hardware thread crashed:")
+        traceback.print_exc()
     finally:
         reader.close()
         print("[HW] Thread stopped")
@@ -136,10 +143,14 @@ class _LiveRecordingViewer(NativeMujocoViewer):
         policy,
         recorder: Recorder,
         robot_obs_list: list,
+        hw_failed: list,
+        task: str = "",
         **kwargs,
     ):
         self._recorder = recorder
         self._robot_obs_list = robot_obs_list
+        self._hw_failed = hw_failed
+        self._task = task
         self._episode_recorded = False
         super().__init__(
             env,
@@ -149,6 +160,15 @@ class _LiveRecordingViewer(NativeMujocoViewer):
         )
 
     def _execute_step(self) -> bool:
+        if self._hw_failed[0]:
+            # Hardware thread died — stop the session instead of recording
+            # frozen frames. _interrupted breaks the viewer's run() loop.
+            self.log(
+                "[ERROR] Hardware thread failed — aborting session.",
+                VerbosityLevel.SILENT,
+            )
+            self._interrupted = True
+            return False
         try:
             with torch.no_grad():
                 obs = self.env.get_observations()
@@ -163,6 +183,7 @@ class _LiveRecordingViewer(NativeMujocoViewer):
                         leader_action,
                         float(rew[0]),
                         bool(dones[0]),
+                        task=self._task,
                         robot_obs=robot_obs,
                     )
 
@@ -207,24 +228,6 @@ def main():
         default=None,
         help="Output directory (default: logs/live_record/)",
     )
-    parser.add_argument(
-        "--num-episodes",
-        type=int,
-        default=5,
-        help="Number of episodes to record (auto-reset on done)",
-    )
-    parser.add_argument(
-        "--framerate-mode",
-        type=str,
-        default="decoupled",
-        choices=["decoupled", "every-n", "as-fast"],
-        help="How to handle teleop/sim framerate mismatch",
-    )
-    parser.add_argument(
-        "--headless",
-        action="store_true",
-        help="Disable native viewer window (no sim visualisation)",
-    )
     args = parser.parse_args()
 
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
@@ -233,6 +236,12 @@ def main():
     # 1. Load task config (play mode: infinite, no noise).
     cfg = load_env_cfg(args.task, play=True)
     cfg.terminations["time_out"].time_out = False
+    # Play mode pops the success termination but leaves ee_ground_collision
+    # active. The scene has no table — cubes rest on the ground plane — so the
+    # gripper approaches z=0 to pick/place. A single >10 N contact would fire
+    # the termination and (auto_reset=True) snap the arm home + respawn cubes
+    # mid-demo, gluing two trajectories into one episode. Drop it for teleop.
+    cfg.terminations.pop("ee_ground_collision", None)
 
     # 2. Create environment.
     env = ManagerBasedRlEnv(cfg=cfg, device=device)
@@ -247,13 +256,20 @@ def main():
         import shutil
 
         shutil.rmtree(dataset_root)
-    recorder = Recorder(repo_id=repo_id, fps=50, obs_dim=53, root=str(dataset_root))
-    print(f"[INFO] Recording to {dataset_root}")
+    # Derive the sim observation width from the live env instead of hardcoding
+    # it, so a different --task (with a different actor-obs size) still records a
+    # correctly-shaped dataset.
+    obs_dim = int(env.get_observations()["actor"].shape[-1])
+    recorder = Recorder(
+        repo_id=repo_id, fps=50, obs_dim=obs_dim, root=str(dataset_root)
+    )
+    print(f"[INFO] Recording to {dataset_root} (obs_dim={obs_dim})")
 
     # 4. Shared single-element lists (GIL-safe last-writer-wins).
     action_list: list = [None]
     robot_obs_list: list = [None]
     shutdown_flag: list = [False]
+    hw_failed: list = [False]
 
     # 5. Start HW thread (reads leader → sends to follower → fills lists).
     hw_thread = threading.Thread(
@@ -262,6 +278,7 @@ def main():
             action_list,
             robot_obs_list,
             shutdown_flag,
+            hw_failed,
             args.follower_port,
             args.leader_port,
         ),
@@ -272,14 +289,6 @@ def main():
 
     # 6. Create live policy and viewer.
     live_policy = _LivePolicy(action_list, device)
-    episodes_recorded = [0]
-
-    if args.framerate_mode == "decoupled":
-        pass
-    elif args.framerate_mode == "every-n":
-        print("[WARN] every-n mode not implemented — falling back to decoupled")
-    elif args.framerate_mode == "as-fast":
-        print("[WARN] as-fast mode not implemented — falling back to decoupled")
 
     print("[INFO] Starting native MuJoCo viewer")
     print("[INFO] Move the leader arm to control the sim and follower")
@@ -291,16 +300,25 @@ def main():
             policy=live_policy,
             recorder=recorder,
             robot_obs_list=robot_obs_list,
+            hw_failed=hw_failed,
+            task=args.task,
         )
         viewer.run()
     finally:
         shutdown_flag[0] = True
         hw_thread.join(timeout=2.0)
+        frames = recorder.num_frames_in_episode
         recorder.end_episode()
         recorder.close()
         env.close()
+        episodes = 1 if frames > 0 else 0
         print(f"[INFO] Done. Dataset saved to {dataset_root}")
-        print(f"[INFO] Episodes recorded: {episodes_recorded[0]}")
+        print(f"[INFO] Episodes recorded: {episodes} ({frames} frames)")
+        if hw_failed[0]:
+            print(
+                "[WARN] Session ended due to a hardware-thread failure "
+                "(see traceback above) — the saved episode may be incomplete."
+            )
 
 
 if __name__ == "__main__":

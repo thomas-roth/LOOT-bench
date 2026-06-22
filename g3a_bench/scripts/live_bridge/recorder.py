@@ -31,6 +31,7 @@ class Recorder:
             features=features,
             root=root,
         )
+        self._episode_frames = 0
 
     def add_frame(
         self,
@@ -57,9 +58,19 @@ class Recorder:
                 "task": task,
             }
         )
+        self._episode_frames += 1
+
+    @property
+    def num_frames_in_episode(self) -> int:
+        return self._episode_frames
 
     def end_episode(self) -> None:
+        # Don't save an empty episode (e.g. clean exit before any frame was
+        # recorded). LeRobotDataset.save_episode() on an empty buffer errors.
+        if self._episode_frames == 0:
+            return
         self.dataset.save_episode()
+        self._episode_frames = 0
 
     def close(self) -> None:
         self.dataset.finalize()
