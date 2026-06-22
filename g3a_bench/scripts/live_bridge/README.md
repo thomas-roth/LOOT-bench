@@ -57,7 +57,7 @@ uv run --extra cpu python g3a_bench/scripts/live_bridge/record_replay.py
 ### `live_record.py` — live teleop + sim mirroring + recording
 
 Requires real hardware. Reads the GELLO leader at ~200 Hz, mirrors it in the
-sim at ~50 Hz, and records everything.
+sim at ~50 Hz, and records multiple labeled demonstrations in one session.
 
 ```bash
 # ports auto-detected (reliable on Linux)
@@ -68,21 +68,34 @@ uv run python g3a_bench/scripts/live_bridge/live_record.py \
     --follower-port /dev/ttyACM0 \
     --leader-port /dev/ttyUSB0
 
-# different task
+# stop automatically after N saved episodes
+uv run python g3a_bench/scripts/live_bridge/live_record.py --num-episodes 10
+
+# write to a specific directory (must not exist)
 uv run python g3a_bench/scripts/live_bridge/live_record.py \
-    --task G3a-Cube-Stack3-Dk1_uni
+    --dataset-dir path/to/my_dataset
 ```
 
 **What happens:**
 1. Loads the task in play mode (no noise, infinite episode)
 2. Starts a background thread reading the leader at ~200 Hz and commanding the follower
 3. Opens a MuJoCo viewer; move the leader arm to drive the sim and the follower
-4. Records sim obs (`observation.state`, 53-dim) + real robot state (`observation.robot_state`, 7-dim) + leader action + reward + done
-5. On close: finalizes the dataset, prints frame/episode count
+4. Records sim obs (`observation.state`) + real robot state (`observation.robot_state`) + leader action + reward + done, **buffered in memory** until you label the episode
+5. Press a key to label and save, discard, or stop (see below)
 
-**Output:** `g3a_bench/scripts/live_bridge/logs/live_record/`
+**Key bindings:**
 
-**Warning:** the dataset directory is **wiped on each run**. Move or copy it before starting a new session if you want to keep the previous recording.
+| Key | Action |
+|-----|--------|
+| `S` | Save current episode as **success** → reset scene → start next |
+| `F` | Save current episode as **failure** → reset scene → start next |
+| `D` | **Discard** current episode → reset scene → redo |
+| `Q` | Stop session and finalize dataset |
+
+**Output:** `g3a_bench/scripts/live_bridge/logs/live_record/<YYYY-MM-DD_HH-MM-SS>/`
+
+Each session creates a new timestamped directory. Data is **never overwritten**.
+If `--dataset-dir` is given and already exists, the script errors rather than wiping it.
 
 **Port auto-detection:** on Linux, `/dev/ttyUSB*` = leader, `/dev/ttyACM*` = follower — unambiguous. On Windows, ports are `COMx` and detection uses the USB vendor id (FTDI = leader). If detection prints `[WARN]`, pass ports explicitly.
 
@@ -94,7 +107,7 @@ uv run python g3a_bench/scripts/live_bridge/live_record.py \
 |------|------|
 | `reader.py` | `LiveReader` (real robot, 200 Hz), `DatasetReader` (offline replay). Both return `ReaderFrame(joint_pos, leader_action, timestamp)`. |
 | `mapper.py` | Converts real-robot joint/gripper values to MuJoCo raw action format. `lerobot_to_mjlab_raw_action(leader_action)` is the main entry point. |
-| `recorder.py` | Wraps `LeRobotDataset`. `add_frame()` buffers; `end_episode()` flushes to disk; `close()` finalizes metadata. |
+| `recorder.py` | Wraps `LeRobotDataset`. `add_frame()` buffers frames in memory; `save_episode(success)` flushes with a label; `discard_episode()` drops the buffer; `close()` finalizes metadata. |
 | `live_record.py` | Main live teleop script. HW thread (~200 Hz) + sim viewer thread (50 Hz), decoupled via single-element lists. |
 | `record_replay.py` | Offline replay + recording. No hardware. |
 
@@ -111,6 +124,7 @@ Each recorded frame contains:
 | `action` | (7,) | Leader command: same format as robot_state |
 | `next.reward` | (1,) | Reward returned by env.step() for this frame |
 | `next.done` | (1,) | Whether the episode terminated after this step |
+| `success` | (1,) | Operator label: `True` = success, `False` = failure (constant within an episode) |
 | `task` | str | Task id, e.g. `G3a-Cube-Stack3-Dk1_uni` |
 
 ---
