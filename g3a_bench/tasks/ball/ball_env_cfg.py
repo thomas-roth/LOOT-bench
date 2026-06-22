@@ -19,7 +19,6 @@ from mjlab.terrains import TerrainEntityCfg
 from mjlab.utils.noise import UniformNoiseCfg as Unoise
 from mjlab.viewer import ViewerConfig
 
-from g3a_bench.robots.interface import ManipulatorInterface
 from g3a_bench.tasks.ball import mdp as ball_mdp
 from g3a_bench.tasks.ball.assets import get_ball_spec, get_field_spec
 from g3a_bench.tasks.ball.variants import BallVariantCfg
@@ -87,14 +86,21 @@ def _action_rewards(
 
 def make_ball_env_cfg(
     variant: BallVariantCfg,
-    robot: ManipulatorInterface,
     play: bool = False,
 ) -> ManagerBasedRlEnvCfg:
-    entities: dict[str, EntityCfg] = {"robot": robot.entity_cfg_fn()}
-    entities["field"] = EntityCfg(spec_fn=lambda v=variant: get_field_spec(v))
-    entities["ball"] = EntityCfg(spec_fn=get_ball_spec)
+    """Build the robot-agnostic ball cfg.
 
-    grasp_cfg = SceneEntityCfg("robot", site_names=(robot.grasp_site,))
+    Robot-specific knobs are left as placeholders here (empty grasp site, action
+    scale, friction geoms, viewer body, and no ``"robot"`` scene entity). Fill
+    them by calling ``wire_manipulator_into_env`` with a concrete
+    ``ManipulatorInterface`` before registering the task.
+    """
+    entities: dict[str, EntityCfg] = {
+        "field": EntityCfg(spec_fn=lambda v=variant: get_field_spec(v)),
+        "ball": EntityCfg(spec_fn=get_ball_spec),
+    }
+
+    grasp_cfg = SceneEntityCfg("robot", site_names=())  # Set per-robot.
 
     actor_terms = {
         "joint_pos": ObservationTermCfg(
@@ -133,7 +139,7 @@ def make_ball_env_cfg(
         "joint_pos": JointPositionActionCfg(
             entity_name="robot",
             actuator_names=(".*",),
-            scale=robot.action_scale,
+            scale=0.5,  # Set per-robot.
             use_default_offset=True,
         )
     }
@@ -175,7 +181,7 @@ def make_ball_env_cfg(
             mode="startup",
             func=dr.geom_friction,
             params={
-                "asset_cfg": SceneEntityCfg("robot", geom_names=robot.finger_pad_geoms),
+                "asset_cfg": SceneEntityCfg("robot", geom_names=()),  # Set per-robot.
                 "operation": "abs",
                 "distribution": "uniform",
                 "axes": [0],
@@ -255,7 +261,7 @@ def make_ball_env_cfg(
         viewer=ViewerConfig(
             origin_type=ViewerConfig.OriginType.ASSET_BODY,
             entity_name="robot",
-            body_name=robot.viewer_body,
+            body_name="",  # Set per-robot.
             distance=1.6,
             elevation=-20.0,
             azimuth=150.0,
