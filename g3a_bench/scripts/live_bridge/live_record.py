@@ -13,11 +13,17 @@ Architecture (decoupled threads):
   Main thread (LiveReaderViewer, sim-paced):
       pop latest action → mapper → env.step() → recorder.add_frame()
 
+Key bindings during recording:
+    S  save current episode as SUCCESS → reset scene → next episode
+    F  save current episode as FAILURE → reset scene → next episode
+    D  discard current episode → reset scene → redo
+    Q  stop session and finalize dataset
+
 Usage:
     uv run --extra cpu python g3a_bench/scripts/live_bridge/live_record.py
 
     Optionally specify ports:
-    uv run --extra cpu python g3a_bench/scripts/live_bridge/live_record.py \
+    uv run --extra cpu python g3a_bench/scripts/live_bridge/live_record.py \\
         --follower-port /dev/ttyACM0 --leader-port /dev/ttyUSB0
 """
 
@@ -26,6 +32,7 @@ Usage:
 import lerobot.datasets.lerobot_dataset  # noqa: F401,E402,I001
 
 import argparse
+import datetime
 import threading
 import time
 import traceback
@@ -38,6 +45,7 @@ from mjlab.rl import RslRlVecEnvWrapper
 from mjlab.tasks.registry import load_env_cfg
 from mjlab.viewer import NativeMujocoViewer
 from mjlab.viewer.base import VerbosityLevel
+from mjlab.viewer.native.keys import KEY_D, KEY_F, KEY_Q, KEY_S
 
 import g3a_bench  # noqa: F401
 from g3a_bench.scripts.live_bridge.mapper import lerobot_to_mjlab_raw_action
@@ -130,11 +138,14 @@ class _LivePolicy:
 
 
 class _LiveRecordingViewer(NativeMujocoViewer):
-    """NativeMujocoViewer that records obs/action/reward/done per step.
+    """NativeMujocoViewer that records obs/action/reward/done per step and
+    supports keyboard-controlled multi-episode recording.
 
-    Overrides ``_execute_step`` to capture reward and done (the base
-    viewer discards them).  After each step the frame is recorded via
-    the provided ``Recorder``.
+    Keys (in addition to viewer built-ins):
+        S  save episode as success → reset → next
+        F  save episode as failure → reset → next
+        D  discard episode → reset → redo
+        Q  stop session
     """
 
     def __init__(
@@ -145,19 +156,65 @@ class _LiveRecordingViewer(NativeMujocoViewer):
         robot_obs_list: list,
         hw_failed: list,
         task: str = "",
+        num_episodes: int = 0,
         **kwargs,
     ):
         self._recorder = recorder
         self._robot_obs_list = robot_obs_list
         self._hw_failed = hw_failed
         self._task = task
-        self._episode_recorded = False
+        self._num_episodes = num_episodes
+        self.episodes_saved = 0
         super().__init__(
             env,
             policy,
             verbosity=VerbosityLevel.DEBUG,
+            key_callback=self._on_key,
             **kwargs,
         )
+
+    def _on_key(self, key: int) -> None:
+        # Runs on the viewer thread → only enqueue; actions are processed on
+        # the main thread in _handle_custom_action to avoid racing the step loop.
+        if key == KEY_S:
+            self.request_action("CUSTOM", "save_success")
+        elif key == KEY_F:
+            self.request_action("CUSTOM", "save_failure")
+        elif key == KEY_D:
+            self.request_action("CUSTOM", "discard")
+        elif key == KEY_Q:
+            self._interrupted = True
+
+    def _handle_custom_action(self, action, payload) -> bool:  # type: ignore[override]
+        if payload == "save_success":
+            self._end_episode(success=True)
+        elif payload == "save_failure":
+            self._end_episode(success=False)
+        elif payload == "discard":
+            frames = self._recorder.num_frames_in_episode
+            self._recorder.discard_episode()
+            print(f"[INFO] Episode discarded ({frames} frames dropped)")
+            self.reset_environment()
+        else:
+            return False
+        return True
+
+    def _end_episode(self, success: bool) -> None:
+        frames = self._recorder.num_frames_in_episode
+        if frames == 0:
+            print("[INFO] Nothing to save (no frames recorded yet)")
+            return
+        self._recorder.save_episode(success=success)
+        self.episodes_saved += 1
+        label = "SUCCESS" if success else "FAILURE"
+        print(
+            f"[INFO] Episode {self.episodes_saved} saved as {label} ({frames} frames)"
+        )
+        if self._num_episodes and self.episodes_saved >= self._num_episodes:
+            print(f"[INFO] Reached {self._num_episodes} episodes — stopping")
+            self._interrupted = True
+        else:
+            self.reset_environment()
 
     def _execute_step(self) -> bool:
         if self._hw_failed[0]:
@@ -226,7 +283,16 @@ def main():
         "--dataset-dir",
         type=str,
         default=None,
-        help="Output directory (default: logs/live_record/)",
+        help=(
+            "Output directory. Defaults to logs/live_record/<timestamp>/. "
+            "Errors if the directory already exists (data is never overwritten)."
+        ),
+    )
+    parser.add_argument(
+        "--num-episodes",
+        type=int,
+        default=0,
+        help="Stop after N saved episodes (0 = record until Q is pressed).",
     )
     args = parser.parse_args()
 
@@ -248,30 +314,32 @@ def main():
     env = RslRlVecEnvWrapper(env)
     print("[INFO] Environment created")
 
-    # 3. Set up recorder.
-    logs_dir = args.dataset_dir or str(LOGS_DIR / "live_record")
-    repo_id = "live_record"
-    dataset_root = Path(logs_dir)
-    if dataset_root.exists():
-        import shutil
+    # 3. Resolve dataset output directory — never wipe existing data.
+    if args.dataset_dir:
+        dataset_root = Path(args.dataset_dir)
+        if dataset_root.exists():
+            raise SystemExit(
+                f"[ERROR] {dataset_root} already exists — choose a new --dataset-dir "
+                "(refusing to overwrite recorded data)."
+            )
+    else:
+        stamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        dataset_root = LOGS_DIR / "live_record" / stamp
 
-        shutil.rmtree(dataset_root)
-    # Derive the sim observation width from the live env instead of hardcoding
-    # it, so a different --task (with a different actor-obs size) still records a
-    # correctly-shaped dataset.
+    # 4. Set up recorder.
     obs_dim = int(env.get_observations()["actor"].shape[-1])
     recorder = Recorder(
-        repo_id=repo_id, fps=50, obs_dim=obs_dim, root=str(dataset_root)
+        repo_id="live_record", fps=50, obs_dim=obs_dim, root=str(dataset_root)
     )
     print(f"[INFO] Recording to {dataset_root} (obs_dim={obs_dim})")
 
-    # 4. Shared single-element lists (GIL-safe last-writer-wins).
+    # 5. Shared single-element lists (GIL-safe last-writer-wins).
     action_list: list = [None]
     robot_obs_list: list = [None]
     shutdown_flag: list = [False]
     hw_failed: list = [False]
 
-    # 5. Start HW thread (reads leader → sends to follower → fills lists).
+    # 6. Start HW thread (reads leader → sends to follower → fills lists).
     hw_thread = threading.Thread(
         target=_hw_loop,
         args=(
@@ -287,13 +355,14 @@ def main():
     hw_thread.start()
     print("[INFO] Hardware thread started (reading leader at ~200 Hz)")
 
-    # 6. Create live policy and viewer.
+    # 7. Create live policy and viewer.
     live_policy = _LivePolicy(action_list, device)
 
     print("[INFO] Starting native MuJoCo viewer")
     print("[INFO] Move the leader arm to control the sim and follower")
-    print("[INFO] Close the viewer window or press Ctrl+C to stop")
+    print("[INFO] Keys:  S=save success   F=save failure   D=discard/redo   Q=stop")
 
+    viewer: _LiveRecordingViewer | None = None
     try:
         viewer = _LiveRecordingViewer(
             env=env,
@@ -302,22 +371,21 @@ def main():
             robot_obs_list=robot_obs_list,
             hw_failed=hw_failed,
             task=args.task,
+            num_episodes=args.num_episodes,
         )
         viewer.run()
     finally:
         shutdown_flag[0] = True
         hw_thread.join(timeout=2.0)
-        frames = recorder.num_frames_in_episode
-        recorder.end_episode()
+        recorder.discard_episode()  # drop any partial unsaved episode
         recorder.close()
         env.close()
-        episodes = 1 if frames > 0 else 0
-        print(f"[INFO] Done. Dataset saved to {dataset_root}")
-        print(f"[INFO] Episodes recorded: {episodes} ({frames} frames)")
+        saved = viewer.episodes_saved if viewer is not None else 0
+        print(f"[INFO] Done. Saved {saved} episode(s) to {dataset_root}")
         if hw_failed[0]:
             print(
                 "[WARN] Session ended due to a hardware-thread failure "
-                "(see traceback above) — the saved episode may be incomplete."
+                "(see traceback above) — the saved episodes may be incomplete."
             )
 
 

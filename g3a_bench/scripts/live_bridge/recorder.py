@@ -24,6 +24,7 @@ class Recorder:
             "action": {"dtype": "float32", "shape": (7,), "names": None},
             "next.reward": {"dtype": "float32", "shape": (1,), "names": None},
             "next.done": {"dtype": "bool", "shape": (1,), "names": None},
+            "success": {"dtype": "bool", "shape": (1,), "names": None},
         }
         self.dataset = LeRobotDataset.create(
             repo_id,
@@ -31,7 +32,7 @@ class Recorder:
             features=features,
             root=root,
         )
-        self._episode_frames = 0
+        self._pending: list[dict] = []
 
     def add_frame(
         self,
@@ -42,9 +43,11 @@ class Recorder:
         task: str = "",
         robot_obs: np.ndarray | None = None,
     ) -> None:
+        # Buffer frames in memory until save_episode() is called with a label.
+        # Nothing is written to the dataset until then, enabling discard/redo.
         if robot_obs is None:
             robot_obs = np.zeros(7, dtype=np.float32)
-        self.dataset.add_frame(
+        self._pending.append(
             {
                 "observation.state": obs_buf["actor"][0]
                 .cpu()
@@ -58,19 +61,28 @@ class Recorder:
                 "task": task,
             }
         )
-        self._episode_frames += 1
 
     @property
     def num_frames_in_episode(self) -> int:
-        return self._episode_frames
+        return len(self._pending)
 
-    def end_episode(self) -> None:
-        # Don't save an empty episode (e.g. clean exit before any frame was
-        # recorded). LeRobotDataset.save_episode() on an empty buffer errors.
-        if self._episode_frames == 0:
+    def save_episode(self, success: bool) -> None:
+        """Flush buffered frames stamped with the operator's label, then persist.
+
+        No-op if nothing was buffered (avoids empty/garbage episodes).
+        """
+        if not self._pending:
             return
+        label = np.array([success], dtype=bool)
+        for frame in self._pending:
+            frame["success"] = label
+            self.dataset.add_frame(frame)
         self.dataset.save_episode()
-        self._episode_frames = 0
+        self._pending = []
+
+    def discard_episode(self) -> None:
+        """Drop the current episode without saving (operator rejected the demo)."""
+        self._pending = []
 
     def close(self) -> None:
         self.dataset.finalize()

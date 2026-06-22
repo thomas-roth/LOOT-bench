@@ -9,6 +9,7 @@ from g3a_bench.scripts.live_bridge.recorder import Recorder
 class TestRecorder:
     @patch("g3a_bench.scripts.live_bridge.recorder.LeRobotDataset")
     def test_create_dataset(self, mock_dataset_cls):
+        """Dataset is created on init with the expected feature schema."""
         mock_ds = MagicMock()
         mock_dataset_cls.create.return_value = mock_ds
         rec = Recorder(repo_id="test/ds", fps=30, obs_dim=10)
@@ -16,56 +17,124 @@ class TestRecorder:
         assert rec.dataset is mock_ds
 
     @patch("g3a_bench.scripts.live_bridge.recorder.LeRobotDataset")
-    def test_add_frame(self, mock_dataset_cls):
-        mock_ds = MagicMock()
-        mock_dataset_cls.create.return_value = mock_ds
-        rec = Recorder(repo_id="test/ds", fps=30, obs_dim=10)
-        action = np.zeros(7, dtype=np.float32)
-        rec.add_frame(
-            obs_buf={"actor": torch.zeros(1, 10)},
-            action=action,
-            reward=0.5,
-            done=False,
-            task="cube",
-        )
-        mock_ds.add_frame.assert_called_once()
-        call_frame = mock_ds.add_frame.call_args[0][0]
-        assert call_frame["observation.state"].shape == (10,)
-        assert call_frame["action"].shape == (7,)
-        assert call_frame["next.reward"] == np.array([0.5], dtype=np.float32)
-
-    @patch("g3a_bench.scripts.live_bridge.recorder.LeRobotDataset")
-    def test_end_episode_and_close(self, mock_dataset_cls):
+    def test_add_frame_buffers_until_save(self, mock_dataset_cls):
+        """add_frame must NOT write to the dataset yet -- frames are held in a
+        buffer so the whole episode can be labeled success/failure at the end."""
         mock_ds = MagicMock()
         mock_dataset_cls.create.return_value = mock_ds
         rec = Recorder(repo_id="test/ds", fps=30, obs_dim=10)
         rec.add_frame(
             obs_buf={"actor": torch.zeros(1, 10)},
             action=np.zeros(7, dtype=np.float32),
-            reward=0.0,
+            reward=0.5,
             done=False,
+            task="cube",
         )
-        rec.end_episode()
+        mock_ds.add_frame.assert_not_called()
+        assert rec.num_frames_in_episode == 1
+        frame = rec._pending[0]
+        assert frame["observation.state"].shape == (10,)
+        assert frame["action"].shape == (7,)
+        assert frame["next.reward"] == np.array([0.5], dtype=np.float32)
+
+    @patch("g3a_bench.scripts.live_bridge.recorder.LeRobotDataset")
+    def test_save_episode_labels_frames_success(self, mock_dataset_cls):
+        """save_episode(True) flushes every buffered frame stamped success=True,
+        then saves -- that label is what training filters on."""
+        mock_ds = MagicMock()
+        mock_dataset_cls.create.return_value = mock_ds
+        rec = Recorder(repo_id="test/ds", fps=30, obs_dim=10)
+        rec.add_frame(
+            {"actor": torch.zeros(1, 10)}, np.zeros(7, np.float32), 0.0, False
+        )
+        rec.save_episode(success=True)
+        assert mock_ds.add_frame.call_count == 1
+        flushed = mock_ds.add_frame.call_args[0][0]
+        assert flushed["success"].dtype == bool
+        assert bool(flushed["success"][0]) is True
         mock_ds.save_episode.assert_called_once()
+        assert rec.num_frames_in_episode == 0
+
+    @patch("g3a_bench.scripts.live_bridge.recorder.LeRobotDataset")
+    def test_save_episode_labels_frames_failure(self, mock_dataset_cls):
+        """save_episode(False) stamps success=False so failures are kept separate."""
+        mock_ds = MagicMock()
+        mock_dataset_cls.create.return_value = mock_ds
+        rec = Recorder(repo_id="test/ds", fps=30, obs_dim=10)
+        rec.add_frame(
+            {"actor": torch.zeros(1, 10)}, np.zeros(7, np.float32), 0.0, False
+        )
+        rec.save_episode(success=False)
+        flushed = mock_ds.add_frame.call_args[0][0]
+        assert bool(flushed["success"][0]) is False
+
+    @patch("g3a_bench.scripts.live_bridge.recorder.LeRobotDataset")
+    def test_save_episode_flushes_all_frames(self, mock_dataset_cls):
+        """Every buffered frame is flushed on save, not just the first."""
+        mock_ds = MagicMock()
+        mock_dataset_cls.create.return_value = mock_ds
+        rec = Recorder(repo_id="test/ds", fps=30, obs_dim=10)
+        for _ in range(3):
+            rec.add_frame(
+                {"actor": torch.zeros(1, 10)}, np.zeros(7, np.float32), 0.0, False
+            )
+        rec.save_episode(success=True)
+        assert mock_ds.add_frame.call_count == 3
+
+    @patch("g3a_bench.scripts.live_bridge.recorder.LeRobotDataset")
+    def test_discard_episode_drops_buffer(self, mock_dataset_cls):
+        """discard_episode() throws away the current episode without saving --
+        the operator must be able to reject a botched demo."""
+        mock_ds = MagicMock()
+        mock_dataset_cls.create.return_value = mock_ds
+        rec = Recorder(repo_id="test/ds", fps=30, obs_dim=10)
+        rec.add_frame(
+            {"actor": torch.zeros(1, 10)}, np.zeros(7, np.float32), 0.0, False
+        )
+        rec.discard_episode()
+        assert rec.num_frames_in_episode == 0
+        mock_ds.add_frame.assert_not_called()
+        mock_ds.save_episode.assert_not_called()
+
+    @patch("g3a_bench.scripts.live_bridge.recorder.LeRobotDataset")
+    def test_save_episode_empty_is_noop(self, mock_dataset_cls):
+        """Saving with nothing buffered must not write an empty episode."""
+        mock_ds = MagicMock()
+        mock_dataset_cls.create.return_value = mock_ds
+        rec = Recorder(repo_id="test/ds", fps=30, obs_dim=10)
+        rec.save_episode(success=True)
+        mock_ds.save_episode.assert_not_called()
+
+    @patch("g3a_bench.scripts.live_bridge.recorder.LeRobotDataset")
+    def test_close_finalizes_dataset(self, mock_dataset_cls):
+        """close() calls finalize() on the underlying dataset."""
+        mock_ds = MagicMock()
+        mock_dataset_cls.create.return_value = mock_ds
+        rec = Recorder(repo_id="test/ds", fps=30, obs_dim=10)
         rec.close()
         mock_ds.finalize.assert_called_once()
 
     @patch("g3a_bench.scripts.live_bridge.recorder.LeRobotDataset")
-    def test_end_episode_skips_when_empty(self, mock_dataset_cls):
+    def test_discard_then_save_new_episode(self, mock_dataset_cls):
+        """After discard, a fresh episode can be buffered and saved normally."""
         mock_ds = MagicMock()
         mock_dataset_cls.create.return_value = mock_ds
         rec = Recorder(repo_id="test/ds", fps=30, obs_dim=10)
-        rec.end_episode()  # nothing added
-        mock_ds.save_episode.assert_not_called()
+        rec.add_frame(
+            {"actor": torch.zeros(1, 10)}, np.zeros(7, np.float32), 0.0, False
+        )
+        rec.discard_episode()
+        rec.add_frame({"actor": torch.zeros(1, 10)}, np.zeros(7, np.float32), 1.0, True)
+        rec.save_episode(success=True)
+        assert mock_ds.add_frame.call_count == 1
+        mock_ds.save_episode.assert_called_once()
 
 
 def test_recorder_real_roundtrip(tmp_path):
     """Un-mocked round-trip against the installed lerobot.
 
-    Uses the SAME add_frame signature the live/replay scripts use --
-    ``task`` omitted, so it defaults to "" -- then reads the dataset back
-    the way offline training would, so a future lerobot bump can't silently
-    break the schema or the empty-task path.
+    Verifies the buffering+label path end-to-end: add frames, save with
+    success=True, read back and confirm the success column persists.
     """
     from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
@@ -79,7 +148,7 @@ def test_recorder_real_roundtrip(tmp_path):
             bool(i),
             robot_obs=np.zeros(7, dtype=np.float32),
         )
-    rec.end_episode()
+    rec.save_episode(success=True)
     rec.close()
 
     ds = LeRobotDataset("test_roundtrip", root=str(root))
@@ -89,3 +158,4 @@ def test_recorder_real_roundtrip(tmp_path):
     assert np.asarray(frame["observation.state"]).shape == (53,)
     assert np.asarray(frame["observation.robot_state"]).shape == (7,)
     assert np.asarray(frame["action"]).shape == (7,)
+    assert bool(np.asarray(frame["success"]).flatten()[0]) is True
