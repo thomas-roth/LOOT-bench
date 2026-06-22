@@ -29,7 +29,11 @@ COMMAND_NAME = "ball_target"
 def _action_rewards(
     variant: BallVariantCfg, grasp_cfg: SceneEntityCfg
 ) -> dict[str, RewardTermCfg]:
-    """Action-specific shaping (golf strike / push guide / throw)."""
+    """Action-specific dense shaping (golf strike / push guide / throw).
+
+    Not used in the default sparse reward setup; kept defined so re-enabling it
+    is a one-line ``rewards.update(_action_rewards(...))`` in ``make_ball_env_cfg``.
+    """
     if variant.action == "golf":
         return {
             "strike": RewardTermCfg(
@@ -190,17 +194,21 @@ def make_ball_env_cfg(
         ),
     }
 
+    # Sparse reward design: the task signal is only the (near-)binary outcome of
+    # the ball reaching the target -- no dense distance/strike/reach/push shaping.
+    # This is meant to be paired with a demonstration pipeline (GELLO teleop ->
+    # offline-to-online RL), which supplies the exploration that dense shaping
+    # previously provided. The dense terms (``ball_distance_reward`` and the
+    # action-specific shaping assembled by ``_action_rewards``) are left defined so
+    # this is a one-line switch back if needed (re-add the ``rewards.update`` below).
     rewards = {
-        "ball_distance": RewardTermCfg(
-            func=ball_mdp.ball_distance_reward,
-            weight=2.0,
-            params={"command_name": COMMAND_NAME, "std": 0.15},
-        ),
+        # Sparse task signal: only fires while the ball is at the target.
         "success": RewardTermCfg(
             func=ball_mdp.success_reward,
-            weight=3.0,
+            weight=5.0,
             params={"command_name": COMMAND_NAME},
         ),
+        # Regularization (not task shaping): keep motions smooth and feasible.
         "action_rate_l2": RewardTermCfg(func=mdp.action_rate_l2, weight=-0.01),
         "joint_pos_limits": RewardTermCfg(
             func=mdp.joint_pos_limits,
@@ -216,7 +224,8 @@ def make_ball_env_cfg(
             },
         ),
     }
-    rewards.update(_action_rewards(variant, grasp_cfg))
+    # Dense shaping, disabled for the sparse + demonstration setup. Re-enable with:
+    # rewards.update(_action_rewards(variant, grasp_cfg))
 
     terminations = {
         "time_out": TerminationTermCfg(func=mdp.time_out, time_out=True),
