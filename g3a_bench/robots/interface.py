@@ -27,6 +27,10 @@ class ManipulatorInterface:
     finger_pad_geoms: str
     """Regex matching the fingertip pad geoms (friction domain randomization)."""
     viewer_body: str
+    arm_joints_expr: str
+    """Regex matching arm joint actuators (IK-controlled, excludes gripper)."""
+    gripper_actuator_expr: str
+    """Name of the actuated gripper joint (the other finger is coupled via equality)."""
 
 
 def get_dk1_interface() -> ManipulatorInterface:
@@ -40,4 +44,22 @@ def get_dk1_interface() -> ManipulatorInterface:
         ee_subtree="link6-7",
         finger_pad_geoms=r"finger_(left|right)_pad_collision",
         viewer_body="base",
+        arm_joints_expr=r"joint\d",
+        gripper_actuator_expr="gripper_left",
+    )
+
+
+def get_yam_interface() -> ManipulatorInterface:
+    from mjlab.asset_zoo.robots import YAM_ACTION_SCALE, get_yam_robot_cfg
+
+    return ManipulatorInterface(
+        name="Yam",
+        entity_cfg_fn=get_yam_robot_cfg,
+        action_scale=YAM_ACTION_SCALE,
+        grasp_site="grasp_site",
+        ee_subtree="link_6",
+        finger_pad_geoms=r"(lf|rf)_down.*_collision",
+        viewer_body="arm",
+        arm_joints_expr=r"joint\d",
+        gripper_actuator_expr="left_finger",
     )

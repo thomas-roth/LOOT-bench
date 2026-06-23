@@ -1,5 +1,5 @@
 from mjlab.envs import ManagerBasedRlEnvCfg
-from mjlab.envs.mdp.actions import JointPositionActionCfg
+from mjlab.envs.mdp.actions import DifferentialIKActionCfg, JointPositionActionCfg
 from mjlab.managers.action_manager import ActionTermCfg
 from mjlab.managers.command_manager import CommandTermCfg
 from mjlab.managers.event_manager import EventTermCfg
@@ -14,13 +14,14 @@ from mjlab.terrains import TerrainEntityCfg
 from mjlab.utils.noise import UniformNoiseCfg as Unoise
 from mjlab.viewer import ViewerConfig
 
+from g3a_bench.robots.interface import ManipulatorInterface
 from g3a_bench.tasks.scene import mdp as scene_mdp
 
-_ROBOT_GRASP_CFG = SceneEntityCfg("robot", site_names=("grasp_site",))
 
-
-def make_scene_env_cfg() -> ManagerBasedRlEnvCfg:
+def make_scene_env_cfg(robot: ManipulatorInterface) -> ManagerBasedRlEnvCfg:
     """Create base scene task configuration."""
+
+    robot_grasp_cfg = SceneEntityCfg("robot", site_names=(robot.grasp_site,))
 
     actor_terms = {
         "joint_pos": ObservationTermCfg(
@@ -36,13 +37,13 @@ def make_scene_env_cfg() -> ManagerBasedRlEnvCfg:
         "ee_pos": ObservationTermCfg(
             func=scene_mdp.ee_pos_b,
             params={
-                "asset_cfg": _ROBOT_GRASP_CFG,
+                "asset_cfg": robot_grasp_cfg,
             },
         ),
         "ee_yaw": ObservationTermCfg(
             func=scene_mdp.site_yaw_cos_sin,
             params={
-                "asset_cfg": _ROBOT_GRASP_CFG,
+                "asset_cfg": robot_grasp_cfg,
             },
         ),
         # Approximate gripper opening.
@@ -61,11 +62,11 @@ def make_scene_env_cfg() -> ManagerBasedRlEnvCfg:
         # Cube — relative vectors.
         "ee_to_cube": ObservationTermCfg(
             func=scene_mdp.ee_to_object_distance,
-            params={"object_name": "cube", "asset_cfg": _ROBOT_GRASP_CFG},
+            params={"object_name": "cube", "asset_cfg": robot_grasp_cfg},
         ),
         "cube_to_goal": ObservationTermCfg(
             func=scene_mdp.object_to_goal_distance,
-            params={"object_name": "cube", "asset_cfg": _ROBOT_GRASP_CFG},
+            params={"object_name": "cube", "asset_cfg": robot_grasp_cfg},
         ),
         "cube_yaw": ObservationTermCfg(
             func=scene_mdp.root_yaw_cos_sin,
@@ -141,7 +142,7 @@ def make_scene_env_cfg() -> ManagerBasedRlEnvCfg:
         "ee_to_drawer_handle": ObservationTermCfg(
             func=scene_mdp.ee_to_site_distance,
             params={
-                "robot_cfg": _ROBOT_GRASP_CFG,
+                "robot_cfg": robot_grasp_cfg,
                 "site_cfg": SceneEntityCfg(
                     "drawer",
                     site_names=("drawer_handle_center",),
@@ -174,7 +175,7 @@ def make_scene_env_cfg() -> ManagerBasedRlEnvCfg:
         "ee_to_window_handle": ObservationTermCfg(
             func=scene_mdp.ee_to_site_distance,
             params={
-                "robot_cfg": _ROBOT_GRASP_CFG,
+                "robot_cfg": robot_grasp_cfg,
                 "site_cfg": SceneEntityCfg(
                     "window",
                     site_names=("window_handle_center",),
@@ -205,12 +206,21 @@ def make_scene_env_cfg() -> ManagerBasedRlEnvCfg:
     }
 
     actions: dict[str, ActionTermCfg] = {
-        "joint_pos": JointPositionActionCfg(
+        "eef": DifferentialIKActionCfg(
             entity_name="robot",
-            actuator_names=(".*",),
-            scale=0.5,  # Override per-robot.
+            actuator_names=(robot.arm_joints_expr,),
+            frame_type="site",
+            frame_name=robot.grasp_site,
+            use_relative_mode=True,
+            delta_pos_scale=0.05,
+            delta_ori_scale=0.1,
+        ),
+        "gripper": JointPositionActionCfg(
+            entity_name="robot",
+            actuator_names=(robot.gripper_actuator_expr,),
+            scale=robot.action_scale,
             use_default_offset=True,
-        )
+        ),
     }
 
     commands: dict[str, CommandTermCfg] = {
@@ -292,7 +302,7 @@ def make_scene_env_cfg() -> ManagerBasedRlEnvCfg:
         viewer=ViewerConfig(
             origin_type=ViewerConfig.OriginType.ASSET_BODY,
             entity_name="robot",
-            body_name="",  # Set per-robot.
+            body_name=robot.viewer_body,
             distance=1.5,
             elevation=-5.0,
             azimuth=120.0,

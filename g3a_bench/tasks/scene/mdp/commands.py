@@ -9,10 +9,7 @@ import torch
 from mjlab.managers.command_manager import CommandTerm, CommandTermCfg
 
 from g3a_bench.tasks.scene.mdp.rewards import scene_success
-from g3a_bench.tasks.scene.mdp.utils import (
-    detect_new_button_presses,
-    get_button_positions,
-)
+from g3a_bench.tasks.scene.mdp.utils import detect_new_button_presses
 
 if TYPE_CHECKING:
     from mjlab.envs.manager_based_rl_env import ManagerBasedRlEnv
@@ -160,10 +157,19 @@ class SceneTaskCommand(CommandTerm):
 
         # Entity references (available after env construction).
         self._cube = env.scene["cube"]
+        self._buttons = env.scene["buttons"]
         self._drawer = env.scene["drawer"]
         self._window = env.scene["window"]
 
         # Local joint slot indices within each entity.
+        self._button_joint_slots = torch.tensor(
+            [
+                list(self._buttons.joint_names).index("buttonbox_joint_0"),
+                list(self._buttons.joint_names).index("buttonbox_joint_1"),
+            ],
+            dtype=torch.long,
+            device=dev,
+        )
         self._drawer_joint_slot = torch.tensor(
             [list(self._drawer.joint_names).index("drawer_slide")],
             dtype=torch.long,
@@ -256,15 +262,16 @@ class SceneTaskCommand(CommandTerm):
 
         # ---- Initial button logical states and lock targets ----
         self.scene_button_states[env_ids] = self._init_button_states[task_ids]
-        self.prev_button_positions[env_ids] = get_button_positions(env)[env_ids]
+        self.prev_button_positions[env_ids] = self._buttons.data.joint_pos[env_ids][
+            :, self._button_joint_slots
+        ]
         self.drawer_lock_target[env_ids] = self._init_drawer_pos[task_ids]
         self.window_lock_target[env_ids] = self._init_window_pos[task_ids]
 
         self.episode_success[env_ids] = 0.0
 
     def _update_command(self) -> None:
-        env = self._env
-        cur_button_pos = get_button_positions(env)
+        cur_button_pos = self._buttons.data.joint_pos[:, self._button_joint_slots]
         new_presses = detect_new_button_presses(
             self.prev_button_positions, cur_button_pos
         )
