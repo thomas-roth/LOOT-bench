@@ -131,7 +131,7 @@ class _ReplayAndRecord:
                     f"[INFO] Dataset replay complete after "
                     f"{self.frames_recorded} frames — viewer keeps running"
                 )
-                self.recorder.end_episode()
+                self.recorder.save_episode(success=True)
                 self.recording_finished = True
             # Keep the viewer alive by repeating the last action.
             frame = ReaderFrame(
@@ -177,12 +177,12 @@ class _ReplayAndRecord:
             print(
                 f"[INFO] All {self.total_frames} frames recorded — finalizing dataset"
             )
-            self.recorder.end_episode()
+            self.recorder.save_episode(success=True)
             self.recording_finished = True
 
     def finalize(self):
         if not self.recording_finished:
-            self.recorder.end_episode()
+            self.recorder.save_episode(success=True)
         self.recorder.close()
 
 
