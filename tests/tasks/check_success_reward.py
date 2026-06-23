@@ -9,9 +9,11 @@ import argparse
 import math
 import sys
 import traceback
+from pathlib import Path
 
 import numpy as np
 import torch
+from _render import domain_of, save_env_render
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.tasks.registry import load_env_cfg
 from mjlab.utils.lab_api.math import quat_from_euler_xyz
@@ -65,6 +67,21 @@ def _axis_aligned_quat(axis_out: torch.Tensor, device: str) -> torch.Tensor:
         dtype=torch.float32,
     )
     return qv.unsqueeze(0).expand(axis_out.shape[0], -1).contiguous()
+
+
+def _render_goal(env: ManagerBasedRlEnv, task_id: str, render: bool) -> None:
+    """Save a picture of the teleported goal state for *task_id*.
+
+    Called at the scored instant (after the step loop that computes the success
+    fraction) so the image shows the exact state the metric evaluated. A render
+    failure is reported as a warning and never aborts the check.
+    """
+    if not render:
+        return
+    path = Path("out/render") / domain_of(task_id) / f"{task_id}_goal.png"
+    warn = save_env_render(env, path)
+    if warn is not None:
+        print(f"        (render skipped {task_id}: {warn})")
 
 
 # ---------------------------------------------------------------------------
@@ -139,7 +156,7 @@ def _teleport_ball(cmd: BallCommand, env: ManagerBasedRlEnv, device: str) -> Non
 
 
 def _check_cube_stack(
-    device: str, task_id: str = "G3a-Cube-Stack3-Dk1_uni"
+    device: str, task_id: str = "G3a-Cube-Stack3-Dk1_uni", *, render: bool = False
 ) -> str | None:
     from typing import cast
 
@@ -151,15 +168,18 @@ def _check_cube_stack(
     for _ in range(_STEPS):
         env.step(zeros)
     frac = cmd.slot_at_goal.mean().item()
+    _render_goal(env, task_id, render)
     env.close()
     return None if frac > 0.9 else f"placed_fraction={frac:.3f} (expected >0.9)"
 
 
-def _check_cube_domino(device: str) -> str | None:
-    return _check_cube_stack(device, "G3a-Cube-Domino5-Dk1_uni")
+def _check_cube_domino(device: str, *, render: bool = False) -> str | None:
+    return _check_cube_stack(device, "G3a-Cube-Domino5-Dk1_uni", render=render)
 
 
-def _check_insertion_single(device: str, task_id: str) -> str | None:
+def _check_insertion_single(
+    device: str, task_id: str, *, render: bool = False
+) -> str | None:
     from typing import cast
 
     env = _make_env(task_id, device)
@@ -171,14 +191,16 @@ def _check_insertion_single(device: str, task_id: str) -> str | None:
     for _ in range(_STEPS):
         env.step(zeros)
     frac = cmd.inserted.mean().item()
+    _render_goal(env, task_id, render)
     env.close()
     return None if frac > 0.9 else f"inserted_fraction={frac:.3f} (expected >0.9)"
 
 
-def _check_insertion_twosheet(device: str) -> str | None:
+def _check_insertion_twosheet(device: str, *, render: bool = False) -> str | None:
     from typing import cast
 
-    env = _make_env("G3a-Insertion-TwoSheet-Dk1_uni", device)
+    task_id = "G3a-Insertion-TwoSheet-Dk1_uni"
+    env = _make_env(task_id, device)
     cmd = cast(InsertionCommand, env.command_manager.get_term("insertion"))
     zeros = _zeros(env, device)
     env.step(zeros)
@@ -187,11 +209,12 @@ def _check_insertion_twosheet(device: str) -> str | None:
     for _ in range(_STEPS):
         env.step(zeros)
     frac = cmd.inserted.mean().item()
+    _render_goal(env, task_id, render)
     env.close()
     return None if frac > 0.9 else f"inserted_fraction={frac:.3f} (expected >0.9)"
 
 
-def _check_ball(device: str, task_id: str) -> str | None:
+def _check_ball(device: str, task_id: str, *, render: bool = False) -> str | None:
     from typing import cast
 
     env = _make_env(task_id, device)
@@ -202,6 +225,7 @@ def _check_ball(device: str, task_id: str) -> str | None:
     for _ in range(_STEPS):
         env.step(zeros)
     frac = cmd.at_target.mean().item()
+    _render_goal(env, task_id, render)
     env.close()
     return None if frac > 0.9 else f"at_target_fraction={frac:.3f} (expected >0.9)"
 
@@ -224,18 +248,18 @@ _CHECKS: list[tuple[str, str]] = [
 ]
 
 
-def _dispatch(task_id: str, device: str) -> str | None:
+def _dispatch(task_id: str, device: str, *, render: bool = False) -> str | None:
     cat = task_id.split("-")[1]
     if cat == "Cube":
         if "Domino" in task_id:
-            return _check_cube_domino(device)
-        return _check_cube_stack(device, task_id)
+            return _check_cube_domino(device, render=render)
+        return _check_cube_stack(device, task_id, render=render)
     if cat == "Insertion":
         if "TwoSheet" in task_id:
-            return _check_insertion_twosheet(device)
-        return _check_insertion_single(device, task_id)
+            return _check_insertion_twosheet(device, render=render)
+        return _check_insertion_single(device, task_id, render=render)
     if cat == "Ball":
-        return _check_ball(device, task_id)
+        return _check_ball(device, task_id, render=render)
     return f"Unknown category in task id: {task_id}"
 
 
@@ -244,16 +268,24 @@ def main() -> None:
         description="Verify success metrics fire for representative G3a tasks."
     )
     parser.add_argument("--cpu", action="store_true", help="Force CPU device.")
+    parser.add_argument(
+        "--no-render",
+        action="store_true",
+        help="Skip saving a goal-state picture per check to out/<cat>_check/.",
+    )
     args = parser.parse_args()
 
     device = "cpu" if args.cpu else ("cuda" if torch.cuda.is_available() else "cpu")
+    render = not args.no_render
     print(f"Device: {device}   Checks: {len(_CHECKS)}")
+    if render:
+        print("Goal pictures: out/render/<domain>/")
     print()
 
     failures: dict[str, str] = {}
     for label, task_id in _CHECKS:
         try:
-            err = _dispatch(task_id, device)
+            err = _dispatch(task_id, device, render=render)
         except Exception as exc:
             err = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
         if err is None:
