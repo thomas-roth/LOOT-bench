@@ -240,7 +240,5 @@ def make_cube_env_cfg(
         cfg.episode_length_s = int(1e9)
         cfg.observations["actor"].enable_corruption = False
         cfg.curriculum = {}
-        # Disable success termination so play sessions continue indefinitely.
-        cfg.terminations.pop("success")
 
     return cfg

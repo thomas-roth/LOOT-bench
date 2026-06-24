@@ -45,6 +45,9 @@ def main():
     # single >10 N gripper-vs-ground contact in the replayed trajectory would
     # auto-reset the env mid-episode (auto_reset=True) and corrupt the recording.
     cfg.terminations.pop("ee_ground_collision", None)
+    cfg.terminations.pop(
+        "success", None
+    )  # replay runs through the full episode uninterrupted
 
     # 2. Create environment.
     env = ManagerBasedRlEnv(cfg=cfg, device=device)

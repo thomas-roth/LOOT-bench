@@ -13,10 +13,15 @@ Architecture (decoupled threads):
   Main thread (LiveReaderViewer, sim-paced):
       pop latest action → mapper → env.step() → recorder.add_frame()
 
-Key bindings during recording:
-    S  save current episode as SUCCESS → reset scene → next episode
-    F  save current episode as FAILURE → reset scene → next episode
-    D  discard current episode → reset scene → redo
+State machine (per episode):
+  RECORDING      normal step loop; done=True → _handle_done()
+  AWAITING_LABEL ground collision: sim frozen, waiting for F or D key
+  RESET_PHASE    ghost arm visible at home; sim live (not recorded); arm moves to ghost
+
+Key bindings:
+    S  save episode as SUCCESS (also fires automatically on task completion)
+    F  save episode as FAILURE  (required when collision prompt appears)
+    D  discard episode
     Q  stop session and finalize dataset
 
 Usage:
@@ -38,8 +43,10 @@ import time
 import traceback
 from pathlib import Path
 
+import mujoco as _mujoco
 import numpy as np
 import torch
+from mjlab.entity import EntityCfg
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.rl import RslRlVecEnvWrapper
 from mjlab.tasks.registry import load_env_cfg
@@ -48,10 +55,35 @@ from mjlab.viewer.base import VerbosityLevel
 from mjlab.viewer.native.keys import KEY_D, KEY_F, KEY_Q, KEY_S
 
 import g3a_bench  # noqa: F401
-from g3a_bench.scripts.live_bridge.mapper import lerobot_to_mjlab_raw_action
+from g3a_bench.robots.trlc_dk1.dk1_constants import get_ghost_spec
+from g3a_bench.scripts.live_bridge.mapper import (
+    HOME_JOINT_POS,
+    lerobot_to_mjlab_raw_action,
+)
 from g3a_bench.scripts.live_bridge.recorder import Recorder
 
 LOGS_DIR = Path(__file__).resolve().parent / "logs"
+
+USE_FOLLOWER_STATE_FOR_SIM = (
+    False  # True → follower joint obs drives sim instead of leader action
+)
+RESET_THRESHOLD_RAD = 0.2  # all 6 arm joints must be within this many rad of home
+
+
+def ask_operator() -> int:
+    """Block until the user enters a valid operator number (1–4)."""
+    while True:
+        raw = input("Operator (1 / 2 / 3 / 4): ").strip()
+        if raw in ("1", "2", "3", "4"):
+            return int(raw)
+        print(f"  Invalid: '{raw}'. Enter 1, 2, 3, or 4.")
+
+
+def _arm_at_home(obs: np.ndarray | None, threshold: float) -> bool:
+    """True iff all 6 arm joints are within threshold rad of HOME_JOINT_POS."""
+    if obs is None:
+        return False
+    return bool(np.all(np.abs(obs[:6] - HOME_JOINT_POS[:6]) < threshold))
 
 
 def _hw_loop(
@@ -69,7 +101,7 @@ def _hw_loop(
     the latest robot observation.
 
     Args:
-        action_list: Single-element list updated with latest (7,) leader action.
+        action_list: Single-element list updated with latest (7,) action for sim.
         robot_obs_list: Single-element list updated with latest (7,) robot obs.
         shutdown_flag: Single-element list; set [True] to stop the loop.
         hw_failed: Single-element list; set [True] if the loop crashes so the
@@ -94,7 +126,11 @@ def _hw_loop(
             robot_obs_list[0] = frame.joint_pos
             if frame.leader_action is not None:
                 reader.send_action(frame.leader_action)
-                action_list[0] = frame.leader_action.copy()
+                action_list[0] = (
+                    frame.joint_pos.copy()
+                    if USE_FOLLOWER_STATE_FOR_SIM
+                    else frame.leader_action.copy()
+                )
             elapsed = time.perf_counter() - t0
             sleep_time = period - elapsed
             if sleep_time > 0:
@@ -138,14 +174,12 @@ class _LivePolicy:
 
 
 class _LiveRecordingViewer(NativeMujocoViewer):
-    """NativeMujocoViewer that records obs/action/reward/done per step and
-    supports keyboard-controlled multi-episode recording.
+    """NativeMujocoViewer with multi-episode recording and ghost-arm reset phase.
 
-    Keys (in addition to viewer built-ins):
-        S  save episode as success → reset → next
-        F  save episode as failure → reset → next
-        D  discard episode → reset → redo
-        Q  stop session
+    State machine:
+      RECORDING        → normal step loop
+      AWAITING_LABEL   → collision fired; sim frozen; waiting for F/D key
+      RESET_PHASE      → episode ended; ghost visible; waiting for arm at home
     """
 
     def __init__(
@@ -155,6 +189,8 @@ class _LiveRecordingViewer(NativeMujocoViewer):
         recorder: Recorder,
         robot_obs_list: list,
         hw_failed: list,
+        mj_model: "_mujoco.MjModel | None",
+        ghost_geom_ids: list,
         task: str = "",
         num_episodes: int = 0,
         **kwargs,
@@ -162,9 +198,13 @@ class _LiveRecordingViewer(NativeMujocoViewer):
         self._recorder = recorder
         self._robot_obs_list = robot_obs_list
         self._hw_failed = hw_failed
+        self._mj_model = mj_model
+        self._ghost_geom_ids = ghost_geom_ids
         self._task = task
         self._num_episodes = num_episodes
         self.episodes_saved = 0
+        self._in_reset_phase = False
+        self._awaiting_collision_label = False
         super().__init__(
             env,
             policy,
@@ -172,6 +212,29 @@ class _LiveRecordingViewer(NativeMujocoViewer):
             key_callback=self._on_key,
             **kwargs,
         )
+
+    # ── Ghost arm helpers ────────────────────────────────────────────────────
+
+    def _set_ghost_alpha(self, alpha: float) -> None:
+        if self._mj_model is None:
+            return
+        for gid in self._ghost_geom_ids:
+            self._mj_model.geom_rgba[gid, 3] = alpha
+
+    def _enter_reset_phase(self) -> None:
+        self._in_reset_phase = True
+        self._set_ghost_alpha(0.3)
+        print(
+            f"[INFO] Reset phase — move the arm in the sim to the ghost position "
+            f"(within {RESET_THRESHOLD_RAD:.2f} rad per joint) to start next episode"
+        )
+
+    def _exit_reset_phase(self) -> None:
+        self._set_ghost_alpha(0.0)
+        self._in_reset_phase = False
+        # env already auto-reset when done=True fired; no second reset needed
+
+    # ── Key handling ─────────────────────────────────────────────────────────
 
     def _on_key(self, key: int) -> None:
         # Runs on the viewer thread → only enqueue; actions are processed on
@@ -187,14 +250,17 @@ class _LiveRecordingViewer(NativeMujocoViewer):
 
     def _handle_custom_action(self, action, payload) -> bool:  # type: ignore[override]
         if payload == "save_success":
+            self._awaiting_collision_label = False
             self._end_episode(success=True)
         elif payload == "save_failure":
+            self._awaiting_collision_label = False
             self._end_episode(success=False)
         elif payload == "discard":
             frames = self._recorder.num_frames_in_episode
             self._recorder.discard_episode()
+            self._awaiting_collision_label = False
             print(f"[INFO] Episode discarded ({frames} frames dropped)")
-            self.reset_environment()
+            self._enter_reset_phase()
         else:
             return False
         return True
@@ -214,18 +280,67 @@ class _LiveRecordingViewer(NativeMujocoViewer):
             print(f"[INFO] Reached {self._num_episodes} episodes — stopping")
             self._interrupted = True
         else:
-            self.reset_environment()
+            self._enter_reset_phase()
+
+    def _handle_done(self) -> None:
+        """Called when env signals done=True. Distinguishes success from collision."""
+        try:
+            cmd = self.env.env.command_manager.get_term("arrangement")
+            is_success = bool(cmd.slot_at_goal.all(dim=1)[0].item())
+        except Exception:
+            # If the command term is unavailable, fall back to treating as collision.
+            is_success = False
+
+        if is_success:
+            print("[INFO] Task succeeded — auto-saving as success")
+            self._end_episode(success=True)
+        else:
+            print("[WARN] Ground collision!  Press  F = save as failure    D = discard")
+            self._awaiting_collision_label = True
+
+    # ── Step loop ────────────────────────────────────────────────────────────
 
     def _execute_step(self) -> bool:
         if self._hw_failed[0]:
-            # Hardware thread died — stop the session instead of recording
-            # frozen frames. _interrupted breaks the viewer's run() loop.
             self.log(
                 "[ERROR] Hardware thread failed — aborting session.",
                 VerbosityLevel.SILENT,
             )
             self._interrupted = True
             return False
+
+        # ── Reset phase: ghost visible, sim live, not recorded ──
+        # Operator moves the arm in the sim toward the ghost (home pose).
+        # joint_pos_rel is first 6 entries of actor obs — it is q − HOME, so
+        # ≈ 0 means the sim arm matches the ghost.  Nothing is added to the
+        # recorder during this phase.
+        if self._in_reset_phase:
+            try:
+                with torch.no_grad():
+                    obs = self.env.get_observations()
+                    actions = self.policy(obs)
+                    _obs_next, _rew, _dones, _extras = self.env.step(actions)
+                    self._step_count += 1
+                    self._stats_steps += 1
+                    joint_pos_rel = obs["actor"][0, :6].cpu().numpy()
+                    if np.all(np.abs(joint_pos_rel) < RESET_THRESHOLD_RAD):
+                        print("[INFO] Sim arm at home — starting next episode")
+                        self._exit_reset_phase()
+            except Exception:
+                self._last_error = traceback.format_exc()
+                self.log(
+                    f"[ERROR] Exception during reset step:\n{self._last_error}",
+                    VerbosityLevel.SILENT,
+                )
+                self.pause()
+                return False
+            return True
+
+        # ── Collision label: sim frozen, waiting for F or D key ──
+        if self._awaiting_collision_label:
+            return True
+
+        # ── Normal recording step ──
         try:
             with torch.no_grad():
                 obs = self.env.get_observations()
@@ -246,6 +361,10 @@ class _LiveRecordingViewer(NativeMujocoViewer):
 
                 self._step_count += 1
                 self._stats_steps += 1
+
+                if dones[0]:
+                    self._handle_done()
+
                 return True
         except Exception:
             self._last_error = traceback.format_exc()
@@ -255,6 +374,30 @@ class _LiveRecordingViewer(NativeMujocoViewer):
             )
             self.pause()
             return False
+
+
+def _get_mj_model(wrapped_env) -> "_mujoco.MjModel | None":
+    """Find the compiled MjModel inside the mjlab env wrapper.
+
+    Tries common mjlab/Isaac-Lab attribute paths in order.
+    Returns None if none succeed (ghost toggle is silently disabled).
+    """
+    candidates = [
+        ("env", "scene", "physics", "model"),
+        ("env", "sim", "model"),
+        ("env", "physics", "model"),
+        ("env", "scene", "sim", "physics", "model"),
+    ]
+    for path in candidates:
+        obj = wrapped_env
+        for attr in path:
+            obj = getattr(obj, attr, None)
+            if obj is None:
+                break
+        if obj is not None and hasattr(obj, "ngeom"):
+            return obj
+    print("[WARN] Cannot locate mujoco.MjModel — ghost arm alpha toggle disabled")
+    return None
 
 
 def main():
@@ -296,25 +439,38 @@ def main():
     )
     args = parser.parse_args()
 
+    # 0. Identify operator for session metadata.
+    operator_id = ask_operator()
+
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
     print(f"[INFO] Using device: {device}")
 
     # 1. Load task config (play mode: infinite, no noise).
+    #    Keep both terminations active:
+    #      ee_ground_collision → prompts fail/discard labeling
+    #      success             → auto-saves as success
     cfg = load_env_cfg(args.task, play=True)
     cfg.terminations["time_out"].time_out = False
-    # Play mode pops the success termination but leaves ee_ground_collision
-    # active. The scene has no table — cubes rest on the ground plane — so the
-    # gripper approaches z=0 to pick/place. A single >10 N contact would fire
-    # the termination and (auto_reset=True) snap the arm home + respawn cubes
-    # mid-demo, gluing two trajectories into one episode. Drop it for teleop.
-    cfg.terminations.pop("ee_ground_collision", None)
+
+    # Ghost arm: visual-only DK1 at home pose, starts invisible (alpha=0).
+    # Springs in the spec hold all joints at home; no actuators needed.
+    cfg.scene.entities["robot_ghost"] = EntityCfg(spec_fn=get_ghost_spec)
 
     # 2. Create environment.
     env = ManagerBasedRlEnv(cfg=cfg, device=device)
     env = RslRlVecEnvWrapper(env)
     print("[INFO] Environment created")
 
-    # 3. Resolve dataset output directory — never wipe existing data.
+    # 3. Locate ghost geom IDs for alpha toggling (group 4 = ghost geoms).
+    mj_model = _get_mj_model(env)
+    ghost_geom_ids: list[int] = []
+    if mj_model is not None:
+        ghost_geom_ids = [
+            i for i in range(mj_model.ngeom) if mj_model.geom_group[i] == 4
+        ]
+        print(f"[INFO] Ghost arm: {len(ghost_geom_ids)} geoms found (group 4)")
+
+    # 4. Resolve dataset output directory — never wipe existing data.
     if args.dataset_dir:
         dataset_root = Path(args.dataset_dir)
         if dataset_root.exists():
@@ -326,20 +482,20 @@ def main():
         stamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         dataset_root = LOGS_DIR / "live_record" / stamp
 
-    # 4. Set up recorder.
+    # 5. Set up recorder.
     obs_dim = int(env.get_observations()["actor"].shape[-1])
     recorder = Recorder(
         repo_id="live_record", fps=50, obs_dim=obs_dim, root=str(dataset_root)
     )
     print(f"[INFO] Recording to {dataset_root} (obs_dim={obs_dim})")
 
-    # 5. Shared single-element lists (GIL-safe last-writer-wins).
+    # 6. Shared single-element lists (GIL-safe last-writer-wins).
     action_list: list = [None]
     robot_obs_list: list = [None]
     shutdown_flag: list = [False]
     hw_failed: list = [False]
 
-    # 6. Start HW thread (reads leader → sends to follower → fills lists).
+    # 7. Start HW thread (reads leader → sends to follower → fills lists).
     hw_thread = threading.Thread(
         target=_hw_loop,
         args=(
@@ -355,7 +511,7 @@ def main():
     hw_thread.start()
     print("[INFO] Hardware thread started (reading leader at ~200 Hz)")
 
-    # 7. Create live policy and viewer.
+    # 8. Create live policy and viewer.
     live_policy = _LivePolicy(action_list, device)
 
     print("[INFO] Starting native MuJoCo viewer")
@@ -370,6 +526,8 @@ def main():
             recorder=recorder,
             robot_obs_list=robot_obs_list,
             hw_failed=hw_failed,
+            mj_model=mj_model,
+            ghost_geom_ids=ghost_geom_ids,
             task=args.task,
             num_episodes=args.num_episodes,
         )
@@ -378,7 +536,7 @@ def main():
         shutdown_flag[0] = True
         hw_thread.join(timeout=2.0)
         recorder.discard_episode()  # drop any partial unsaved episode
-        recorder.close()
+        recorder.close(operator_id=operator_id)
         env.close()
         saved = viewer.episodes_saved if viewer is not None else 0
         print(f"[INFO] Done. Saved {saved} episode(s) to {dataset_root}")

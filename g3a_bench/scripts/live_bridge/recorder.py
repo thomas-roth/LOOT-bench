@@ -1,4 +1,5 @@
 import numpy as np
+from lerobot.datasets.dataset_metadata import write_info
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
 
@@ -84,5 +85,8 @@ class Recorder:
         """Drop the current episode without saving (operator rejected the demo)."""
         self._pending = []
 
-    def close(self) -> None:
+    def close(self, operator_id: int | None = None) -> None:
+        if operator_id is not None:
+            self.dataset.meta.info["operator_id"] = operator_id
+            write_info(self.dataset.meta.info, self.dataset.meta.root)
         self.dataset.finalize()

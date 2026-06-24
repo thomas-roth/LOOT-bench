@@ -159,3 +159,36 @@ def test_recorder_real_roundtrip(tmp_path):
     assert np.asarray(frame["observation.robot_state"]).shape == (7,)
     assert np.asarray(frame["action"]).shape == (7,)
     assert bool(np.asarray(frame["success"]).flatten()[0]) is True
+
+
+def test_close_stores_operator_id(tmp_path):
+    """operator_id passed to close() must appear in dataset info after finalize."""
+    import numpy as np
+    import torch
+    from lerobot.datasets.lerobot_dataset import LeRobotDataset
+
+    from g3a_bench.scripts.live_bridge.recorder import Recorder
+
+    root = tmp_path / "ds_op"
+    rec = Recorder(repo_id="test_op", fps=50, obs_dim=53, root=str(root))
+    rec.add_frame(
+        {"actor": torch.zeros(1, 53)},
+        np.zeros(7, dtype=np.float32),
+        0.0,
+        False,
+        robot_obs=np.zeros(7, dtype=np.float32),
+    )
+    rec.save_episode(success=True)
+    rec.close(operator_id=3)
+
+    ds = LeRobotDataset("test_op", root=str(root))
+    assert ds.meta.info.get("operator_id") == 3
+
+
+def test_close_without_operator_id_still_finalizes(tmp_path):
+    """close() with no operator_id must not crash (backwards compat)."""
+    from g3a_bench.scripts.live_bridge.recorder import Recorder
+
+    root = tmp_path / "ds_noop"
+    rec = Recorder(repo_id="test_noop", fps=50, obs_dim=53, root=str(root))
+    rec.close()  # no argument — must not raise
