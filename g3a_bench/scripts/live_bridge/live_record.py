@@ -19,10 +19,14 @@ State machine (per episode):
   RESET_PHASE    ghost arm visible at home; sim live (not recorded); arm moves to ghost
 
 Key bindings:
-    S  save episode as SUCCESS (also fires automatically on task completion)
-    F  save episode as FAILURE  (required when collision prompt appears)
-    D  discard episode
-    Q  stop session and finalize dataset
+    Numpad 1  save episode as SUCCESS (also fires automatically on task completion)
+    Numpad 2  save episode as FAILURE  (required when collision prompt appears)
+    Numpad 3  discard episode
+    Numpad 4  stop session and finalize dataset
+
+    Main-row digit keys are NOT usable here — MuJoCo's native viewer swallows
+    them internally to toggle render-group visibility before they ever reach
+    this script's key handler.
 
 Usage:
     uv run --extra cpu python g3a_bench/scripts/live_bridge/live_record.py
@@ -37,6 +41,7 @@ Usage:
 import lerobot.datasets.lerobot_dataset  # noqa: F401,E402,I001
 
 import argparse
+import copy
 import datetime
 import threading
 import time
@@ -46,16 +51,16 @@ from pathlib import Path
 import mujoco as _mujoco
 import numpy as np
 import torch
-from mjlab.entity import EntityCfg
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.rl import RslRlVecEnvWrapper
 from mjlab.tasks.registry import load_env_cfg
 from mjlab.viewer import NativeMujocoViewer
 from mjlab.viewer.base import VerbosityLevel
-from mjlab.viewer.native.keys import KEY_D, KEY_F, KEY_Q, KEY_S
+from mjlab.viewer.native.visualizer import MujocoNativeDebugVisualizer
+from mjlab.viewer.native.keys import KEY_KP_1, KEY_KP_2, KEY_KP_3, KEY_KP_4
 
 import g3a_bench  # noqa: F401
-from g3a_bench.robots.trlc_dk1.dk1_constants import get_ghost_spec
+from g3a_bench.robots.trlc_dk1.dk1_constants import _HOME_JOINT_POS
 from g3a_bench.scripts.live_bridge.mapper import (
     HOME_JOINT_POS,
     LEADER_JOINT1_SIM_OFFSET,
@@ -69,6 +74,32 @@ USE_FOLLOWER_STATE_FOR_SIM = (
     False  # True → follower joint obs drives sim instead of leader action
 )
 RESET_THRESHOLD_RAD = 0.2  # all 6 arm joints must be within this many rad of home
+GHOST_ROBOT_ENTITY = "robot"  # scene entity key whose geoms get ghosted
+GHOST_COLOR = (0.5, 0.7, 0.5, 0.5)  # translucent green, same as mjlab's tracking task
+
+# Where the ghost overlay (and reset-phase "are we home?" check) target the
+# arm — independent of _HOME_JOINT_POS in dk1_constants.py, which is the RL
+# tasks' episode-reset/action-reference pose and stays untouched by this.
+# To pick new values: run print_leader_pose.py, move the real leader to a
+# comfortable rest pose, and copy the printed numbers in here.
+LIVE_REST_POSE: dict[str, float] = {
+    "joint1": -1.4143 + LEADER_JOINT1_SIM_OFFSET,
+    "joint2": +0.0015,
+    "joint3": +0.0015,
+    "joint4": -0.0153,
+    "joint5": +0.0153,
+    "joint6": +0.0276,
+}
+_LIVE_REST_POSE_REL = np.array(
+    [LIVE_REST_POSE[f"joint{i}"] - _HOME_JOINT_POS[f"joint{i}"] for i in range(1, 7)],
+    dtype=np.float32,
+)
+
+
+KEY_SAVE_SUCCESS = KEY_KP_1
+KEY_SAVE_FAILURE = KEY_KP_2
+KEY_DISCARD = KEY_KP_3
+KEY_QUIT = KEY_KP_4
 
 
 def ask_operator() -> int:
@@ -198,7 +229,6 @@ class _LiveRecordingViewer(NativeMujocoViewer):
         robot_obs_list: list,
         hw_failed: list,
         mj_model: "_mujoco.MjModel | None",
-        ghost_geom_ids: list,
         task: str = "",
         num_episodes: int = 0,
         **kwargs,
@@ -206,8 +236,10 @@ class _LiveRecordingViewer(NativeMujocoViewer):
         self._recorder = recorder
         self._robot_obs_list = robot_obs_list
         self._hw_failed = hw_failed
-        self._mj_model = mj_model
-        self._ghost_geom_ids = ghost_geom_ids
+        self._ghost_model: _mujoco.MjModel | None = None
+        self._ghost_qpos: np.ndarray | None = None
+        if mj_model is not None:
+            self._ghost_model, self._ghost_qpos = _build_ghost_model_and_qpos(mj_model)
         self._task = task
         self._num_episodes = num_episodes
         self.episodes_saved = 0
@@ -223,23 +255,38 @@ class _LiveRecordingViewer(NativeMujocoViewer):
 
     # ── Ghost arm helpers ────────────────────────────────────────────────────
 
-    def _set_ghost_alpha(self, alpha: float) -> None:
-        if self._mj_model is None:
+    def _update_debug_visualizers(self, viewer: "_mujoco.viewer.Handle") -> None:  # type: ignore[name-defined]
+        """Draw the ghost-at-home overlay every frame, on top of whatever the
+        base class / task command terms already draw (e.g. cube task target
+        marks). Uses the same DebugVisualizer.add_ghost_mesh technique as
+        mjlab's own tracking task — see _build_ghost_model_and_qpos.
+        """
+        super()._update_debug_visualizers(viewer)
+        if self._ghost_model is None or self._ghost_qpos is None:
             return
-        for gid in self._ghost_geom_ids:
-            self._mj_model.geom_rgba[gid, 3] = alpha
+        assert self.mjm is not None
+        visualizer = MujocoNativeDebugVisualizer(
+            viewer.user_scn, self.mjm, self.env_idx, self._show_all_envs
+        )
+        visualizer.add_ghost_mesh(
+            self._ghost_qpos, model=self._ghost_model, label="ghost"
+        )
 
     def _enter_reset_phase(self) -> None:
         self._in_reset_phase = True
-        self._set_ghost_alpha(0.3)
+        # Suppress the per-tick "[RUNNING] Step N | FPS..." spam outside of
+        # actual recording — it's just noise while lining the arm up with
+        # the ghost. self.log(..., SILENT) calls (errors) always print
+        # regardless, since SILENT is the lowest threshold.
+        self.verbosity = VerbosityLevel.INFO
         print(
             f"[INFO] Reset phase — move the arm in the sim to the ghost position "
             f"(within {RESET_THRESHOLD_RAD:.2f} rad per joint) to start next episode"
         )
 
     def _exit_reset_phase(self) -> None:
-        self._set_ghost_alpha(0.0)
         self._in_reset_phase = False
+        self.verbosity = VerbosityLevel.DEBUG
         # env already auto-reset when done=True fired; no second reset needed
 
     # ── Key handling ─────────────────────────────────────────────────────────
@@ -247,13 +294,13 @@ class _LiveRecordingViewer(NativeMujocoViewer):
     def _on_key(self, key: int) -> None:
         # Runs on the viewer thread → only enqueue; actions are processed on
         # the main thread in _handle_custom_action to avoid racing the step loop.
-        if key == KEY_S:
+        if key == KEY_SAVE_SUCCESS:
             self.request_action("CUSTOM", "save_success")
-        elif key == KEY_F:
+        elif key == KEY_SAVE_FAILURE:
             self.request_action("CUSTOM", "save_failure")
-        elif key == KEY_D:
+        elif key == KEY_DISCARD:
             self.request_action("CUSTOM", "discard")
-        elif key == KEY_Q:
+        elif key == KEY_QUIT:
             self._interrupted = True
 
     def _handle_custom_action(self, action, payload) -> bool:  # type: ignore[override]
@@ -303,8 +350,12 @@ class _LiveRecordingViewer(NativeMujocoViewer):
             print("[INFO] Task succeeded — auto-saving as success")
             self._end_episode(success=True)
         else:
-            print("[WARN] Ground collision!  Press  F = save as failure    D = discard")
+            print(
+                "[WARN] Ground collision!  Press  Numpad 2 = save as failure"
+                "   Numpad 3 = discard"
+            )
             self._awaiting_collision_label = True
+            self.verbosity = VerbosityLevel.INFO  # suppress step-log spam while waiting
 
     # ── Step loop ────────────────────────────────────────────────────────────
 
@@ -318,10 +369,12 @@ class _LiveRecordingViewer(NativeMujocoViewer):
             return False
 
         # ── Reset phase: ghost visible, sim live, not recorded ──
-        # Operator moves the arm in the sim toward the ghost (home pose).
-        # joint_pos_rel is first 6 entries of actor obs — it is q − HOME, so
-        # ≈ 0 means the sim arm matches the ghost.  Nothing is added to the
-        # recorder during this phase.
+        # Operator moves the arm in the sim toward the ghost (rest pose).
+        # joint_pos_rel is first 6 entries of actor obs — it is q − HOME
+        # (the RL task's home, _HOME_JOINT_POS), so we compare it against
+        # _LIVE_REST_POSE_REL (rest pose expressed in that same q-HOME
+        # frame) rather than against zero. Nothing is added to the recorder
+        # during this phase.
         if self._in_reset_phase:
             try:
                 with torch.no_grad():
@@ -331,9 +384,15 @@ class _LiveRecordingViewer(NativeMujocoViewer):
                     self._step_count += 1
                     self._stats_steps += 1
                     joint_pos_rel = obs["actor"][0, :6].cpu().numpy()
-                    if np.all(np.abs(joint_pos_rel) < RESET_THRESHOLD_RAD):
-                        print("[INFO] Sim arm at home — starting next episode")
+                    if np.all(
+                        np.abs(joint_pos_rel - _LIVE_REST_POSE_REL)
+                        < RESET_THRESHOLD_RAD
+                    ):
                         self._exit_reset_phase()
+                        print(
+                            f"[INFO] === Episode {self.episodes_saved + 1} "
+                            "started — recording resumed ==="
+                        )
             except Exception:
                 self._last_error = traceback.format_exc()
                 self.log(
@@ -384,6 +443,47 @@ class _LiveRecordingViewer(NativeMujocoViewer):
             return False
 
 
+def _build_ghost_model_and_qpos(
+    mj_model: "_mujoco.MjModel",
+) -> "tuple[_mujoco.MjModel, np.ndarray]":
+    """Build a deep-copied model showing only the robot's visual geoms,
+    recolored translucent green, posed at home — for DebugVisualizer.add_ghost_mesh.
+
+    Same technique as mjlab's own tracking task ghost visualization
+    (mjlab.tasks.tracking.mdp.commands): collision geoms get alpha=0 (hidden),
+    everything outside the robot entity (cube pieces, ground, ...) also gets
+    alpha=0 so only the robot ghost is drawn, and the robot's own visual
+    geoms get recolored to GHOST_COLOR.
+    """
+    ghost_model = copy.deepcopy(mj_model)
+    prefix = f"{GHOST_ROBOT_ENTITY}/"
+    for gi in range(ghost_model.ngeom):
+        body_name = (
+            _mujoco.mj_id2name(
+                ghost_model, _mujoco.mjtObj.mjOBJ_BODY, ghost_model.geom_bodyid[gi]
+            )
+            or ""
+        )
+        is_robot = body_name.startswith(prefix)
+        is_collision = (
+            ghost_model.geom_contype[gi] != 0 or ghost_model.geom_conaffinity[gi] != 0
+        )
+        if is_robot and not is_collision:
+            ghost_model.geom_rgba[gi] = GHOST_COLOR
+        else:
+            ghost_model.geom_rgba[gi, 3] = 0
+
+    qpos = ghost_model.qpos0.copy()
+    ghost_pose = {**_HOME_JOINT_POS, **LIVE_REST_POSE}
+    for joint_name, value in ghost_pose.items():
+        jid = _mujoco.mj_name2id(
+            ghost_model, _mujoco.mjtObj.mjOBJ_JOINT, f"{prefix}{joint_name}"
+        )
+        if jid != -1:
+            qpos[ghost_model.jnt_qposadr[jid]] = value
+    return ghost_model, qpos
+
+
 def _get_mj_model(wrapped_env) -> "_mujoco.MjModel | None":
     """Find the compiled MjModel inside the mjlab env wrapper.
 
@@ -391,8 +491,8 @@ def _get_mj_model(wrapped_env) -> "_mujoco.MjModel | None":
     Returns None if none succeed (ghost toggle is silently disabled).
     """
     candidates = [
+        ("env", "sim", "mj_model"),
         ("env", "scene", "physics", "model"),
-        ("env", "sim", "model"),
         ("env", "physics", "model"),
         ("env", "scene", "sim", "physics", "model"),
     ]
@@ -468,23 +568,15 @@ def main():
     # Drop ee_ground_collision: ground contact no longer ends the episode —
     # recording continues uninterrupted (same as record_replay.py).
 
-    # Ghost arm: visual-only DK1 at home pose, starts invisible (alpha=0).
-    # Springs in the spec hold all joints at home; no actuators needed.
-    cfg.scene.entities["robot_ghost"] = EntityCfg(spec_fn=get_ghost_spec)
-
     # 2. Create environment.
     env = ManagerBasedRlEnv(cfg=cfg, device=device)
     env = RslRlVecEnvWrapper(env)
     print("[INFO] Environment created")
 
-    # 3. Locate ghost geom IDs for alpha toggling (group 4 = ghost geoms).
+    # 3. Build the ghost-at-home overlay (see _build_ghost_model_and_qpos).
     mj_model = _get_mj_model(env)
-    ghost_geom_ids: list[int] = []
-    if mj_model is not None:
-        ghost_geom_ids = [
-            i for i in range(mj_model.ngeom) if mj_model.geom_group[i] == 4
-        ]
-        print(f"[INFO] Ghost arm: {len(ghost_geom_ids)} geoms found (group 4)")
+    if mj_model is None:
+        print("[WARN] Ghost-at-home overlay disabled (could not locate MjModel)")
 
     # 4. Resolve dataset output directory — never wipe existing data.
     if args.dataset_dir:
@@ -535,7 +627,11 @@ def main():
 
     print("[INFO] Starting native MuJoCo viewer")
     print("[INFO] Move the leader arm to control the sim and follower")
-    print("[INFO] Keys:  S=save success   F=save failure   D=discard/redo   Q=stop")
+    print(
+        "[INFO] Keys (numpad):  1=save success   2=save failure   "
+        "3=discard/redo   4=stop"
+    )
+    print("[INFO] === Episode 1 started — recording resumed ===")
 
     viewer: _LiveRecordingViewer | None = None
     try:
@@ -546,7 +642,6 @@ def main():
             robot_obs_list=robot_obs_list,
             hw_failed=hw_failed,
             mj_model=mj_model,
-            ghost_geom_ids=ghost_geom_ids,
             task=args.task,
             num_episodes=args.num_episodes,
         )
