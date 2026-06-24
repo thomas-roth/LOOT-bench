@@ -11,15 +11,7 @@ training.
 
 ## Prerequisites
 
-### Always required
-
-```bash
-# from repo root — install the package and all dependencies
-uv sync --extra cu128   # GPU rig (recommended for live recording)
-uv sync --extra cpu     # CPU-only (fine for replay/testing)
-```
-
-### Only for `live_record.py` (real hardware)
+### For `live_record.py` (real hardware)
 
 ```bash
 # install the trlc-dk1 hardware drivers
@@ -43,7 +35,7 @@ action through the sim, and saves a new dataset with sim observations +
 reward/done.
 
 ```bash
-uv run --extra cpu python g3a_bench/scripts/live_bridge/record_replay.py
+uv run python g3a_bench/scripts/live_bridge/record_replay.py
 ```
 
 **What happens:**

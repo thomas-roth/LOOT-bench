@@ -3,7 +3,7 @@ and save a recorded LeRobot dataset to logs/.
 
 Usage:
     cd /home/minhtrung/Documents/UNI/G3a/g3a-bench
-    uv run --extra cpu python g3a_bench/scripts/live_bridge/record_replay.py
+    uv run python g3a_bench/scripts/live_bridge/record_replay.py
 
 The native MuJoCo window opens and replays the dataset through the sim.
 All obs/action/reward/done are recorded to logs/sim_replay_cube_stack3/.
