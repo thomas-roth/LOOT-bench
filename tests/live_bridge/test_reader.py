@@ -353,6 +353,46 @@ class TestLiveReader:
         reader.close()
 
     @patch(
+        "g3a_bench.scripts.live_bridge.reader.DK1LeaderConfig", return_value=MagicMock()
+    )
+    @patch("g3a_bench.scripts.live_bridge.reader.DK1Follower")
+    @patch("g3a_bench.scripts.live_bridge.reader.DK1Leader")
+    def test_use_follower_false_never_touches_follower(
+        self, mock_leader_cls, mock_follower_cls, mock_leader_cfg_cls
+    ):
+        """Leader-only mode: no follower connect, joint_pos mirrors leader_action."""
+        from g3a_bench.scripts.live_bridge.reader import LiveReader
+
+        mock_leader = MagicMock()
+        mock_leader.get_action.return_value = {
+            "joint_1.pos": 0.1,
+            "joint_2.pos": 0.2,
+            "joint_3.pos": 0.3,
+            "joint_4.pos": 0.4,
+            "joint_5.pos": 0.5,
+            "joint_6.pos": 0.6,
+            "gripper.pos": 0.7,
+        }
+        mock_leader_cls.return_value = mock_leader
+
+        reader = LiveReader(leader_port="/dev/ttyACM_test", use_follower=False)
+        mock_follower_cls.assert_not_called()
+
+        frame = reader.read()
+        np.testing.assert_allclose(
+            frame.joint_pos, [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7], rtol=1e-6
+        )
+        assert frame.leader_action is not None
+        np.testing.assert_allclose(frame.leader_action, frame.joint_pos, rtol=1e-6)
+        assert frame.cameras == {}
+
+        with pytest.raises(RuntimeError, match="not connected"):
+            reader.send_action(np.zeros(7))
+
+        reader.close()
+        mock_leader.disconnect.assert_called_once()
+
+    @patch(
         "g3a_bench.scripts.live_bridge.reader.DK1FollowerConfig",
         return_value=MagicMock(),
     )

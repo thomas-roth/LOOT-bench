@@ -257,18 +257,23 @@ class LiveReader(Reader):
         follower_port: str | None = None,
         leader_port: str | None = None,
         connect_on_init: bool = True,
+        use_follower: bool = True,
     ):
-        if DK1Follower is None:
+        if DK1Leader is None:
             raise ImportError(
                 "lerobot_robot_trlc_dk1 not installed — cannot connect to real robot. "
                 "Run: uv pip install -e /path/to/trlc-dk1"
             )
-        assert DK1Follower is not None
-        # Auto-detect any unspecified ports
-        if follower_port is None or leader_port is None:
-            auto_leader, auto_follower = _find_ports()
-            leader_port = leader_port or auto_leader
-            follower_port = follower_port or auto_follower
+        self.use_follower = use_follower
+        if use_follower:
+            assert DK1Follower is not None
+            # Auto-detect any unspecified ports
+            if follower_port is None or leader_port is None:
+                leader_port = "/dev/ttyACM0"
+                follower_port = "/dev/ttyACM1"
+        else:
+            leader_port = leader_port or "/dev/ttyACM0"
+            follower_port = None
         self.follower_port = follower_port
         self.leader_port = leader_port
         self._follower: DK1Follower | None = None  # type: ignore
@@ -277,52 +282,63 @@ class LiveReader(Reader):
             self.connect()
 
     def connect(self):
-        """Open serial connections to both leader and follower."""
-        self._follower = DK1Follower(DK1FollowerConfig(port=self.follower_port))
-        self._follower.connect()
+        """Open serial connection(s) to the leader, and the follower if enabled."""
+        if self.use_follower:
+            self._follower = DK1Follower(DK1FollowerConfig(port=self.follower_port))
+            self._follower.connect()
         if self.leader_port:
             self._leader = DK1Leader(DK1LeaderConfig(port=self.leader_port))
             self._leader.connect()
 
     def read(self) -> ReaderFrame:
-        if self._follower is None:
+        if self.use_follower and self._follower is None:
             raise RuntimeError("Follower not connected. Call .connect() first.")
-        obs = self._follower.get_observation()
-        # Build joint_pos array in standard real-robot order
-        joint_pos = np.array(
-            [
-                obs["joint_1.pos"],
-                obs["joint_2.pos"],
-                obs["joint_3.pos"],
-                obs["joint_4.pos"],
-                obs["joint_5.pos"],
-                obs["joint_6.pos"],
-                obs["gripper.pos"],
-            ],
-            dtype=np.float32,
-        )
-        # Extract camera images if available
-        cameras = {}
-        for cam_name in ("context", "wrist"):
-            if cam_name in obs:
-                cameras[cam_name] = obs[cam_name]
-        # Get leader action if connected. get_action() returns a dict
-        # {joint_1.pos..joint_6.pos, gripper.pos}; unpack in fixed order.
-        leader_action = None
-        if self._leader is not None:
-            la = self._leader.get_action()
-            leader_action = np.array(
+        if self._leader is None:
+            raise RuntimeError("Leader not connected. Call .connect() first.")
+
+        cameras: dict[str, np.ndarray] = {}
+        joint_pos: np.ndarray | None = None
+        if self._follower is not None:
+            obs = self._follower.get_observation()
+            # Build joint_pos array in standard real-robot order
+            joint_pos = np.array(
                 [
-                    la["joint_1.pos"],
-                    la["joint_2.pos"],
-                    la["joint_3.pos"],
-                    la["joint_4.pos"],
-                    la["joint_5.pos"],
-                    la["joint_6.pos"],
-                    la["gripper.pos"],
+                    obs["joint_1.pos"],
+                    obs["joint_2.pos"],
+                    obs["joint_3.pos"],
+                    obs["joint_4.pos"],
+                    obs["joint_5.pos"],
+                    obs["joint_6.pos"],
+                    obs["gripper.pos"],
                 ],
                 dtype=np.float32,
             )
+            # Extract camera images if available
+            for cam_name in ("context", "wrist"):
+                if cam_name in obs:
+                    cameras[cam_name] = obs[cam_name]
+
+        # get_action() returns a dict {joint_1.pos..joint_6.pos, gripper.pos};
+        # unpack in fixed order.
+        la = self._leader.get_action()
+        leader_action = np.array(
+            [
+                la["joint_1.pos"],
+                la["joint_2.pos"],
+                la["joint_3.pos"],
+                la["joint_4.pos"],
+                la["joint_5.pos"],
+                la["joint_6.pos"],
+                la["gripper.pos"],
+            ],
+            dtype=np.float32,
+        )
+
+        if joint_pos is None:
+            # No follower connected — the leader's own reading is the only
+            # physical arm state available, so it doubles as joint_pos.
+            joint_pos = leader_action.copy()
+
         return ReaderFrame(
             joint_pos=joint_pos,
             leader_action=leader_action,

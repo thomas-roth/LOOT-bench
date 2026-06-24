@@ -58,6 +58,7 @@ import g3a_bench  # noqa: F401
 from g3a_bench.robots.trlc_dk1.dk1_constants import get_ghost_spec
 from g3a_bench.scripts.live_bridge.mapper import (
     HOME_JOINT_POS,
+    LEADER_JOINT1_SIM_OFFSET,
     lerobot_to_mjlab_raw_action,
 )
 from g3a_bench.scripts.live_bridge.recorder import Recorder
@@ -93,6 +94,7 @@ def _hw_loop(
     hw_failed: list,
     follower_port: str | None,
     leader_port: str | None,
+    use_follower: bool = True,
 ):
     """Read leader at ~200 Hz → send to follower → push to shared lists.
 
@@ -108,6 +110,9 @@ def _hw_loop(
             viewer can abort instead of recording frozen frames.
         follower_port: Serial port for follower arm.
         leader_port: Serial port for leader (GELLO) controller.
+        use_follower: If False, never connects to or sends actions to the
+            real follower — only the leader is read, and its own action
+            doubles as the recorded robot state.
     """
     from g3a_bench.scripts.live_bridge.reader import LiveReader
 
@@ -115,6 +120,7 @@ def _hw_loop(
         follower_port=follower_port,
         leader_port=leader_port,
         connect_on_init=True,
+        use_follower=use_follower,
     )
     freq = 200
     period = 1.0 / freq
@@ -125,12 +131,10 @@ def _hw_loop(
             frame = reader.read()
             robot_obs_list[0] = frame.joint_pos
             if frame.leader_action is not None:
-                reader.send_action(frame.leader_action)
-                action_list[0] = (
-                    frame.joint_pos.copy()
-                    if USE_FOLLOWER_STATE_FOR_SIM
-                    else frame.leader_action.copy()
-                )
+                if use_follower:
+                    reader.send_action(frame.leader_action)
+                action_list[0] = frame.leader_action.copy()
+
             elapsed = time.perf_counter() - t0
             sleep_time = period - elapsed
             if sleep_time > 0:
@@ -166,7 +170,11 @@ class _LivePolicy:
         leader_action = self.action_list[0]
         if leader_action is not None:
             self.latest_leader_action = leader_action
-            raw_action = lerobot_to_mjlab_raw_action(leader_action)
+            raw_action = lerobot_to_mjlab_raw_action(
+                leader_action,
+                gravity_compensate=True,
+                joint1_offset=LEADER_JOINT1_SIM_OFFSET,
+            )
             self._last_raw_action = (
                 torch.from_numpy(raw_action).unsqueeze(0).to(self._device)
             )
@@ -417,6 +425,14 @@ def main():
         help="Serial port for leader (e.g. /dev/ttyUSB0). Auto-detected if omitted.",
     )
     parser.add_argument(
+        "--no-follower",
+        action="store_true",
+        help=(
+            "Skip connecting to the real follower robot — only the leader is "
+            "read, and its action also drives observation.robot_state."
+        ),
+    )
+    parser.add_argument(
         "--task",
         type=str,
         default="G3a-Cube-Stack3-Dk1_uni",
@@ -446,11 +462,11 @@ def main():
     print(f"[INFO] Using device: {device}")
 
     # 1. Load task config (play mode: infinite, no noise).
-    #    Keep both terminations active:
-    #      ee_ground_collision → prompts fail/discard labeling
-    #      success             → auto-saves as success
+    #    success termination stays active (auto-saves as success).
     cfg = load_env_cfg(args.task, play=True)
     cfg.terminations["time_out"].time_out = False
+    # Drop ee_ground_collision: ground contact no longer ends the episode —
+    # recording continues uninterrupted (same as record_replay.py).
 
     # Ghost arm: visual-only DK1 at home pose, starts invisible (alpha=0).
     # Springs in the spec hold all joints at home; no actuators needed.
@@ -505,11 +521,14 @@ def main():
             hw_failed,
             args.follower_port,
             args.leader_port,
+            not args.no_follower,
         ),
         daemon=True,
     )
     hw_thread.start()
     print("[INFO] Hardware thread started (reading leader at ~200 Hz)")
+    if args.no_follower:
+        print("[INFO] --no-follower set: real follower will not be used")
 
     # 8. Create live policy and viewer.
     live_policy = _LivePolicy(action_list, device)
