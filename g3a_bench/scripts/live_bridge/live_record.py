@@ -29,10 +29,10 @@ Key bindings:
     this script's key handler.
 
 Usage:
-    uv run --extra cpu python g3a_bench/scripts/live_bridge/live_record.py
+    uv run python g3a_bench/scripts/live_bridge/live_record.py
 
     Optionally specify ports:
-    uv run --extra cpu python g3a_bench/scripts/live_bridge/live_record.py \\
+    uv run python g3a_bench/scripts/live_bridge/live_record.py \\
         --follower-port /dev/ttyACM0 --leader-port /dev/ttyUSB0
 """
 

@@ -5,15 +5,6 @@ Unit and integration tests for the live-bridge pipeline
 
 ---
 
-## Prerequisites
-
-```bash
-# from repo root
-uv sync --extra cpu
-```
-
----
-
 ## Run all tests
 
 ```bash
@@ -175,7 +166,7 @@ no hardware.
 Use it to visually verify the dataset→sim pipeline end to end.
 
 ```bash
-uv run --extra cpu python tests/live_bridge/test_replay.py
+uv run python tests/live_bridge/test_replay.py
 ```
 
 **First run:** downloads ~655 MB from HuggingFace (cached after).

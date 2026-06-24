@@ -5,8 +5,8 @@ printed values, then copy them into _HOME_JOINT_POS in
 g3a_bench/robots/trlc_dk1/dk1_constants.py.
 
 Usage:
-    uv run --extra cpu python g3a_bench/scripts/live_bridge/print_leader_pose.py
-    uv run --extra cpu python g3a_bench/scripts/live_bridge/print_leader_pose.py --leader-port /dev/ttyUSB0
+    uv run python g3a_bench/scripts/live_bridge/print_leader_pose.py
+    uv run python g3a_bench/scripts/live_bridge/print_leader_pose.py --leader-port /dev/ttyUSB0
 """
 
 import argparse
