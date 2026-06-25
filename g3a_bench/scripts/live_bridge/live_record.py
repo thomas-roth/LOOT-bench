@@ -59,7 +59,7 @@ import torch
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.rl import RslRlVecEnvWrapper
 from mjlab.tasks.registry import load_env_cfg
-from mjlab.viewer import NativeMujocoViewer
+from mjlab.viewer import NativeMujocoViewer, ViewerConfig
 from mjlab.viewer.base import VerbosityLevel
 from mjlab.viewer.native.visualizer import MujocoNativeDebugVisualizer
 from mjlab.viewer.native.keys import KEY_KP_1, KEY_KP_2, KEY_KP_3, KEY_KP_4, KEY_W
@@ -109,6 +109,23 @@ KEY_WRIST_CAM = KEY_W
 # cameras (e.g. "robot/wrist_camera"), so it is matched by suffix — see
 # _find_camera_id.
 WRIST_CAMERA_NAME = "wrist_camera"
+
+# Default orbit/free-camera framing for the teleop viewer (the view you start in,
+# before pressing W for the wrist cam). Positioned above and behind the robot,
+# slightly to the side, looking forward along the gripper (+x) direction — a
+# high "sun" 3/4 view that keeps the workspace and gripper easy to read while
+# recording demos.
+#
+# MuJoCo free-cam convention: AZIMUTH is the heading of the camera *relative to
+# the lookat point* (degrees, CCW about +z; 0=+x side, 90=+y side). The robot's
+# gripper reaches toward +x, so AZIMUTH≈180 puts the camera behind the robot
+# looking forward; the +20 offset nudges it slightly to the side. ELEVATION<0
+# looks downward (more negative = more top-down). Flip the offset's sign
+# (160 instead of 200) to view from the other shoulder.
+ORBIT_CAM_LOOKAT = (0.20, 0.0, 0.15)  # world point the camera aims at (≈ workspace)
+ORBIT_CAM_DISTANCE = 1.3
+ORBIT_CAM_AZIMUTH = 200.0
+ORBIT_CAM_ELEVATION = -35.0
 
 
 def ask_operator() -> int:
@@ -643,6 +660,21 @@ def main():
     env = ManagerBasedRlEnv(cfg=cfg, device=device)
     env = RslRlVecEnvWrapper(env)
     print("[INFO] Environment created")
+
+    # Override the task's default (body-tracking) viewer camera with a static
+    # world-frame orbit view tuned for teleop recording — above and behind the
+    # robot, slightly to the side, looking along the gripper (+x) direction.
+    # WORLD = a free camera aimed at a fixed world point (env 0 sits at the
+    # world origin here), so the view stays put instead of following a body.
+    # The W key still swaps to the wrist cam and back to exactly this framing.
+    vcfg = env.cfg.viewer
+    vcfg.origin_type = ViewerConfig.OriginType.WORLD
+    vcfg.entity_name = None
+    vcfg.body_name = None
+    vcfg.lookat = ORBIT_CAM_LOOKAT
+    vcfg.distance = ORBIT_CAM_DISTANCE
+    vcfg.azimuth = ORBIT_CAM_AZIMUTH
+    vcfg.elevation = ORBIT_CAM_ELEVATION
 
     # 3. Build the ghost-at-home overlay (see _build_ghost_model_and_qpos).
     mj_model = _get_mj_model(env)
