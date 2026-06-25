@@ -27,12 +27,29 @@ class Recorder:
             "next.done": {"dtype": "bool", "shape": (1,), "names": None},
             "success": {"dtype": "bool", "shape": (1,), "names": None},
         }
-        self.dataset = LeRobotDataset.create(
+        self._root = root
+        self._repo_id = repo_id
+        self._fps = fps
+        self._features = features
+
+        # Create separate datasets for success and failure
+        self._success_root = f"{root}/success" if root else None
+        self._failure_root = f"{root}/failure" if root else None
+
+        self.dataset_success = LeRobotDataset.create(
             repo_id,
             fps=fps,
             features=features,
-            root=root,
+            root=self._success_root,
         )
+        self.dataset_failure = LeRobotDataset.create(
+            repo_id,
+            fps=fps,
+            features=features,
+            root=self._failure_root,
+        )
+        # Keep legacy dataset reference for backwards compatibility
+        self.dataset = self.dataset_success
         self._pending: list[dict] = []
 
     def add_frame(
@@ -70,15 +87,17 @@ class Recorder:
     def save_episode(self, success: bool) -> None:
         """Flush buffered frames stamped with the operator's label, then persist.
 
+        Success episodes are saved to success/, failure episodes to failure/.
         No-op if nothing was buffered (avoids empty/garbage episodes).
         """
         if not self._pending:
             return
         label = np.array([success], dtype=bool)
+        dataset = self.dataset_success if success else self.dataset_failure
         for frame in self._pending:
             frame["success"] = label
-            self.dataset.add_frame(frame)
-        self.dataset.save_episode()
+            dataset.add_frame(frame)
+        dataset.save_episode()
         self._pending = []
 
     def discard_episode(self) -> None:
@@ -87,6 +106,9 @@ class Recorder:
 
     def close(self, operator_id: int | None = None) -> None:
         if operator_id is not None:
-            self.dataset.meta.info["operator_id"] = operator_id
-            write_info(self.dataset.meta.info, self.dataset.meta.root)
-        self.dataset.finalize()
+            self.dataset_success.meta.info["operator_id"] = operator_id
+            write_info(self.dataset_success.meta.info, self.dataset_success.meta.root)
+            self.dataset_failure.meta.info["operator_id"] = operator_id
+            write_info(self.dataset_failure.meta.info, self.dataset_failure.meta.root)
+        self.dataset_success.finalize()
+        self.dataset_failure.finalize()

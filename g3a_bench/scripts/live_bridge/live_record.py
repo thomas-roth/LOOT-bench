@@ -79,6 +79,9 @@ USE_FOLLOWER_STATE_FOR_SIM = (
 RESET_THRESHOLD_RAD = 0.2  # all 6 arm joints must be within this many rad of home
 GHOST_ROBOT_ENTITY = "robot"  # scene entity key whose geoms get ghosted
 GHOST_COLOR = (0.5, 0.7, 0.5, 0.5)  # translucent green, same as mjlab's tracking task
+GHOST_COLOR_SUCCESS = (0.3, 0.9, 0.3, 0.8)  # bright green for success feedback
+GHOST_COLOR_FAILURE = (0.9, 0.3, 0.3, 0.8)  # bright red for failure feedback
+FEEDBACK_COLOR_DURATION = 1.5  # seconds to show success/failure color
 
 # Joint1 calibration offset between the raw leader frame and the sim frame
 # (see mapper.LEADER_JOINT1_SIM_OFFSET). It must be applied identically in the
@@ -287,6 +290,18 @@ class _LiveRecordingViewer(NativeMujocoViewer):
         self._wrist_cam_on = False
         self._wrist_cam_id = -1
         self._saved_cam: tuple | None = None
+        # Snapshot of the intended MjvOption visualization flags, captured once in
+        # setup() and re-asserted every frame so the native viewer's built-in
+        # single-key flag toggles (every letter is one — see _on_key) can't alter
+        # the scene. None until setup() runs.
+        self._baseline_visflags: np.ndarray | None = None
+        # Visual feedback for success/failure (ghost-arm color flash)
+        self._feedback_color: tuple[float, float, float, float] | None = None
+        self._feedback_color_start_time = 0.0
+        # Provisional failure: after collision, user has ~2s to press N (discard)
+        # Otherwise auto-save failure
+        self._provisional_failure = False
+        self._provisional_failure_time = 0.0
         super().__init__(
             env,
             policy,
@@ -295,7 +310,61 @@ class _LiveRecordingViewer(NativeMujocoViewer):
             **kwargs,
         )
 
+    def setup(self) -> None:
+        """Capture the intended visualization-flag baseline after base setup.
+
+        The native MuJoCo viewer routes every keystroke through its OWN handler
+        in addition to ours, and binds nearly every letter to a built-in
+        visualization-flag toggle (see mjVISSTRING). We snapshot the flags right
+        after the base viewer has configured them — before the operator can press
+        anything — and restore that snapshot each frame (see
+        _update_debug_visualizers), so no accidental key can change the look of
+        the scene. Most importantly this defeats 'D' = mjVIS_STATIC, which would
+        otherwise hide the floor / table / fixtures and black out the scene.
+        """
+        super().setup()
+        assert self.viewer is not None
+        self._baseline_visflags = self.viewer.opt.flags.copy()
+
     # ── Ghost arm helpers ────────────────────────────────────────────────────
+
+    def _get_ghost_color(self) -> tuple[float, float, float, float]:
+        """Return the ghost-arm color based on feedback state."""
+        if self._feedback_color is None:
+            return GHOST_COLOR
+        # If feedback color is active but duration exceeded, fade it out
+        elapsed = time.perf_counter() - self._feedback_color_start_time
+        if elapsed > FEEDBACK_COLOR_DURATION:
+            self._feedback_color = None
+            return GHOST_COLOR
+        return self._feedback_color
+
+    def _get_ghost_model_with_color(
+        self, color: tuple[float, float, float, float]
+    ) -> "_mujoco.MjModel":
+        """Build a ghost model with the specified color."""
+        if self._ghost_model is None:
+            return copy.deepcopy(self.mjm)
+        ghost_model = copy.deepcopy(self._ghost_model)
+        # Update robot geom colors to the specified color
+        prefix = f"{GHOST_ROBOT_ENTITY}/"
+        for gi in range(ghost_model.ngeom):
+            body_name = (
+                _mujoco.mj_id2name(
+                    ghost_model, _mujoco.mjtObj.mjOBJ_BODY, ghost_model.geom_bodyid[gi]
+                )
+                or ""
+            )
+            is_robot = body_name.startswith(prefix)
+            is_collision = (
+                ghost_model.geom_contype[gi] != 0
+                or ghost_model.geom_conaffinity[gi] != 0
+            )
+            if is_robot and not is_collision:
+                ghost_model.geom_rgba[gi] = color
+            else:
+                ghost_model.geom_rgba[gi, 3] = 0
+        return ghost_model
 
     def _update_debug_visualizers(self, viewer: "_mujoco.viewer.Handle") -> None:  # type: ignore[name-defined]
         """Draw the ghost-at-home overlay every frame, on top of whatever the
@@ -310,9 +379,10 @@ class _LiveRecordingViewer(NativeMujocoViewer):
         visualizer = MujocoNativeDebugVisualizer(
             viewer.user_scn, self.mjm, self.env_idx, self._show_all_envs
         )
-        visualizer.add_ghost_mesh(
-            self._ghost_qpos, model=self._ghost_model, label="ghost"
-        )
+        # Use feedback color (success/failure flash) if active, otherwise normal ghost
+        current_color = self._get_ghost_color()
+        ghost_model = self._get_ghost_model_with_color(current_color)
+        visualizer.add_ghost_mesh(self._ghost_qpos, model=ghost_model, label="ghost")
 
     def _enter_reset_phase(self) -> None:
         self._in_reset_phase = True
@@ -399,16 +469,16 @@ class _LiveRecordingViewer(NativeMujocoViewer):
 
     def _handle_custom_action(self, action, payload) -> bool:  # type: ignore[override]
         if payload == "save_success":
-            self._awaiting_collision_label = False
             self._end_episode(success=True)
         elif payload == "save_failure":
-            self._awaiting_collision_label = False
             self._end_episode(success=False)
         elif payload == "discard":
             frames = self._recorder.num_frames_in_episode
             self._recorder.discard_episode()
-            self._awaiting_collision_label = False
+            self._provisional_failure = False
             print(f"[INFO] Episode discarded ({frames} frames dropped)")
+            if self._feedback_color is not None:
+                self._feedback_color = None
             self._enter_reset_phase()
         else:
             return False
@@ -422,9 +492,19 @@ class _LiveRecordingViewer(NativeMujocoViewer):
         self._recorder.save_episode(success=success)
         self.episodes_saved += 1
         label = "SUCCESS" if success else "FAILURE"
+        color_label = "✓ SUCCESS" if success else "✗ FAILURE"
         print(
             f"[INFO] Episode {self.episodes_saved} saved as {label} ({frames} frames)"
         )
+
+        # Trigger visual feedback: flash ghost-arm color (green/red)
+        self._feedback_color = GHOST_COLOR_SUCCESS if success else GHOST_COLOR_FAILURE
+        self._feedback_color_start_time = time.perf_counter()
+
+        # Auto-print the result with clear visual indicator
+        folder = "success" if success else "failure"
+        print(f"[{color_label}] Episode saved to {folder}/ folder")
+
         if self._num_episodes and self.episodes_saved >= self._num_episodes:
             print(f"[INFO] Reached {self._num_episodes} episodes — stopping")
             self._interrupted = True
@@ -445,11 +525,13 @@ class _LiveRecordingViewer(NativeMujocoViewer):
             self._end_episode(success=True)
         else:
             print(
-                "[WARN] Ground collision!  Press  Numpad 2 = save as failure"
-                "   Numpad 3 = discard"
+                "[WARN] Ground collision — will save as failure in ~2s (Press N to discard)"
             )
-            self._awaiting_collision_label = True
-            self.verbosity = VerbosityLevel.INFO  # suppress step-log spam while waiting
+            self._provisional_failure = True
+            self._provisional_failure_time = time.perf_counter()
+            self._feedback_color = GHOST_COLOR_FAILURE
+            self._feedback_color_start_time = time.perf_counter()
+            self.verbosity = VerbosityLevel.INFO
 
     # ── Step loop ────────────────────────────────────────────────────────────
 
@@ -461,6 +543,17 @@ class _LiveRecordingViewer(NativeMujocoViewer):
             )
             self._interrupted = True
             return False
+
+        # ── Provisional failure: waiting for discard or auto-save timeout ──
+        if self._provisional_failure:
+            timeout = 2.0  # seconds to wait before auto-saving
+            elapsed = time.perf_counter() - self._provisional_failure_time
+            if elapsed > timeout:
+                # Timeout reached: auto-save failure
+                print(f"[INFO] Saving failure episode (timeout {timeout}s reached)")
+                self._provisional_failure = False
+                self._end_episode(success=False)
+            return True
 
         # ── Reset phase: ghost visible, sim live, not recorded ──
         # Operator moves the arm in the sim toward the ghost (rest pose).
@@ -752,10 +845,14 @@ def main():
 
     print("[INFO] Starting native MuJoCo viewer")
     print("[INFO] Move the leader arm to control the sim and follower")
+    print("[INFO] Keys:")
+    print("[INFO]   Success   → auto-saved to success/ folder")
     print(
-        "[INFO] Keys (numpad):  1=save success   2=save failure   "
-        "3=discard/redo   4=stop"
+        "[INFO]   Failure   → auto-saved to failure/ folder (press N within 2s to discard)"
     )
+    print("[INFO]   N         → discard/redo current episode")
+    print("[INFO]   C         → toggle wrist camera <-> orbit view")
+    print("[INFO]   Q         → stop recording session")
     print("[INFO] Key W: toggle wrist camera <-> orbit view")
     print("[INFO] === Episode 1 started — recording resumed ===")
 
@@ -779,7 +876,9 @@ def main():
         recorder.close(operator_id=operator_id)
         env.close()
         saved = viewer.episodes_saved if viewer is not None else 0
-        print(f"[INFO] Done. Saved {saved} episode(s) to {dataset_root}")
+        print(f"[INFO] Done. Saved {saved} episode(s)")
+        print(f"[INFO]   Success episodes: {dataset_root}/success/")
+        print(f"[INFO]   Failure episodes: {dataset_root}/failure/")
         if hw_failed[0]:
             print(
                 "[WARN] Session ended due to a hardware-thread failure "

@@ -14,6 +14,7 @@ dependencies = [
     "pre-commit>=3.7.1",
     "pyright[nodejs]>=1.1.409",
     "ruff>=0.15.13",
+    "snakeviz>=2.2.2",
 ]
 
 [project.scripts]
