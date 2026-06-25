@@ -23,6 +23,8 @@ Key bindings:
     Numpad 2  save episode as FAILURE  (required when collision prompt appears)
     Numpad 3  discard episode
     Numpad 4  stop session and finalize dataset
+    W         toggle viewer between orbit camera and the robot's wrist camera
+              (clearer gripper view while teleoperating demos)
 
     Main-row digit keys are NOT usable here — MuJoCo's native viewer swallows
     them internally to toggle render-group visibility before they ever reach
@@ -60,7 +62,7 @@ from mjlab.tasks.registry import load_env_cfg
 from mjlab.viewer import NativeMujocoViewer
 from mjlab.viewer.base import VerbosityLevel
 from mjlab.viewer.native.visualizer import MujocoNativeDebugVisualizer
-from mjlab.viewer.native.keys import KEY_KP_1, KEY_KP_2, KEY_KP_3, KEY_KP_4
+from mjlab.viewer.native.keys import KEY_KP_1, KEY_KP_2, KEY_KP_3, KEY_KP_4, KEY_W
 
 import g3a_bench  # noqa: F401
 from g3a_bench.robots.trlc_dk1.dk1_constants import _HOME_JOINT_POS
@@ -101,6 +103,12 @@ KEY_SAVE_SUCCESS = KEY_KP_1
 KEY_SAVE_FAILURE = KEY_KP_2
 KEY_DISCARD = KEY_KP_3
 KEY_QUIT = KEY_KP_4
+KEY_WRIST_CAM = KEY_W
+
+# Name of the wrist camera in the DK1 MJCF. The compiled model prefixes entity
+# cameras (e.g. "robot/wrist_camera"), so it is matched by suffix — see
+# _find_camera_id.
+WRIST_CAMERA_NAME = "wrist_camera"
 
 
 def ask_operator() -> int:
@@ -238,6 +246,10 @@ class _LiveRecordingViewer(NativeMujocoViewer):
         self.episodes_saved = 0
         self._in_reset_phase = False
         self._awaiting_collision_label = False
+        # Wrist-cam toggle (W): resolved lazily once the viewer/model exist.
+        self._wrist_cam_on = False
+        self._wrist_cam_id = -1
+        self._saved_cam: tuple | None = None
         super().__init__(
             env,
             policy,
@@ -293,8 +305,60 @@ class _LiveRecordingViewer(NativeMujocoViewer):
             self.request_action("CUSTOM", "save_failure")
         elif key == KEY_DISCARD:
             self.request_action("CUSTOM", "discard")
+        elif key == KEY_WRIST_CAM:
+            # Only mutates the viewer's own camera (never env/sim), so it is
+            # safe to handle directly on the viewer thread.
+            self._toggle_wrist_cam()
         elif key == KEY_QUIT:
             self._interrupted = True
+
+    def _toggle_wrist_cam(self) -> None:
+        """Toggle the viewer between the orbit/free camera and the robot's
+        wrist camera. Seeing the live wrist view makes gripper alignment much
+        easier to judge while teleoperating demos.
+
+        Toggling back restores the exact orbit framing the operator had, so W
+        is non-destructive to whatever view they set up.
+        """
+        v = self.viewer
+        if v is None or self.mjm is None:
+            return
+        if self._wrist_cam_id < 0:
+            self._wrist_cam_id = _find_camera_id(self.mjm, WRIST_CAMERA_NAME)
+            if self._wrist_cam_id < 0:
+                print(
+                    f"[WARN] No '{WRIST_CAMERA_NAME}' camera in model — "
+                    "W toggle disabled"
+                )
+                return
+        if not self._wrist_cam_on:
+            self._saved_cam = (
+                int(v.cam.type),
+                int(v.cam.fixedcamid),
+                int(v.cam.trackbodyid),
+                tuple(v.cam.lookat),
+                float(v.cam.distance),
+                float(v.cam.azimuth),
+                float(v.cam.elevation),
+            )
+            v.cam.type = _mujoco.mjtCamera.mjCAMERA_FIXED.value
+            v.cam.fixedcamid = self._wrist_cam_id
+            self._wrist_cam_on = True
+            print("[INFO] Wrist camera ON (press W to return to orbit view)")
+        else:
+            if self._saved_cam is not None:
+                ctype, fcam, tbody, lookat, dist, azi, elev = self._saved_cam
+                v.cam.type = ctype
+                v.cam.fixedcamid = fcam
+                v.cam.trackbodyid = tbody
+                v.cam.lookat = lookat
+                v.cam.distance = dist
+                v.cam.azimuth = azi
+                v.cam.elevation = elev
+            else:
+                v.cam.type = _mujoco.mjtCamera.mjCAMERA_FREE.value
+            self._wrist_cam_on = False
+            print("[INFO] Wrist camera OFF (orbit view restored)")
 
     def _handle_custom_action(self, action, payload) -> bool:  # type: ignore[override]
         if payload == "save_success":
@@ -434,6 +498,20 @@ class _LiveRecordingViewer(NativeMujocoViewer):
             )
             self.pause()
             return False
+
+
+def _find_camera_id(mj_model: "_mujoco.MjModel", suffix: str) -> int:
+    """Return the id of the first camera whose name is, or ends with, ``suffix``.
+
+    The compiled model prefixes entity cameras (e.g. "robot/wrist_camera"), so a
+    plain mj_name2id on the bare name would miss it — match by suffix instead.
+    Returns -1 if no camera matches.
+    """
+    for ci in range(mj_model.ncam):
+        name = _mujoco.mj_id2name(mj_model, _mujoco.mjtObj.mjOBJ_CAMERA, ci) or ""
+        if name == suffix or name.endswith("/" + suffix):
+            return ci
+    return -1
 
 
 def _build_ghost_model_and_qpos(
@@ -626,6 +704,7 @@ def main():
         "[INFO] Keys (numpad):  1=save success   2=save failure   "
         "3=discard/redo   4=stop"
     )
+    print("[INFO] Key W: toggle wrist camera <-> orbit view")
     print("[INFO] === Episode 1 started — recording resumed ===")
 
     viewer: _LiveRecordingViewer | None = None
