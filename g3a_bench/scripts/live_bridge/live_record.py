@@ -80,21 +80,39 @@ RESET_THRESHOLD_RAD = 0.2  # all 6 arm joints must be within this many rad of ho
 GHOST_ROBOT_ENTITY = "robot"  # scene entity key whose geoms get ghosted
 GHOST_COLOR = (0.5, 0.7, 0.5, 0.5)  # translucent green, same as mjlab's tracking task
 
+# Joint1 calibration offset between the raw leader frame and the sim frame
+# (see mapper.LEADER_JOINT1_SIM_OFFSET). It must be applied identically in the
+# two places that need a sim-frame joint1 — the teleop action mapping AND the
+# ghost / rest-pose target — or the ghost ends up sitting ~this many radians
+# beside the leader-driven arm. Editing it in only one place is exactly what
+# breaks that alignment, so it lives here as a SINGLE knob both sites read.
+#   0.0                       → correction off (leader already matches sim)
+#   LEADER_JOINT1_SIM_OFFSET  → correction on (π/2; leader calibrated off-sim)
+LIVE_JOINT1_OFFSET = 0.0
+
 # Where the ghost overlay (and reset-phase "are we home?" check) target the
 # arm — independent of _HOME_JOINT_POS in dk1_constants.py, which is the RL
 # tasks' episode-reset/action-reference pose and stays untouched by this.
-# To pick new values: run print_leader_pose.py, move the real leader to a
-# comfortable rest pose, and copy the printed numbers in here.
+# These are the RAW leader joint readings as printed by print_leader_pose.py
+# (leader frame). To pick new values: run print_leader_pose.py, move the real
+# leader to a comfortable rest pose, and copy the printed numbers in here.
 LIVE_REST_POSE: dict[str, float] = {
-    "joint1": -1.4143,
+    "joint1": +0.1565,
     "joint2": +0.0015,
     "joint3": +0.0015,
     "joint4": -0.0153,
     "joint5": +0.0153,
     "joint6": +0.0276,
 }
+# Same rest pose mapped into the sim frame: joint1 carries the calibration
+# offset so the ghost/reset-check live in the same frame as the teleop'd arm
+# (LIVE_JOINT1_OFFSET is added to joint1 here AND in the action mapper below).
+_SIM_REST_POSE: dict[str, float] = {
+    **LIVE_REST_POSE,
+    "joint1": LIVE_REST_POSE["joint1"] + LIVE_JOINT1_OFFSET,
+}
 _LIVE_REST_POSE_REL = np.array(
-    [LIVE_REST_POSE[f"joint{i}"] - _HOME_JOINT_POS[f"joint{i}"] for i in range(1, 7)],
+    [_SIM_REST_POSE[f"joint{i}"] - _HOME_JOINT_POS[f"joint{i}"] for i in range(1, 7)],
     dtype=np.float32,
 )
 
@@ -220,8 +238,10 @@ class _LivePolicy:
         leader_action = self.action_list[0]
         if leader_action is not None:
             self.latest_leader_action = leader_action
+            action_with_offset = leader_action.copy()
+            action_with_offset[0] += LIVE_JOINT1_OFFSET
             raw_action = lerobot_to_mjlab_raw_action(
-                leader_action,
+                action_with_offset,
                 gravity_compensate=True,
             )
             self._last_raw_action = (
@@ -562,7 +582,7 @@ def _build_ghost_model_and_qpos(
             ghost_model.geom_rgba[gi, 3] = 0
 
     qpos = ghost_model.qpos0.copy()
-    ghost_pose = {**_HOME_JOINT_POS, **LIVE_REST_POSE}
+    ghost_pose = {**_HOME_JOINT_POS, **_SIM_REST_POSE}
     for joint_name, value in ghost_pose.items():
         jid = _mujoco.mj_name2id(
             ghost_model, _mujoco.mjtObj.mjOBJ_JOINT, f"{prefix}{joint_name}"
