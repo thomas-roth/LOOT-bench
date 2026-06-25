@@ -769,6 +769,57 @@ def main():
     # Drop ee_ground_collision: ground contact no longer ends the episode —
     # recording continues uninterrupted (same as record_replay.py).
 
+    # Optional CPU-only speedup for teleop recording. MuJoCo-Warp has no Metal
+    # path, so on Apple Silicon the per-step solver cost (elliptic cone, 10x20
+    # iterations, impratio=10 — tuned for RL stacking fidelity) dominates and
+    # caps the sim at ~19 FPS. Relax it here ONLY — never touch cube_env_cfg.py,
+    # whose physics the RL policy trains and is evaluated against.
+    #
+    # IMPORTANT: keep elliptic cone + impratio=10. Those two are what make the
+    # grip friction stiff; dropping them (pyramidal + impratio=1) lets a grasped
+    # cube slide and wobble between the fingers — and the grasp is the whole
+    # point of a teleop demo, so that fidelity is NOT wasted here. Only the
+    # iteration counts are relaxed for speed (the cheap lever).
+    if args.fast_sim or args.fast_sim_coarse:
+        mj = cfg.sim.mujoco
+        mj.iterations = 8
+        mj.ls_iterations = 12
+        print(
+            "[INFO] --fast-sim: relaxed solver iterations (iters=8, ls_iters=12; "
+            "elliptic cone + impratio=10 kept for grip stability) — "
+            "demo recorded under reduced-fidelity physics"
+        )
+        if args.fast_sim_coarse:
+            mj.timestep = 0.01
+            cfg.decimation = 1  # keep control dt = timestep * decimation = 0.02
+            print(
+                "[INFO] --fast-sim-coarse: timestep=0.01, decimation=1 "
+                "(1 substeps/step instead of 4) — contacts may be less stable"
+            )
+
+    # Keep the finger-pad contact solref stable for the play/teleop timestep.
+    # The pad solref time constant (0.01 s, in dk1_collision.py) is tuned for the
+    # 0.005 s RL training step, where it is 2x the step — MuJoCo's stability floor.
+    # Play mode runs a coarser step (0.02, or 0.01 with --fast-sim-coarse), so that
+    # same 0.01 s is now BELOW 2x the step: the grip contact goes stiff/unstable and
+    # the cube jitters and gets shoved away before the fingers visually touch it.
+    # Raise the pad solref time constant to 2x the actual step here. This mutates
+    # only this teleop process's in-memory cfg; the RL training defaults are a
+    # separate process and stay untouched (so cube_env_cfg.py / dk1_collision.py
+    # RL physics is unaffected, per the policy above).
+    min_solref_timeconst = 2.0 * cfg.sim.mujoco.timestep
+    for _coll in cfg.scene.entities["robot"].collisions:
+        solref = getattr(_coll, "solref", None) or {}
+        for _key, _ref in list(solref.items()):
+            _timeconst, _dampratio = _ref
+            if _timeconst < min_solref_timeconst:
+                solref[_key] = (min_solref_timeconst, _dampratio)
+                print(
+                    f"[INFO] contact-stability: raised solref timeconst for "
+                    f"'{_key}' {_timeconst:g}->{min_solref_timeconst:g} s "
+                    f"(>=2x timestep {cfg.sim.mujoco.timestep:g}) to stop grip jitter"
+                )
+
     # 2. Create environment.
     env = ManagerBasedRlEnv(cfg=cfg, device=device)
     env = RslRlVecEnvWrapper(env)
