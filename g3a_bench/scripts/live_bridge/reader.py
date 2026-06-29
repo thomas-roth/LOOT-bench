@@ -67,10 +67,10 @@ class DatasetReader(Reader):
     and the rest of the pipeline processes it identically.
     """
 
-    def __init__(self, repo_id: str, episode_index: int = 0):
+    def __init__(self, repo_id: str, episode_index: int = 0, root: str | None = None):
         # LeRobotDataset wraps a HuggingFace dataset under the hood.
         # Episodes are contiguous blocks of rows; we find boundaries once.
-        self._ds = LeRobotDataset(repo_id)
+        self._ds = LeRobotDataset(repo_id, root=root)
         self._episode_index = episode_index
         self._frame_index = 0
         self._load_episode()
