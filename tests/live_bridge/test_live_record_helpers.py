@@ -66,9 +66,6 @@ def test_ghost_spec_arm_joints_spring_at_home():
         )
 
 
-# ── Task 4: ask_operator and _arm_at_home helpers ────────────────────────────
-
-
 def test_ask_operator_valid(monkeypatch):
     monkeypatch.setattr("builtins.input", lambda _: "2")
     from g3a_bench.scripts.live_bridge.live_record import ask_operator
@@ -82,26 +79,3 @@ def test_ask_operator_retries_on_bad_input(monkeypatch):
     from g3a_bench.scripts.live_bridge.live_record import ask_operator
 
     assert ask_operator() == 3
-
-
-def test_arm_at_home_true_within_threshold():
-    from g3a_bench.scripts.live_bridge.live_record import _arm_at_home
-    from g3a_bench.scripts.live_bridge.mapper import HOME_JOINT_POS
-
-    obs = HOME_JOINT_POS[:6].copy() + 0.05
-    assert _arm_at_home(obs, threshold=0.1) is True
-
-
-def test_arm_at_home_false_outside_threshold():
-    from g3a_bench.scripts.live_bridge.live_record import _arm_at_home
-    from g3a_bench.scripts.live_bridge.mapper import HOME_JOINT_POS
-
-    obs = HOME_JOINT_POS[:6].copy()
-    obs[2] += 0.5
-    assert _arm_at_home(obs, threshold=0.2) is False
-
-
-def test_arm_at_home_none_returns_false():
-    from g3a_bench.scripts.live_bridge.live_record import _arm_at_home
-
-    assert _arm_at_home(None, threshold=0.2) is False

@@ -2,27 +2,58 @@
 
 Teleop → sim mirroring → dataset recording pipeline for the G3A benchmark.
 
-Connects a real TRLC-DK1 robot (GELLO leader + DK1 follower) to a MuJoCo
+Connects a real TRLC-DK1 robot (GELLO leader + optional DK1 follower) to a MuJoCo
 simulation, mirrors every movement in real time, and records multiple labeled
 demonstrations per session into a LeRobot dataset for offline behaviour-cloning
 training.
 
 ---
 
-## Prerequisites
+## Setup for `live_record.py` (real hardware)
 
-### For `live_record.py` (real hardware)
+### 1. Install the trlc-dk1 hardware drivers
+
+The trlc-dk1 package requires **Python 3.12 or newer**.
 
 ```bash
-# install the trlc-dk1 hardware drivers
 uv pip install -e /path/to/trlc-dk1
 ```
 
-Physical connections:
-- **Leader** (GELLO controller): plugged in via U2D2 USB-serial adapter (FTDI)
-- **Follower** (DK1 arm): plugged in via CAN/CDC-ACM USB adapter
+### 2. Find the USB port names
 
-A display is required — `live_record.py` opens a native MuJoCo viewer window.
+Plug in the **leader** USB cable. Then run:
+
+```bash
+uv run lerobot-find-port
+```
+
+This lists all currently connected serial ports. Now **unplug** the leader cable
+— the tool will tell you which port disappeared. That is the leader port.
+Plug it back in and repeat for the follower if you are using one.
+
+On Linux the ports are (only if directly connected):
+
+- **Leader**: `/dev/ttyACM0`
+- **Follower**: `/dev/ttyACM1`
+
+These are the defaults the script uses when you do not pass `--leader-port` /
+`--follower-port` explicitly.
+
+### 3. Grant USB access (Linux — required every reconnect)
+
+Linux denies serial port access to normal users. After plugging in (or after any
+disconnect / loose connection), run:
+
+```bash
+sudo chmod 666 /dev/ttyACM*
+```
+
+This must be repeated every time the device is physically removed and
+reconnected.
+
+### 4. A display is required
+
+`live_record.py` opens a native MuJoCo viewer window.
 
 ---
 
@@ -54,13 +85,16 @@ Requires real hardware. Reads the GELLO leader at ~200 Hz, mirrors it in the
 sim at ~50 Hz, and records multiple labeled demonstrations in one session.
 
 ```bash
-# ports auto-detected (reliable on Linux)
+# leader only (default — no follower arm needed)
 uv run python g3a_bench/scripts/live_bridge/live_record.py
 
-# explicit ports (recommended on Windows, or if auto-detect warns)
-uv run python g3a_bench/scripts/live_bridge/live_record.py \
-    --follower-port /dev/ttyACM0 \
-    --leader-port /dev/ttyUSB0
+# with follower arm
+uv run python g3a_bench/scripts/live_bridge/live_record.py --follower
+
+# explicit ports (if auto-defaults don't match your setup)
+uv run python g3a_bench/scripts/live_bridge/live_record.py --follower \
+    --leader-port /dev/ttyACM0 \
+    --follower-port /dev/ttyACM1
 
 # stop automatically after N saved episodes
 uv run python g3a_bench/scripts/live_bridge/live_record.py --num-episodes 10
@@ -70,26 +104,40 @@ uv run python g3a_bench/scripts/live_bridge/live_record.py \
     --dataset-dir path/to/my_dataset
 ```
 
+**Arguments:**
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--follower` | off | Connect to the real follower arm. Without this flag only the leader is read. |
+| `--leader-port` | `/dev/ttyACM0` | Serial port for the leader (GELLO controller). |
+| `--follower-port` | `/dev/ttyACM1` | Serial port for the follower arm (only used with `--follower`). |
+| `--task` | `G3a-Cube-Stack3-Dk1_uni` | MJLab task name to load. |
+| `--dataset-dir` | `logs/live_record/<timestamp>/` | Output directory. Errors if it already exists. |
+| `--num-episodes` | `0` | Stop after N saved episodes. 0 = record until Numpad 4 is pressed. |
+
 **Startup:** the script asks for an operator number (1–4) before doing anything
 else. The number is stored in `meta/info.json` of the recorded dataset.
 
 **What happens:**
 1. Asks `Operator (1 / 2 / 3 / 4):` on stdin
 2. Loads the task in play mode (no noise, infinite episode length)
-3. Adds a ghost arm to the scene (visual-only DK1 fixed at home pose, initially invisible)
-4. Starts a background thread reading the leader at ~200 Hz and commanding the follower
-5. Opens a MuJoCo viewer; move the leader arm to drive the sim and the follower
+3. Adds a ghost arm to the scene (visual-only DK1 fixed at rest pose, initially invisible)
+4. Starts a background thread reading the leader at ~200 Hz (and commanding the follower if `--follower` is set)
+5. Opens a MuJoCo viewer; move the leader arm to drive the sim
 6. Records sim obs + real robot state + leader action + reward + done, **buffered in memory** per episode
 7. Handles episode end automatically (see state machine below)
 
-**Key bindings:**
+**Key bindings (numpad):**
 
 | Key | Action |
 |-----|--------|
-| `S` | Save current episode as **success** → enter reset phase |
-| `F` | Save current episode as **failure** → enter reset phase (only valid during collision prompt) |
-| `D` | **Discard** current episode → enter reset phase → redo |
-| `Q` | Stop session and finalize dataset |
+| `Numpad 1` | Save current episode as **success** → enter reset phase |
+| `Numpad 2` | Save current episode as **failure** → enter reset phase |
+| `Numpad 3` | **Discard** current episode → enter reset phase → redo |
+| `Numpad 4` | Stop session and finalize dataset |
+
+> Main-row digit keys (1–4) are swallowed by the MuJoCo viewer to toggle render
+> groups and never reach the script — use the **numpad**.
 
 ---
 
@@ -99,16 +147,16 @@ Each episode moves through three states:
 
 ```
 RECORDING ──── task complete (all cubes placed) ──────► auto-save SUCCESS
-          └─── ground collision (ee_ground_collision) ──► AWAITING_LABEL
-          └─── S key ───────────────────────────────────► save SUCCESS
+          └─── ground collision ──────────────────────► AWAITING_LABEL
+          └─── Numpad 1 ────────────────────────────► save SUCCESS ──► RESET_PHASE
 
 AWAITING_LABEL (sim frozen, collision prompt on screen)
-          ├─── F key ──► save FAILURE ──► RESET_PHASE
-          ├─── D key ──► discard       ──► RESET_PHASE
-          └─── S key ──► save SUCCESS  ──► RESET_PHASE
+          ├─── Numpad 2 ──► save FAILURE ──► RESET_PHASE
+          ├─── Numpad 3 ──► discard       ──► RESET_PHASE
+          └─── Numpad 1 ──► save SUCCESS  ──► RESET_PHASE
 
-RESET_PHASE (sim live, not recorded, ghost arm visible at home)
-          └─── sim arm ≈ ghost (all 6 joints within 0.2 rad of home) ──► RECORDING
+RESET_PHASE (sim live, not recorded, ghost arm visible at rest pose)
+          └─── sim arm ≈ ghost (all 6 joints within 0.2 rad of rest) ──► RECORDING
 ```
 
 **RECORDING:** Normal operation. Each sim step gets recorded. When `done=True`
@@ -116,12 +164,12 @@ fires, the script checks whether all cubes are placed — if yes, it auto-saves;
 if a ground collision is detected, it shows the collision prompt.
 
 **AWAITING_LABEL:** Sim is frozen. The operator decides what to do with the
-episode (save as failure or discard). S can also override and save as success.
+episode (save as failure or discard). Numpad 1 can also override and save as success.
 
-**RESET_PHASE:** After any episode ends, the ghost arm (semi-transparent grey
-DK1) becomes visible in the sim at the home pose. The operator moves the leader
-arm back toward home — the live sim arm follows. When the sim arm is within
-0.2 rad of home on all 6 joints, the next episode begins automatically and the
+**RESET_PHASE:** After any episode ends, the ghost arm (semi-transparent green
+DK1) becomes visible in the sim at the rest pose. The operator moves the leader
+arm back toward rest — the live sim arm follows. When the sim arm is within
+0.2 rad of rest on all 6 joints, the next episode begins automatically and the
 ghost disappears. Nothing is recorded during this phase.
 
 ---
@@ -131,10 +179,6 @@ ghost disappears. Nothing is recorded during this phase.
 Each session creates a new timestamped directory. Data is **never overwritten**.
 If `--dataset-dir` is given and already exists, the script errors rather than
 wiping it.
-
-**Port auto-detection:** on Linux, `/dev/ttyUSB*` = leader, `/dev/ttyACM*` =
-follower — unambiguous. On Windows, ports are `COMx` and detection uses the USB
-vendor id (FTDI = leader). If detection prints `[WARN]`, pass ports explicitly.
 
 **`USE_FOLLOWER_STATE_FOR_SIM` toggle:** at the top of `live_record.py`, set
 `USE_FOLLOWER_STATE_FOR_SIM = True` to drive the sim from the follower's joint
@@ -177,7 +221,7 @@ Dataset `meta/info.json` also includes `operator_id` (int 1–4) for the session
 
 Two threads run in parallel:
 
-- **HW thread (~200 Hz, daemon):** reads leader → sends to follower → writes
+- **HW thread (~200 Hz, daemon):** reads leader → (optionally) sends to follower → writes
   latest action to `action_list[0]` (last-writer-wins, GIL-safe single-element
   list). If this thread crashes (serial disconnect), it sets `hw_failed[0]=True`
   and the viewer aborts cleanly.
@@ -186,10 +230,9 @@ Two threads run in parallel:
   maps to MuJoCo raw action → `env.step()` → records frame. The state machine
   lives here.
 
-Termination detection: both `ee_ground_collision` and `success` terminations are
-**kept active** (not popped in play mode). When `done=True` fires, the script
-queries `env.env.command_manager.get_term("arrangement").slot_at_goal` to
-distinguish success (all cubes placed) from collision.
+Termination detection: when `done=True` fires, the script queries
+`env.env.command_manager.get_term("arrangement").slot_at_goal` to distinguish
+success (all cubes placed) from collision.
 
 ---
 
@@ -200,6 +243,3 @@ Unit and integration tests live in `tests/live_bridge/`. Run with:
 ```bash
 uv run pytest tests/live_bridge/ -v
 ```
-
-Expected: 41 tests pass, 2 skipped (hardware/network). See
-`tests/live_bridge/README.md` for details on what each test covers.

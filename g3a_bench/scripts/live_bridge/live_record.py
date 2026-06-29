@@ -31,9 +31,12 @@ Key bindings:
 Usage:
     uv run python g3a_bench/scripts/live_bridge/live_record.py
 
-    Optionally specify ports:
-    uv run python g3a_bench/scripts/live_bridge/live_record.py \\
-        --follower-port /dev/ttyACM0 --leader-port /dev/ttyUSB0
+    With real follower arm:
+    uv run python g3a_bench/scripts/live_bridge/live_record.py --follower
+
+    With explicit ports:
+    uv run python g3a_bench/scripts/live_bridge/live_record.py --follower \\
+        --follower-port /dev/ttyACM1 --leader-port /dev/ttyACM0
 """
 
 # Load lerobot/HF-datasets native libs before mjlab/mujoco-warp to avoid a
@@ -62,7 +65,6 @@ from mjlab.viewer.native.keys import KEY_KP_1, KEY_KP_2, KEY_KP_3, KEY_KP_4
 import g3a_bench  # noqa: F401
 from g3a_bench.robots.trlc_dk1.dk1_constants import _HOME_JOINT_POS
 from g3a_bench.scripts.live_bridge.mapper import (
-    HOME_JOINT_POS,
     LEADER_JOINT1_SIM_OFFSET,
     lerobot_to_mjlab_raw_action,
 )
@@ -109,13 +111,6 @@ def ask_operator() -> int:
         if raw in ("1", "2", "3", "4"):
             return int(raw)
         print(f"  Invalid: '{raw}'. Enter 1, 2, 3, or 4.")
-
-
-def _arm_at_home(obs: np.ndarray | None, threshold: float) -> bool:
-    """True iff all 6 arm joints are within threshold rad of HOME_JOINT_POS."""
-    if obs is None:
-        return False
-    return bool(np.all(np.abs(obs[:6] - HOME_JOINT_POS[:6]) < threshold))
 
 
 def _hw_loop(
@@ -525,11 +520,11 @@ def main():
         help="Serial port for leader (e.g. /dev/ttyUSB0). Auto-detected if omitted.",
     )
     parser.add_argument(
-        "--no-follower",
+        "--follower",
         action="store_true",
         help=(
-            "Skip connecting to the real follower robot — only the leader is "
-            "read, and its action also drives observation.robot_state."
+            "Connect to the real follower robot. By default only the leader is "
+            "read and its action also drives observation.robot_state."
         ),
     )
     parser.add_argument(
@@ -613,14 +608,16 @@ def main():
             hw_failed,
             args.follower_port,
             args.leader_port,
-            not args.no_follower,
+            args.follower,
         ),
         daemon=True,
     )
     hw_thread.start()
     print("[INFO] Hardware thread started (reading leader at ~200 Hz)")
-    if args.no_follower:
-        print("[INFO] --no-follower set: real follower will not be used")
+    if not args.follower:
+        print(
+            "[INFO] Running leader-only (no follower connected). Pass --follower to enable."
+        )
 
     # 8. Create live policy and viewer.
     live_policy = _LivePolicy(action_list, device)
