@@ -2,22 +2,14 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
-
 import torch
 from mjlab.entity import Entity
+from mjlab.envs import ManagerBasedRlEnv
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 
-from g3a_bench.tasks.cube.mdp.commands import PieceArrangementCommand
-
-if TYPE_CHECKING:
-    from mjlab.envs import ManagerBasedRlEnv
+from g3a_bench.tasks.cube.mdp.commands import get_cube_command
 
 _DEFAULT_ASSET_CFG = SceneEntityCfg("robot")
-
-
-def _command(env: ManagerBasedRlEnv, name: str) -> PieceArrangementCommand:
-    return cast(PieceArrangementCommand, env.command_manager.get_term(name))
 
 
 def pieces_rel_grasp(
@@ -26,7 +18,7 @@ def pieces_rel_grasp(
     asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
 ) -> torch.Tensor:
     """All piece positions relative to the grasp site, flattened (E, N*3)."""
-    command = _command(env, command_name)
+    command = get_cube_command(env, command_name)
     robot: Entity = env.scene[asset_cfg.name]
     ee_pos = robot.data.site_pos_w[:, asset_cfg.site_ids].squeeze(1)
     piece_pos = torch.stack([p.data.root_link_pos_w for p in command.pieces], dim=1)
@@ -36,11 +28,11 @@ def pieces_rel_grasp(
 
 def slot_goal_deltas(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
     """Goal minus assigned-piece position per slot, flattened (E, G*3)."""
-    command = _command(env, command_name)
+    command = get_cube_command(env, command_name)
     delta = command.slot_goal_pos - command.slot_piece_pos()
     return delta.reshape(env.num_envs, -1)
 
 
 def slot_placed_flags(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
     """Per-slot placed flags (E, G)."""
-    return _command(env, command_name).slot_at_goal
+    return get_cube_command(env, command_name).slot_at_goal

@@ -19,21 +19,23 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import cast
 
 import torch
 from mjlab.entity import Entity
+from mjlab.envs.manager_based_rl_env import ManagerBasedRlEnv
 from mjlab.managers.command_manager import CommandTerm, CommandTermCfg
 from mjlab.utils.lab_api.math import quat_from_euler_xyz
+from mjlab.viewer.debug_visualizer import DebugVisualizer
 
 from g3a_bench.tasks.cube.variants import (
     CubeVariantCfg,
     form_height,
 )
 
-if TYPE_CHECKING:
-    from mjlab.envs.manager_based_rl_env import ManagerBasedRlEnv
-    from mjlab.viewer.debug_visualizer import DebugVisualizer
+
+def get_cube_command(env: ManagerBasedRlEnv, name: str) -> PieceArrangementCommand:
+    return cast(PieceArrangementCommand, env.command_manager.get_term(name))
 
 
 @dataclass(kw_only=True)
@@ -48,8 +50,6 @@ class PieceArrangementCommandCfg(CommandTermCfg):
     """Max distance between piece and slot goal to count as placed."""
     upright_threshold_deg: float = 15.0
     """Max tilt (and yaw misalignment for dominos) to count as placed."""
-    min_stack_base_distance: float = 0.14
-    """Minimum distance between the bases of two stacks."""
 
     def build(self, env: ManagerBasedRlEnv) -> PieceArrangementCommand:
         return PieceArrangementCommand(self, env)
@@ -168,8 +168,8 @@ class PieceArrangementCommand(CommandTerm):
         self.piece_pos_w = torch.stack(
             [p.data.root_link_pos_w for p in self.pieces], dim=1
         )
-        slot_pos = self.slot_piece_pos()
-        error = torch.norm(self.slot_goal_pos - slot_pos, dim=-1)
+
+        error = torch.norm(self.slot_goal_pos - self.slot_piece_pos(), dim=-1)
         at_goal = error < self.cfg.pos_threshold
 
         # Upright (and row alignment) checks for dominos.

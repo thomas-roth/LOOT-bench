@@ -121,8 +121,6 @@ no per-env Python loops.
 - `pos_threshold` (1.5 cm) — placement tolerance.
 - `upright_threshold_deg` (15°) — used for **both** the tilt and the yaw-alignment
   check on dominos.
-- `min_stack_base_distance` — declared but **not referenced**; stack separation
-  comes implicitly from the coarse base grid instead. A latent knob.
 
 ### `__init__` — state + precomputation
 
@@ -216,10 +214,7 @@ Draws a sphere at each slot goal — **green** when that slot is currently place
 **yellow** otherwise. Visible in `g3a-play` to see the target arrangement and which
 slots are satisfied.
 
-### Two caveats if you edit this
-
-- `min_stack_base_distance` is dead config; real separation comes from the coarse
-  base grid. Either wire it in or drop it.
+### Domino Spacing Caveat
 - The domino "fits in workspace" math assumes `domino_spacing · (G−1)` plus margin is
   smaller than the workspace. For a longer row or larger spacing the `clamp_min(0.0)`
   would silently collapse all dominos onto one center. Fine for `Domino5`
