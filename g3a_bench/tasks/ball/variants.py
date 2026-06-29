@@ -26,12 +26,12 @@ BALL_RADIUS = 0.025
 BALL_MASS = 0.03
 
 # Target centre x by action (env-local metres, robot base at x=0).
-TARGET_X = {"golf": 0.52, "push": 0.40, "throw": 0.56}
+TARGET_X = {"golf": 0.65, "push": 0.40, "throw": 0.70}
 # Ball spawn centre.
 BALL_SPAWN_X = 0.27
 # Throw wall (between ball and target).
 WALL_X = 0.42
-WALL_HEIGHT = 0.13
+WALL_HEIGHT = 0.20
 # Raised platform top for hole variants (the pit drops to the floor below).
 PLATFORM_Z = 0.03
 HOLE_RADIUS = 0.045
@@ -43,7 +43,7 @@ class BallVariantCfg:
     """Variant identifier used in the task id (e.g. "GolfMarked")."""
     action: BallAction
     target: TargetType
-    target_radius: float = 0.06
+    target_radius: float = 0.04
     """Success radius around the target centre (ignored extent for hole)."""
     at_rest_speed: float = 0.06
     """Ball speed below which it counts as at rest."""

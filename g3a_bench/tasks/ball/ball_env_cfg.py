@@ -154,6 +154,7 @@ def make_ball_env_cfg(
             variant=variant,
             resampling_time_range=(1.0e9, 1.0e9),
             debug_vis=True,
+            grasp_cfg=grasp_cfg,
         )
     }
 
@@ -231,11 +232,19 @@ def make_ball_env_cfg(
         "time_out": TerminationTermCfg(func=mdp.time_out, time_out=True),
         "success": TerminationTermCfg(
             func=ball_mdp.ball_at_target,
-            params={"command_name": COMMAND_NAME, "hold_time": 0.3},
+            params={"command_name": COMMAND_NAME, "hold_time": 0.0},
         ),
         "out_of_bounds": TerminationTermCfg(
             func=ball_mdp.ball_out_of_bounds,
             params={"command_name": COMMAND_NAME, "max_radius": 1.2},
+        ),
+        "ground_collision": TerminationTermCfg(
+            func=ball_mdp.ball_hits_ground,
+            params={"command_name": COMMAND_NAME},
+        ),
+        "wall_collision": TerminationTermCfg(
+            func=ball_mdp.ball_hits_wall,
+            params={"command_name": COMMAND_NAME},
         ),
     }
 
