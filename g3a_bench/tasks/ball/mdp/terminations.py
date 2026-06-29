@@ -21,7 +21,7 @@ def ball_at_target(
     command = cast(BallCommand, env.command_manager.get_term(command_name))
     at_target = command.at_target
     at_rest = command.success_steps * env.step_dt >= hold_time
-    return (at_target & at_rest).float()
+    return at_target & at_rest
 
 
 def ball_out_of_bounds(
@@ -68,4 +68,4 @@ def ball_hits_wall(
     in_wall_z = (command.ball_pos_w[:, 2] >= 0) & (
         command.ball_pos_w[:, 2] <= wall_z_max + BALL_RADIUS
     )
-    return (in_wall_x & in_wall_y & in_wall_z).float()
+    return in_wall_x & in_wall_y & in_wall_z

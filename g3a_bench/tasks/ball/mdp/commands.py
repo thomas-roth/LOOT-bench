@@ -48,6 +48,11 @@ class BallCommand(CommandTerm):
         self.ball: Entity = env.scene[cfg.ball_name]
         self._env_ref = env
         self.grasp_cfg = cfg.grasp_cfg or SceneEntityCfg("robot")
+        # Resolve names -> indices against the scene. Unlike term ``asset_cfg``s
+        # (which the managers resolve), this command-owned cfg is resolved here,
+        # so ``grasp_cfg.site_ids`` picks out the single grasp site instead of
+        # defaulting to all sites.
+        self.grasp_cfg.resolve(env.scene)
 
         E, dev = self.num_envs, self.device
         self.surface_z = self.variant.surface_z
