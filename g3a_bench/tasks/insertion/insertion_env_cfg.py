@@ -389,8 +389,9 @@ def make_insertion_env_cfg(
             azimuth=150.0,
         ),
         sim=SimulationCfg(
-            nconmax=120 + 120 * num_pegs,
-            njmax=900 + 90 * num_pegs,
+            # explicitly increase for 2 sheets (2 rings (from 16 boxes) lying on top of each other)
+            nconmax=120 + 120 * num_pegs + (200 if two_sheet else 0),
+            njmax=900 + 90 * num_pegs + (400 if two_sheet else 0),
             mujoco=MujocoCfg(
                 timestep=0.005,
                 iterations=15,

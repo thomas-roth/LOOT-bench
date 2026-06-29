@@ -119,5 +119,5 @@ actuated). `dk1_constants.py` carries `# pyright: reportAttributeAccessIssue=fal
   top (mujoco ships no stubs for the compiled `MjSpec`).
 - ruff line-length is 88; format with double quotes. Lint+format+pyright run as
   pre-commit hooks on commit.
-- Test renders are written to `out/<cat>_check/`; training logs to `logs/` and
+- Test renders are written to `out/render/<domain>/`; training logs to `logs/` and
   `wandb/`. The `examples/` dir holds reference mjlab code, not part of the package.

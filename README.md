@@ -49,6 +49,11 @@ uv run pre-commit run --all-files
 ```
 
 ## Example G3a-Cube-Stack3-Dk1_uni
+View:
+```shell
+uv run g3a-play G3a-Cube-Stack3-Dk1_uni --agent zero --viewer native --num-envs 1 --no-terminations True
+```
+
 Train:
 ```shell
 uv run g3a-train G3a-Cube-Stack3-Dk1_uni --env.scene.num-envs 1024
