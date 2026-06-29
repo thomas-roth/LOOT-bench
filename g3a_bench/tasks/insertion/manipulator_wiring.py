@@ -56,7 +56,7 @@ def wire_manipulator_into_env(
 
     assert cfg.scene.sensors is not None
     for sensor in cfg.scene.sensors:
-        if sensor.name == "ee_ground_collision":
+        if sensor.name in ("ee_ground_collision", "ee_werkbox_collision"):
             assert isinstance(sensor, ContactSensorCfg)
             sensor.primary.pattern = manipulator.ee_subtree
         elif sensor.name == _CAMERA_OBS_NAME:

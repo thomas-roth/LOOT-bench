@@ -298,7 +298,21 @@ def make_insertion_env_cfg(
         history_length=4,
     )
 
-    sensors: tuple[SensorCfg, ...] = (ee_ground_collision_cfg,)
+    # Robot end-effector colliding with the parts tray ("Werkbox"). The tray is
+    # a child body of the decor entity with real collision geometry (see
+    # decor/workstation_decor.xml); the rest of the decor stays visual-only.
+    ee_werkbox_collision_cfg = ContactSensorCfg(
+        name="ee_werkbox_collision",
+        # pattern set per-robot.
+        primary=ContactMatch(mode="subtree", pattern="", entity="robot"),
+        secondary=ContactMatch(mode="body", pattern="werkbox", entity="decor"),
+        fields=("found", "force"),
+        reduce="none",
+        num_slots=1,
+        history_length=4,
+    )
+
+    sensors: tuple[SensorCfg, ...] = (ee_ground_collision_cfg, ee_werkbox_collision_cfg)
     if obs_mode == "camera":
         sensors += (_add_camera_obs(observations, events, peg_names),)
 
@@ -343,6 +357,10 @@ def make_insertion_env_cfg(
         "ee_ground_collision": TerminationTermCfg(
             func=manipulation_mdp.illegal_contact,
             params={"sensor_name": "ee_ground_collision", "force_threshold": 10.0},
+        ),
+        "ee_werkbox_collision": TerminationTermCfg(
+            func=manipulation_mdp.illegal_contact,
+            params={"sensor_name": "ee_werkbox_collision", "force_threshold": 10.0},
         ),
         "success": TerminationTermCfg(
             func=ins_mdp.insertion_complete,
