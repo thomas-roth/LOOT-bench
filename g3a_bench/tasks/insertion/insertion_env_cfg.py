@@ -36,6 +36,20 @@ from g3a_bench.tasks.insertion.variants import InsertionVariantCfg
 
 COMMAND_NAME = "insertion"
 
+REWARD_MODE_TERMS: dict[str, frozenset[str]] = {
+    "success": frozenset(["success"]),
+    "progress": frozenset(["inserted_count", "success"]),
+    "dense": frozenset(
+        [
+            "staged_next_socket",
+            "insertion_depth",
+            "sheet_alignment",
+            "inserted_count",
+            "success",
+        ]
+    ),
+}
+
 ActionMode = Literal["eef", "joint"]
 """``"eef"``: task-space end-effector control (differential IK) for the arm plus
 a direct gripper joint action -- the standard mode. ``"joint"``: the original
@@ -302,15 +316,32 @@ def make_insertion_env_cfg(
     if obs_mode == "camera":
         sensors += (_add_camera_obs(observations, events, peg_names),)
 
-    # Sparse reward design: the task signal is only the (near-)binary outcome of
-    # actually inserting pegs -- no dense distance/depth shaping. This is meant to
-    # be paired with a demonstration pipeline (GELLO teleop -> offline-to-online
-    # RL), which supplies the exploration that dense shaping previously provided.
-    # The dense terms (``staged_next_socket_reward``, ``insertion_depth_reward``,
-    # ``sheet_alignment_reward``) are left defined in ``mdp/rewards.py`` so this is
-    # a one-line switch back if needed.
     rewards = {
-        # Sparse task signal: only fires when pegs are genuinely inserted.
+        "staged_next_socket": RewardTermCfg(
+            func=ins_mdp.staged_next_socket_reward,
+            weight=1.0,
+            params={
+                "command_name": COMMAND_NAME,
+                "reaching_std": 0.2,
+                "bringing_std": 0.3,
+                "asset_cfg": grasp_cfg,
+            },
+        ),
+        "insertion_depth": RewardTermCfg(
+            func=ins_mdp.insertion_depth_reward,
+            weight=1.0,
+            params={"command_name": COMMAND_NAME},
+        ),
+        "sheet_alignment": RewardTermCfg(
+            func=ins_mdp.sheet_alignment_reward,
+            weight=1.0,
+            params={
+                "command_name": COMMAND_NAME,
+                "reaching_std": 0.2,
+                "bringing_std": 0.3,
+                "asset_cfg": grasp_cfg,
+            },
+        ),
         "inserted_count": RewardTermCfg(
             func=ins_mdp.inserted_count_reward,
             weight=2.0,
@@ -321,7 +352,6 @@ def make_insertion_env_cfg(
             weight=5.0,
             params={"command_name": COMMAND_NAME},
         ),
-        # Regularization (not task shaping): keep motions smooth and feasible.
         "action_rate_l2": RewardTermCfg(func=mdp.action_rate_l2, weight=-0.01),
         "joint_pos_limits": RewardTermCfg(
             func=mdp.joint_pos_limits,
