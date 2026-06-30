@@ -20,26 +20,38 @@ from mjlab.terrains import TerrainEntityCfg
 from mjlab.utils.noise import UniformNoiseCfg as Unoise
 from mjlab.viewer import ViewerConfig
 
-from g3a_bench.robots.interface import ManipulatorInterface
 from g3a_bench.tasks.cube import mdp as cube_mdp
 from g3a_bench.tasks.cube.assets import get_piece_spec
 from g3a_bench.tasks.cube.variants import CubeVariantCfg
 
 COMMAND_NAME = "arrangement"
 
+REWARD_MODE_TERMS: dict[str, frozenset[str]] = {
+    "success": frozenset(["success"]),
+    "progress": frozenset(["placed_slots", "success"]),
+    "dense": frozenset(["staged_next_slot", "placed_slots", "success"]),
+}
+
 
 def make_cube_env_cfg(
     variant: CubeVariantCfg,
-    robot: ManipulatorInterface,
     play: bool = False,
 ) -> ManagerBasedRlEnvCfg:
+    """Build the robot-agnostic cube cfg.
+
+    Robot-specific knobs are left as placeholders (empty grasp site, action
+    scale 0.5, empty friction geoms, empty ee subtree, empty viewer body, no
+    ``"robot"`` scene entity). Fill them by calling
+    ``wire_manipulator_into_env`` with a concrete ``ManipulatorInterface``
+    before registering the task.
+    """
     piece_names = tuple(f"piece_{i}" for i in range(len(variant.pieces)))
 
-    entities: dict[str, EntityCfg] = {"robot": robot.entity_cfg_fn()}
+    entities: dict[str, EntityCfg] = {}  # Robot added by wire_manipulator_into_env.
     for name, piece in zip(piece_names, variant.pieces, strict=True):
         entities[name] = EntityCfg(spec_fn=lambda p=piece, n=name: get_piece_spec(p, n))
 
-    grasp_cfg = SceneEntityCfg("robot", site_names=(robot.grasp_site,))
+    grasp_cfg = SceneEntityCfg("robot", site_names=())  # Set per-robot.
 
     actor_terms = {
         "joint_pos": ObservationTermCfg(
@@ -80,7 +92,7 @@ def make_cube_env_cfg(
         "joint_pos": JointPositionActionCfg(
             entity_name="robot",
             actuator_names=(".*",),
-            scale=robot.action_scale,
+            scale=0.5,  # Set per-robot by wire_manipulator_into_env.
             use_default_offset=True,
         )
     }
@@ -89,8 +101,6 @@ def make_cube_env_cfg(
         COMMAND_NAME: cube_mdp.PieceArrangementCommandCfg(
             entity_names=piece_names,
             variant=variant,
-            # Goals are fixed within an episode; pieces and goals are
-            # rearranged on every env reset.
             resampling_time_range=(1.0e9, 1.0e9),
             debug_vis=True,
         )
@@ -115,7 +125,7 @@ def make_cube_env_cfg(
             mode="startup",
             func=dr.geom_friction,
             params={
-                "asset_cfg": SceneEntityCfg("robot", geom_names=robot.finger_pad_geoms),
+                "asset_cfg": SceneEntityCfg("robot", geom_names=()),  # Set per-robot.
                 "operation": "abs",
                 "distribution": "uniform",
                 "axes": [0],
@@ -126,7 +136,9 @@ def make_cube_env_cfg(
 
     ee_ground_collision_cfg = ContactSensorCfg(
         name="ee_ground_collision",
-        primary=ContactMatch(mode="subtree", pattern=robot.ee_subtree, entity="robot"),
+        primary=ContactMatch(
+            mode="subtree", pattern="", entity="robot"
+        ),  # Set per-robot.
         secondary=ContactMatch(mode="body", pattern="terrain"),
         fields=("found", "force"),
         reduce="none",
@@ -216,7 +228,7 @@ def make_cube_env_cfg(
         viewer=ViewerConfig(
             origin_type=ViewerConfig.OriginType.ASSET_BODY,
             entity_name="robot",
-            body_name=robot.viewer_body,
+            body_name="",  # Set per-robot by wire_manipulator_into_env.
             distance=1.5,
             elevation=-15.0,
             azimuth=150.0,
@@ -240,7 +252,6 @@ def make_cube_env_cfg(
         cfg.episode_length_s = int(1e9)
         cfg.observations["actor"].enable_corruption = False
         cfg.curriculum = {}
-        # Disable success termination so play sessions continue indefinitely.
         cfg.terminations.pop("success")
 
     return cfg

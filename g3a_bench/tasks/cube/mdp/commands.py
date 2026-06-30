@@ -204,7 +204,7 @@ class PieceArrangementCommand(CommandTerm):
         # Lazy-resolve gripper joint index (data not available at __init__ time).
         if self._gripper_joint_idx < 0:
             robot = self._env.scene["robot"]
-            self._gripper_joint_idx = list(robot.data.joint_names).index("gripper_left")
+            self._gripper_joint_idx = list(robot.joint_names).index("gripper_left")
 
         # Velocity gate: every goal piece moving slowly.
         piece_lin_vel_w = torch.stack(
