@@ -50,6 +50,10 @@ class PieceArrangementCommandCfg(CommandTermCfg):
     """Max distance between piece and slot goal to count as placed."""
     upright_threshold_deg: float = 15.0
     """Max tilt (and yaw misalignment for dominos) to count as placed."""
+    piece_vel_threshold: float = 0.05
+    """Max linear speed (m/s) of any goal piece to count success."""
+    gripper_open_threshold: float = -0.015
+    """Min gripper_left joint position (m) to count success (> -0.015 = ≥2/3 open)."""
 
     def build(self, env: ManagerBasedRlEnv) -> PieceArrangementCommand:
         return PieceArrangementCommand(self, env)
@@ -125,6 +129,10 @@ class PieceArrangementCommand(CommandTerm):
         )
         assert self._cells.shape[0] >= N
 
+        self._gripper_joint_idx: int = (
+            -1
+        )  # resolved lazily on first _update_metrics call
+
         self.metrics["position_error"] = torch.zeros(E, device=dev)
         self.metrics["num_placed"] = torch.zeros(E, device=dev)
         self.metrics["all_placed"] = torch.zeros(E, device=dev)
@@ -191,8 +199,31 @@ class PieceArrangementCommand(CommandTerm):
             at_goal = at_goal & (up_cos > cos_tol) & (align > cos_tol)
 
         self.slot_at_goal = at_goal.float()
-        all_placed = at_goal.all(dim=1).float()
-        self.success_steps = (self.success_steps + 1.0) * all_placed
+        all_placed_bool = at_goal.all(dim=1)
+
+        # Lazy-resolve gripper joint index (data not available at __init__ time).
+        if self._gripper_joint_idx < 0:
+            robot = self._env.scene["robot"]
+            self._gripper_joint_idx = list(robot.data.joint_names).index("gripper_left")
+
+        # Velocity gate: every goal piece moving slowly.
+        piece_lin_vel_w = torch.stack(
+            [p.data.root_link_lin_vel_w for p in self.pieces], dim=1
+        )  # (E, N, 3)
+        idx3 = self.piece_for_slot.unsqueeze(-1).expand(-1, -1, 3)
+        goal_vel = torch.gather(piece_lin_vel_w, 1, idx3)  # (E, G, 3)
+        pieces_still = (
+            goal_vel.norm(dim=-1).max(dim=-1).values <= self.cfg.piece_vel_threshold
+        )
+
+        # Gripper-open gate.
+        robot = self._env.scene["robot"]
+        gripper_q = robot.data.joint_pos[:, self._gripper_joint_idx]
+        gripper_open = gripper_q > self.cfg.gripper_open_threshold
+
+        all_conditions = all_placed_bool & pieces_still & gripper_open
+        all_placed = all_placed_bool.float()
+        self.success_steps = (self.success_steps + 1.0) * all_conditions.float()
         self.episode_success = torch.maximum(self.episode_success, all_placed)
 
         self.metrics["position_error"] = error.mean(dim=1)
