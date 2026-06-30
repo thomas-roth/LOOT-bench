@@ -26,6 +26,22 @@ from g3a_bench.tasks.ball.variants import BallVariantCfg
 
 COMMAND_NAME = "ball_target"
 
+REWARD_MODE_TERMS: dict[str, frozenset[str]] = {
+    "success": frozenset(["success"]),
+    "progress": frozenset(["ball_distance", "success"]),
+    "dense": frozenset(
+        [
+            "ball_distance",
+            "success",
+            "strike",
+            "reach",
+            "contact_time",
+            "push_guide",
+            "throw_height",
+        ]
+    ),
+}
+
 
 def _action_rewards(
     variant: BallVariantCfg, grasp_cfg: SceneEntityCfg
