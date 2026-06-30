@@ -26,7 +26,7 @@ from g3a_bench.tasks.insertion.assets import SHEET_HALF_Z
 from g3a_bench.tasks.insertion.mdp.commands import InsertionCommand
 
 _NUM_ENVS = 8
-_STEPS = 10  # fewer than the success hold-time steps so termination doesn't reset envs
+_STEPS = 10  # cube uses play=True (no success termination); other categories still safe at 10
 
 
 # ---------------------------------------------------------------------------
@@ -34,8 +34,8 @@ _STEPS = 10  # fewer than the success hold-time steps so termination doesn't res
 # ---------------------------------------------------------------------------
 
 
-def _make_env(task_id: str, device: str) -> ManagerBasedRlEnv:
-    cfg = load_env_cfg(task_id)
+def _make_env(task_id: str, device: str, *, play: bool = False) -> ManagerBasedRlEnv:
+    cfg = load_env_cfg(task_id, play=play)
     cfg.scene.num_envs = _NUM_ENVS
     env = ManagerBasedRlEnv(cfg=cfg, device=device)
     env.reset()
@@ -160,7 +160,9 @@ def _check_cube_stack(
 ) -> str | None:
     from typing import cast
 
-    env = _make_env(task_id, device)
+    # play=True removes success termination; cube now terminates on step 1
+    # which would reset env mid-measurement in the training config.
+    env = _make_env(task_id, device, play=True)
     cmd = cast(PieceArrangementCommand, env.command_manager.get_term("arrangement"))
     zeros = _zeros(env, device)
     env.step(zeros)

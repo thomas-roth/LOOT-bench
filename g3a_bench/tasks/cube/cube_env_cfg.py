@@ -179,7 +179,7 @@ def make_cube_env_cfg(
         ),
         "success": TerminationTermCfg(
             func=cube_mdp.arrangement_complete,
-            params={"command_name": COMMAND_NAME, "hold_time": 1.0},
+            params={"command_name": COMMAND_NAME},
         ),
     }
 
