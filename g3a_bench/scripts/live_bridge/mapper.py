@@ -1,5 +1,3 @@
-import math
-
 import mujoco
 import numpy as np
 
@@ -47,22 +45,37 @@ def mjlab_gripper_meters(norm_val: float) -> float:
 # apply this to the real leader_action, which is sent to the real follower
 # (whose calibration already agrees with the leader) and recorded to disk.
 # Re-tune (or remove) if the leader is re-calibrated.
-LEADER_JOINT1_SIM_OFFSET = math.pi / 2
+
+# Physical joint limits from dk1.xml, in ctrl space (radians for joints, meters for gripper).
+# Order: joint1..joint6, gripper_left — matches HOME_JOINT_POS / ACTION_SCALE.
+JOINT_POS_LIMITS_LO = np.array(
+    [-2.0943951, -0.0872665, -0.0872665, -1.95, -1.5707963, -2.0943951, -0.045],
+    dtype=np.float32,
+)
+JOINT_POS_LIMITS_HI = np.array(
+    [2.0943951, 3.1415927, 4.7123890, 1.5707963, 1.5707963, 2.0943951, 0.001],
+    dtype=np.float32,
+)
+
+# Physical limits expressed in raw_action space: (ctrl_limit - HOME) / ACTION_SCALE.
+# Use these to normalize teleop sim-actions to [-1, 1] with a fixed, session-independent
+# transform that matches the full reachable joint range.
+PHYSICAL_RAW_ACTION_MIN: np.ndarray = (
+    JOINT_POS_LIMITS_LO - HOME_JOINT_POS
+) / ACTION_SCALE
+PHYSICAL_RAW_ACTION_MAX: np.ndarray = (
+    JOINT_POS_LIMITS_HI - HOME_JOINT_POS
+) / ACTION_SCALE
 
 
-def lerobot_to_mjlab_ctrl(
-    joint_pos: np.ndarray, joint1_offset: float = 0.0
-) -> np.ndarray:
+def lerobot_to_mjlab_ctrl(joint_pos: np.ndarray) -> np.ndarray:
     """Convert real-robot joint_pos (7,) → MJLab data.ctrl (7,).
 
-    Joints 0-5 (radians) pass through unchanged, except joint1 gets
-    ``joint1_offset`` added (see LEADER_JOINT1_SIM_OFFSET — opt-in, off by
-    default so record_replay.py and tests keep the exact passthrough).
+    Joints 0-5 (radians) pass through unchanged
     Gripper (index 6) goes from normalised [0,1] to prismatic meters.
     """
     ctrl = np.empty(7, dtype=np.float32)
     ctrl[:6] = joint_pos[:6]
-    ctrl[0] += joint1_offset
     ctrl[6] = mjlab_gripper_meters(float(joint_pos[6]))
     return ctrl
 
@@ -128,7 +141,6 @@ def gravity_compensate_ctrl(ctrl: np.ndarray) -> np.ndarray:
 def lerobot_to_mjlab_raw_action(
     joint_pos: np.ndarray,
     gravity_compensate: bool = False,
-    joint1_offset: float = 0.0,
 ) -> np.ndarray:
     """Convert to raw action for JointPositionActionCfg(use_default_offset=True).
 
@@ -140,12 +152,8 @@ def lerobot_to_mjlab_raw_action(
             gravity_compensate_ctrl) before computing raw_action. Opt-in and
             off by default — record_replay.py and tests rely on the exact
             uncompensated mapping.
-        joint1_offset: Added to joint1 before computing raw_action — see
-            LEADER_JOINT1_SIM_OFFSET. Opt-in; only ever pass this for the sim
-            target, never for the real leader_action sent to hardware or
-            recorded to disk.
     """
-    ctrl = lerobot_to_mjlab_ctrl(joint_pos, joint1_offset=joint1_offset)
+    ctrl = lerobot_to_mjlab_ctrl(joint_pos)
     if gravity_compensate:
         ctrl = gravity_compensate_ctrl(ctrl)
     return (ctrl - HOME_JOINT_POS) / ACTION_SCALE

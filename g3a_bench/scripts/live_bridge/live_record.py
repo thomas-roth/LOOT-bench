@@ -65,7 +65,6 @@ from mjlab.viewer.native.keys import KEY_KP_1, KEY_KP_2, KEY_KP_3, KEY_KP_4
 import g3a_bench  # noqa: F401
 from g3a_bench.robots.trlc_dk1.dk1_constants import _HOME_JOINT_POS
 from g3a_bench.scripts.live_bridge.mapper import (
-    LEADER_JOINT1_SIM_OFFSET,
     lerobot_to_mjlab_raw_action,
 )
 from g3a_bench.scripts.live_bridge.recorder import Recorder
@@ -85,7 +84,7 @@ GHOST_COLOR = (0.5, 0.7, 0.5, 0.5)  # translucent green, same as mjlab's trackin
 # To pick new values: run print_leader_pose.py, move the real leader to a
 # comfortable rest pose, and copy the printed numbers in here.
 LIVE_REST_POSE: dict[str, float] = {
-    "joint1": -1.4143 + LEADER_JOINT1_SIM_OFFSET,
+    "joint1": -1.4143,
     "joint2": +0.0015,
     "joint3": +0.0015,
     "joint4": -0.0153,
@@ -199,7 +198,6 @@ class _LivePolicy:
             raw_action = lerobot_to_mjlab_raw_action(
                 leader_action,
                 gravity_compensate=True,
-                joint1_offset=LEADER_JOINT1_SIM_OFFSET,
             )
             self._last_raw_action = (
                 torch.from_numpy(raw_action).unsqueeze(0).to(self._device)

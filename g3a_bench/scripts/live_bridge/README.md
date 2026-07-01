@@ -59,6 +59,95 @@ reconnected.
 
 ## Scripts
 
+### `lerobot_to_qc.py` — convert a recorded session to QC training format
+
+No hardware needed. Reads a LeRobot session recorded by `live_record.py` and writes
+a `.npz` file in the format expected by the `qc` training repo.
+
+```bash
+# convert successful episodes only (default)
+uv run python g3a_bench/scripts/live_bridge/lerobot_to_qc.py \
+    --dataset-dir g3a_bench/scripts/live_bridge/logs/live_record/2026-06-24_13-31-48 \
+    --output g3a_bench/scripts/live_bridge/logs/live_record/2026-06-24_13-31-48/dataset.npz
+
+# include failure episodes too
+uv run python g3a_bench/scripts/live_bridge/lerobot_to_qc.py \
+    --dataset-dir logs/live_record/<timestamp> \
+    --output dataset.npz \
+    --all-episodes
+```
+
+**Arguments:**
+
+| Argument | Default | Description |
+|----------|---------|-------------|
+| `--dataset-dir` | *(required)* | Path to the timestamped session directory. |
+| `--output` | *(required)* | Output `.npz` file path. |
+| `--all-episodes` | off | Include failure / discarded episodes. Default: only successes. |
+
+**Output format:**
+
+The `.npz` contains two logical sections:
+
+*QC training keys* — pass only these to `Dataset.create()`:
+
+| Key | Shape | Contents |
+|-----|-------|----------|
+| `observations` | (N, obs_dim) | Sim actor obs at timestep t |
+| `next_observations` | (N, obs_dim) | Sim actor obs at t+1; zeros at episode terminals |
+| `actions` | (N, 7) | Leader arm command at timestep t |
+| `rewards` | (N,) | Reward returned by env.step() |
+| `terminals` | (N,) | 1.0 at the last frame of each episode, else 0.0 |
+| `masks` | (N,) | 1.0 - terminals (0.0 at terminals; prevents Q-value bootstrapping) |
+
+*Metadata keys* — useful for analysis, strip before `Dataset.create()`:
+
+| Key | Shape | Contents |
+|-----|-------|----------|
+| `episode_index` | (N,) | Which episode each row belongs to |
+| `frame_index` | (N,) | Position of this row within its episode |
+| `timestamp` | (N,) | Wall-clock time of each frame |
+| `success` | (N,) | Operator label (constant within an episode) |
+| `sim_done` | (N,) | Whether the sim itself terminated (vs. operator-stopped) |
+
+> **Why `terminals` is not taken from `next.done`:** when the operator presses
+> Numpad 1/2 to end an episode manually, the last frame has `next.done=False`
+> because the sim never fired its termination condition. Using `next.done` would
+> leave `masks=1.0` at those episode boundaries, causing QC to bootstrap
+> Q-values incorrectly from a zero next-observation. `terminals` is instead
+> derived from `episode_index` boundaries, which is always correct.
+
+**Loading for QC training:**
+
+```python
+from g3a_bench.scripts.live_bridge.lerobot_to_qc import QC_KEYS
+from qc.utils.datasets import Dataset
+import numpy as np
+
+raw = np.load("dataset.npz")
+train_dataset = Dataset.create(**{k: raw[k] for k in QC_KEYS})
+```
+
+**Verifying the output:**
+
+```bash
+uv run python -c "
+import numpy as np
+d = np.load('dataset.npz')
+for k in sorted(d.keys()):
+    arr = d[k]
+    print(k, arr.shape, arr.dtype)
+
+# boundary checks
+term_idx = d['terminals'].nonzero()[0]
+assert (d['next_observations'][term_idx] == 0).all(), 'cross-episode leak!'
+assert (d['masks'][term_idx] == 0).all(), 'mask wrong at terminal!'
+print('checks passed — terminals:', int(d['terminals'].sum()), 'episodes')
+"
+```
+
+---
+
 ### `record_replay.py` — replay a dataset through the sim and record results
 
 No hardware needed. Reads an existing LeRobot dataset, feeds each frame's
@@ -195,7 +284,8 @@ action drives the sim).
 | `mapper.py` | Converts real-robot joint/gripper values to MuJoCo raw action format. `lerobot_to_mjlab_raw_action(leader_action)` is the main entry point. |
 | `recorder.py` | Wraps `LeRobotDataset`. `add_frame()` buffers frames in memory; `save_episode(success)` flushes with a label; `discard_episode()` drops the buffer; `close(operator_id)` writes operator id to `meta/info.json` and finalizes. |
 | `live_record.py` | Main live teleop script. HW thread (~200 Hz) + sim viewer thread (~50 Hz), decoupled via single-element lists. State machine handles multi-episode recording with ghost-arm reset phase. |
-| `record_replay.py` | Offline replay + recording. No hardware. |
+| `record_replay.py` | Offline replay + recording. No hardware. Reads a LeRobot session and feeds each frame through the sim. |
+| `lerobot_to_qc.py` | Converts a LeRobot session to QC `.npz` format for offline/online RL training. One function: `convert(dataset_root, output_path, only_successes=True)`. |
 
 ---
 
