@@ -270,6 +270,8 @@ def make_insertion_env_cfg(
             distance=1.5,
             elevation=-15.0,
             azimuth=150.0,
+            enable_shadows=False,
+            enable_reflections=False,
         ),
         sim=SimulationCfg(
             nconmax=120 + 120 * num_pegs,
