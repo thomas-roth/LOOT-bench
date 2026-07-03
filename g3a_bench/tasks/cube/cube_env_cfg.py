@@ -230,6 +230,7 @@ def make_cube_env_cfg(
                 ls_iterations=20,
                 impratio=10,
                 cone="elliptic",
+                disableflags=("nativeccd",),
             ),
         ),
         decimation=4,
@@ -240,5 +241,10 @@ def make_cube_env_cfg(
         cfg.episode_length_s = int(1e9)
         cfg.observations["actor"].enable_corruption = False
         cfg.curriculum = {}
+        # Optimize for real-time play: reduce solver iterations further
+        cfg.sim.mujoco.iterations = 20
+        cfg.sim.mujoco.ls_iterations = 10
+        cfg.sim.mujoco.timestep = 0.01
+        cfg.decimation = 1
 
     return cfg
