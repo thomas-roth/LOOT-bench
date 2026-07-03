@@ -514,8 +514,8 @@ class _LiveRecordingViewer(NativeMujocoViewer):
     def _handle_done(self) -> None:
         """Called when env signals done=True. Distinguishes success from collision."""
         try:
-            cmd = self.env.env.command_manager.get_term("arrangement")
-            is_success = bool(cmd.slot_at_goal.all(dim=1)[0].item())
+            tm = self.env.env.termination_manager
+            is_success = bool(tm.get_term("success")[0].item())
         except Exception:
             # If the command term is unavailable, fall back to treating as collision.
             is_success = False
