@@ -46,9 +46,10 @@ class CubeVariantCfg:
     distractors: tuple[PieceCfg, ...] = ()
     """Extra pieces present in the scene without a goal slot."""
     interchangeable: bool = True
-    """If True, pieces of identical form+color may fill each other's goal slot
-    (the command permutes the assignment at every reset). With a specific
-    color order, every slot color is unique so this has no effect."""
+    """If True, pieces of the same form may fill each other's goal slot (the
+    command re-matches them to slots by proximity every step), so neither the
+    stacking order nor the color order affects success. Set False to enforce
+    the exact slot order given in ``stacks``."""
     domino_spacing: float = 0.05
     """Center distance of neighboring dominos; must be smaller than the domino
     height (0.07 m) so toppling one knocks over the next."""
