@@ -30,16 +30,3 @@ class ManipulatorInterface:
     """Regex matching the fingertip pad geoms (friction domain randomization)."""
     viewer_body: str
     """Body the viewer camera tracks."""
-    arm_actuators: tuple[str, ...] = (".*",)
-    """Actuator name expressions for the arm joints, driven by the task-space
-    (EEF / differential-IK) action. Excludes the gripper. Defaults to all
-    actuators; set explicitly on grippered manipulators so the IK controller
-    only moves the arm."""
-    gripper_actuators: tuple[str, ...] = ()
-    """Actuator name expressions for the gripper, driven by a direct joint
-    action alongside the EEF controller. Empty means no separate gripper action
-    (only used in the ``"eef"`` action mode)."""
-    camera_name: str | None = None
-    """Name of an existing MJCF camera to use for vision observations (prefixed,
-    e.g. ``"robot/head_camera"``). ``None`` means the robot has no camera wired,
-    so the ``"camera"`` observation mode is unavailable for it."""
