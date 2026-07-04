@@ -85,9 +85,9 @@ touch a working, verified stack).
 | 1 | MLP | ✅ done |
 | 2 | FourierFeatures | ✅ done |
 | 3 | ActorVectorField | ✅ done |
-| 4 | Value | not started |
-| 5 | Dataset | not started |
-| 6 | ReplayBuffer | not started |
+| 4 | Value | ✅ done |
+| 5 | Dataset | ✅ done |
+| 6 | ReplayBuffer | ✅ done |
 | 7 | Config | not started |
 | 8 | Agent (QCFQLAgent) | not started |
 | 9 | Evaluate loop | not started |
@@ -117,6 +117,13 @@ layer except the last (unless `activate_final`), GELU, optional LayerNorm.
 - Weight-layout transpose (`kernel.T`) is a **test-loading detail only**, not
   an architectural change — real training never touches JAX weights, this
   only matters when copying gold params in for verification.
+- `nn.LayerNorm(dim)` → `nn.LayerNorm(dim, eps=1e-6)`. *Why required:* flax's
+  `nn.LayerNorm` defaults to `epsilon=1e-6`; PyTorch's default is `1e-5`. This
+  wasn't caught when MLP was first ported because `test_mlp.py` only
+  exercises `layer_norm=False` — it surfaced later (step 4, `Value`) as a
+  ~2e-4 output mismatch once a `layer_norm=True` gold case actually ran.
+  Fixed at the source since it's a real numerical bug, not a test-loading
+  quirk.
 
 **Known loose end:** `mlp.py`'s `activation` constructor param is currently
 unused dead code (forward hardcodes `F.gelu`). Harmless since it defaults to
@@ -172,61 +179,121 @@ actions, time_embedding]` if times given) → single inner MLP (`activate_final
   in flax, so the *existing* `conftest.py::load_jax_mlp_weights` helper is
   reused as-is with `prefix="mlp/"` — no new weight-loading code needed.
 
-### 4. Value
+### 4. Value — done
 
-**Copied:** per-head architecture (`MLP(*hidden_dims, 1)`, no final
-activation), concat `[obs, actions]`, `squeeze(-1)` on output.
+**Copied:** per-head architecture (`MLP(*hidden_dims, 1)`, `activate_final=
+False`), concat `[obs, actions]`, `squeeze(-1)` on each head's output.
 
 **Changed:**
 - `nn.vmap`-based `ensemblize(MLP, num_qs)` (auto-parallelizes N
   independently-initialized copies over a synthetic axis) →
   `nn.ModuleList([MLP(...) for _ in range(num_qs)])`, looped in `forward`,
-  `torch.stack(outputs, dim=0)`. *Why valid:* `nn.vmap` with
-  `variable_axes={'params':0}, split_rngs={'params':True}` means "N
-  independently initialized copies of the same architecture applied to the
-  same input" — a Python loop over N separately-constructed MLPs computes
-  the identical function per head; only the execution strategy (batched XLA
-  vmap vs. eager loop) differs, not the math. Confirmed per-head by loading
-  each JAX ensemble slice into the matching `ModuleList[i]` and comparing.
+  `torch.stack(outputs, dim=0)`. *Why valid:* verified directly by running
+  the real JAX class — `nn.vmap` with `variable_axes={'params':0},
+  split_rngs={'params':True}, out_axes=0` produces per-head params with an
+  extra leading axis of size `num_ensembles` (e.g. `Dense_0/kernel:
+  (2, in, out)`) and an output shaped `(num_ensembles, batch)` — a Python
+  loop over N separately-constructed MLPs, stacked at `dim=0`, computes the
+  identical per-head function; only the execution strategy (batched XLA vmap
+  vs. eager loop) differs, not the math.
+- **Structural fork ported as-is:** with `num_ensembles == 1`, JAX skips
+  `ensemblize` entirely (`if self.num_ensembles > 1: ...`) — no ensemble axis
+  at all, output is plain `(batch,)` instead of `(1, batch)`. QC-FQL's config
+  always uses `num_ensembles=2`, so this never triggers in practice, but the
+  port preserves the fork rather than normalizing it away.
+- Same lazy-shape issue as `ActorVectorField` (step 3): since ACFQL's critic
+  is always called with `actions` provided, added the same kind of
+  `use_actions: bool = True` constructor flag to pin the input width, with
+  `forward()` asserting consistency instead of silently branching on shape.
+- **Bug found by this step's gold test, not obvious from inspection alone:**
+  JAX only creates a `LayerNorm` for layers that actually use one (all but
+  the last, since `activate_final=False`); our `MLP` always allocates one
+  per layer (dead weight on the last, since `forward()` never applies it
+  there) for structural simplicity. The weight-loading test tried to load a
+  `LayerNorm_2` that JAX never created — fixed in the test loader
+  (`conftest.py::load_jax_value_weights`), not in `MLP` itself, since it's a
+  test-infra mismatch, not a forward-pass correctness bug.
+- **Real numerical bug found by this step, fixed at the source:** flax's
+  `nn.LayerNorm` epsilon (`1e-6`) differs from PyTorch's default (`1e-5`) —
+  see the MLP section above. This one *is* a correctness fix to `mlp.py`,
+  not a test-only issue, since it changes real forward-pass output whenever
+  `layer_norm=True` (which the real critic config always uses).
 
-### 5. Dataset
+### 5. Dataset — done
 
-**Copied:** the `sample_sequence` math exactly — index gathering
+**Copied verbatim** (the entire `sample_sequence` body is pure NumPy in the
+original — nothing JAX-specific to translate): index gathering
 (`idxs[:,None] + arange(seq_len)`), cumulative discounted reward
 (`rewards[t] = rewards[t-1] + raw[t]*discount**t`), running
 `masks`/`terminals` via min/max, `valid[t] = 1 - terminals[t-1]`, next-action
-index clipped to `size-1`.
+index clipped to `size-1`. `__getitem__`/`items()` are implemented so the
+copied `self['x']` / `self.items()` calls stay a true verbatim copy rather
+than transcribed.
 
 **Changed:**
 - `FrozenDict` (immutable, JAX-pytree-compatible dict subclass — required so
-  it can pass through `jax.jit`/`tree_map` boundaries) → plain mutable
-  dict-backed class. *Why valid:* nothing here is jitted or traced in
-  PyTorch; immutability existed to satisfy JAX's functional-purity
-  requirement, not because the algorithm needs it. A regular dict with the
-  same `[]`/`.items()` interface is behaviorally identical for our purposes.
-- `np.random.randint` used directly — the JAX version already uses plain
-  NumPy here too, not `jax.random`; this file was never really "JAX" in
-  either version, one less thing to worry about.
-- **Fix required:** an earlier draft set `observations == full_observations`
-  (both the `(B,T,obs_dim)` sequence). The real source returns
+  it can pass through `jax.jit`/`tree_map` boundaries) → plain class wrapping
+  `self.data: dict`. *Why valid:* nothing here is jitted or traced in
+  PyTorch; immutability existed for JAX's functional-purity contract, not the
+  algorithm. `create()` still calls `arr.setflags(write=False)` (plain numpy,
+  unchanged) to protect raw arrays; `__init__` stays unfrozen so step-6
+  `ReplayBuffer` can write.
+- `get_size` (`tree_map` max over possibly-nested leaves) → `len(data[
+  'observations'])` — our fields are always flat, equal-length arrays.
+- **Dropped as grep-confirmed dead code for ACFQL:** `frame_stack`/`p_aug`/
+  `augment`/`random_crop`/`return_next_actions`/`terminal_locs`/
+  `initial_locs`/`add_history`, and the visual `len(shape)==5` transpose
+  branch inside `sample_sequence`. All support pixel/frame-stacked obs;
+  never referenced by `agents/acfql.py`, `main.py`, or `main_online.py`.
+- **The `observations` vs `full_observations` distinction** (previously
+  flagged as a bug in an early draft): the real source returns
   `observations = data['observations'][idxs]` — just the **starting** obs,
   `(B, obs_dim)` — with `full_observations` as the separate `(B,T,obs_dim)`
-  version. Must be corrected here, since `critic_loss`/`actor_loss` consume
-  `batch['observations']` expecting the non-repeated shape.
+  sequence. `critic_loss`/`actor_loss` consume `batch['observations']`
+  expecting the non-repeated shape. The gold test confirms our port produces
+  `(8,16)` vs `(8,5,16)` respectively.
+- `return dict(...)` → dict-literal (repo's ruff `C408`); mechanical, no
+  behavior change.
 
-### 6. ReplayBuffer
+**Testing note:** `sample_sequence` draws a single `np.random.randint`
+internally, so the gold generator and the test both `np.random.seed(0)`
+immediately before calling it — identical seed + identical single draw ⇒
+identical indices ⇒ deterministic downstream, letting `np.allclose` compare
+all 9 output keys against the real `qc` Dataset.
+
+### 6. ReplayBuffer — done
 
 **Copied:** circular-buffer semantics — preallocate `(size, *shape)` zero
 arrays, `add_transition` writes at `pointer`, `pointer = (pointer+1) %
 max_size`, `size = max(pointer, size)`; `create_from_initial_dataset`
-preloads offline data into the buffer prefix.
+preloads offline data into the buffer prefix + `size = pointer = len(init)`;
+`clear`. `sample_sequence` is **inherited unchanged** from `Dataset` (samples
+within `self.size`, the current fill count).
 
 **Changed:**
 - `jax.tree_util.tree_map` over the transition dict (JAX's generic
   "apply-per-leaf" utility, needed because it also works on arbitrary nested
-  pytrees) → a plain `for k, v in transition.items()` loop. *Why valid:* our
-  transition dict is flat (fixed known keys) — `tree_map` on a flat dict
+  pytrees) → plain per-key loops (`{k: fn(v) for k, v in d.items()}` /
+  `for k in self.data: self.data[k][pointer] = transition[k]`). *Why valid:*
+  our dicts are flat (fixed known keys) — `tree_map` on a flat dict
   degenerates to exactly this loop, no generality lost.
+- `get_size(self._dict)` (tree-max) → `len(data["observations"])`, same as
+  step 5. Buffers stay writable because `create`/`create_from_initial_dataset`
+  go through `__init__` (unfrozen), never `Dataset.create` (which freezes).
+
+**Faithful quirk preserved (not fixed):** after wrapping a size-`N` buffer,
+`size` caps at `N-1`, never `N` — because `size = max(pointer, size)` and
+`pointer` wraps `N→0` before it can equal `N`, so the last slot is written but
+never counted/sampled. This is an off-by-one in the *original* qc code; the
+gold test locks in the exact `pointer=3, size=9` state after 13 adds into a
+size-10 buffer, so the port reproduces it rather than silently diverging.
+
+**Testing note:** the gold generator replays a fixed, saved sequence of
+transitions through the real `qc` `ReplayBuffer` and dumps the final buffer
+arrays + `pointer`/`size`/`max_size`; the port replays the identical inputs
+and must match exactly (`np.array_equal`). Also covers
+`create_from_initial_dataset`, inherited `sample_sequence` (seeded, same
+determinism trick as step 5), and `clear`.
 
 ### 7. Config
 
