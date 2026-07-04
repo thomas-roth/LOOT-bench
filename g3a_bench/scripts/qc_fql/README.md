@@ -84,7 +84,7 @@ touch a working, verified stack).
 |---|---|---|
 | 1 | MLP | ✅ done |
 | 2 | FourierFeatures | ✅ done |
-| 3 | ActorVectorField | not started |
+| 3 | ActorVectorField | ✅ done |
 | 4 | Value | not started |
 | 5 | Dataset | not started |
 | 6 | ReplayBuffer | not started |
@@ -142,11 +142,11 @@ output_size//2`, `f = exp(arange(half_dim) * -log(10000)/(half_dim-1))`,
   config never sets `learnable=True`, so this can be stubbed and added later
   if needed.
 
-### 3. ActorVectorField
+### 3. ActorVectorField — done
 
 **Copied:** conditioning structure — concat `[obs, actions]` (or `[obs,
-actions, time_embedding]` if times given) → single inner MLP → velocity
-output.
+actions, time_embedding]` if times given) → single inner MLP (`activate_final
+=False`) → velocity output.
 
 **Changed:**
 - `encoder` param dropped entirely. *Why valid:* state-only observations
@@ -154,12 +154,23 @@ output.
   — omitting the parameter changes nothing behaviorally.
 - Flax's `setup()` (lazy shape inference — `nn.Dense` infers `in_features`
   from the first actual input) → PyTorch `__init__` needs `in_features`
-  (obs_dim) passed explicitly up front. *Why valid:* obs_dim/action_dim are
-  static and known before training starts, so nothing is lost — it's just
-  supplied once at construction instead of inferred on first call.
-- Time tensor shape: JAX derives `ex_times = ex_actions[..., :1]` → a `(B,1)`
-  shape must be matched explicitly in the PyTorch constructor's
-  example-batch handling.
+  fixed up front (`obs_dim + action_dim [+ time_width]`). *Why valid:*
+  obs_dim/action_dim are static and known before training starts.
+- **The one real design addition:** `qc/agents/acfql.py` constructs the same
+  `ActorVectorField` class two different ways — `actor_bc_flow` is always
+  called *with* `times` (`ex_observations, full_actions, ex_times`),
+  `actor_onestep_flow` is always called *without* it
+  (`ex_observations, full_actions`). JAX doesn't need to decide this ahead of
+  time since `nn.Dense` infers the width lazily on first call; PyTorch does,
+  so a `use_time: bool` constructor flag was added (not present in the JAX
+  dataclass) to pin the inner MLP's input width at construction —
+  `use_time=True` for `actor_bc_flow`, `use_time=False` for
+  `actor_onestep_flow`, mirroring exactly how each is called in practice.
+  `forward()` asserts `times is None` iff `not use_time`, surfacing a clear
+  error instead of a silent shape mismatch.
+- Verified directly (not guessed) that param names nest as `mlp/Dense_i/...`
+  in flax, so the *existing* `conftest.py::load_jax_mlp_weights` helper is
+  reused as-is with `prefix="mlp/"` — no new weight-loading code needed.
 
 ### 4. Value
 
