@@ -38,7 +38,10 @@ class MLP(nn.Module):
             uniform_fan_avg_init(layer.weight)
             nn.init.zeros_(layer.bias)
             self.layers.append(layer)
-            self.norms.append(nn.LayerNorm(dim) if layer_norm else nn.Identity())
+            # eps=1e-6 matches flax `nn.LayerNorm`'s default (PyTorch's is 1e-5).
+            self.norms.append(
+                nn.LayerNorm(dim, eps=1e-6) if layer_norm else nn.Identity()
+            )
             prev = dim
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
