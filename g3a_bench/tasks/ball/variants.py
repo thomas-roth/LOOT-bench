@@ -25,8 +25,12 @@ TargetType = Literal["marked", "u_boundary", "hole"]
 BALL_RADIUS = 0.025
 BALL_MASS = 0.03
 
-# Target centre x by action (env-local metres, robot base at x=0).
-TARGET_X = {"golf": 0.65, "push": 0.40, "throw": 0.70}
+# Target centre x by action (env-local metres, robot base at x=0). The DK1's
+# measured max horizontal reach at ball height is ~0.74m (0.9 soft-joint-limit
+# factor): push sits near that border (still reachable end-to-end), golf/throw
+# sit clear of it (genuinely unreachable by the gripper at any height, so the
+# ball must actually be struck/thrown there, not carried).
+TARGET_X = {"golf": 0.85, "push": 0.68, "throw": 0.85}
 # Ball spawn centre.
 BALL_SPAWN_X = 0.27
 # Throw wall (between ball and target).

@@ -10,8 +10,8 @@ One fixed size is shared unchanged across categories rather than sized per
 task, so it must cover the union of every category's workspace:
 - cube: piece scatter/goal region, x in (0.22, 0.40), y in (-0.18, 0.18).
 - insertion: board + parts tray, x in (0.08, 0.60), y in (-0.34, 0.34).
-- ball: farthest target (the "hole" platform reaches x <= 0.825), y in
-  (-0.25, 0.25).
+- ball: farthest target (the "hole" platform reaches x <= 0.975 now that
+  golf/throw sit beyond the arm's ~0.74m reach), y in (-0.25, 0.25).
 plus a margin and the robot base itself (env origin) so the arm reads as
 mounted on the table rather than floating above bare floor.
 """
@@ -22,11 +22,14 @@ import mujoco
 
 TABLE_RGBA = (0.5, 0.5, 0.5, 1.0)  # flat neutral gray
 
-# Body placement (env-local); geoms below are relative to this.
-TABLE_POS = (0.40, 0.0, 0.0)
+# Body placement (env-local); geoms below are relative to this. Off-centre
+# (rather than symmetric around the robot base) so the footprint below can
+# grow to the right, toward the ball task's far targets, without needing to
+# also extend left past the robot base.
+TABLE_POS = (0.48, 0.0, 0.0)
 
 # Half-extents of the tabletop footprint.
-TABLE_HALF_X = 0.45
+TABLE_HALF_X = 0.53
 TABLE_HALF_Y = 0.35
 
 # Top surface sits a hair above the ground plane to avoid z-fighting (same
