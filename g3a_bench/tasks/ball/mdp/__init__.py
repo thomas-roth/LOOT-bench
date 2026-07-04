@@ -38,5 +38,11 @@ from g3a_bench.tasks.ball.mdp.terminations import (
     ball_at_target as ball_at_target,
 )
 from g3a_bench.tasks.ball.mdp.terminations import (
+    ball_hits_ground as ball_hits_ground,
+)
+from g3a_bench.tasks.ball.mdp.terminations import (
+    ball_hits_wall as ball_hits_wall,
+)
+from g3a_bench.tasks.ball.mdp.terminations import (
     ball_out_of_bounds as ball_out_of_bounds,
 )

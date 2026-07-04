@@ -18,13 +18,14 @@ ball is moved) with a **target** (where it must end up).
 
 ## Hit vs. push (soft)
 
-The golf/push distinction is shaped through rewards, not hard-gated. `golf`
-rewards forward ball velocity (`strike_reward`) and lightly rewards reaching
-the ball, but **penalises sustained gripper-ball proximity** (`contact_time`)
-so the policy hits once instead of dragging the ball. `push` instead uses a
-staged `reaching * (1 + bringing)` reward that keeps the gripper on the ball as
-it nears the goal. Success in both cases only requires the ball to come to rest
-in the target.
+The golf/push distinction is **not** in the reward (the task is sparse — see
+Rewards): both share the same `success` signal. What differs is the field
+layout — `golf` places the target out of reach so the ball must roll there
+after a strike, while `push` keeps it within reach so the robot can guide the
+ball all the way — together with the demonstrations that bootstrap each
+behaviour. The optional dense shaping (`strike` / `contact_time` for golf,
+`push_guide` for push) is left defined for a switch back. Success in both cases
+only requires the ball to come to rest in the target.
 
 ## Success
 
@@ -43,11 +44,17 @@ terminates successfully when the ball stays at target and at rest for
 
 ## Rewards
 
-- shared: `ball_distance` (Gaussian on ball-to-target), `success`, and the
-  standard action-rate / joint-limit / joint-velocity-hinge penalties
-- `golf`: `strike` + small `reach` − `contact_time`
-- `push`: `push_guide` (reach × bring)
-- `throw`: `reach` + `throw_height` (raise the ball to clear the wall)
+Sparse by design, to pair with a demonstration pipeline (GELLO teleop →
+offline-to-online RL) that supplies the exploration dense shaping used to give:
+
+- task signal: `success` (the ball is at the target) — the only positive term
+- regularization: the standard action-rate / joint-limit / joint-velocity-hinge
+  penalties
+
+The dense shaping terms (`ball_distance` and the action-specific
+`strike` / `reach` / `contact_time` / `push_guide` / `throw_height`) remain
+defined in `mdp/rewards.py` and `_action_rewards`, so re-enabling them is a
+one-line switch back.
 
 ## Variants
 

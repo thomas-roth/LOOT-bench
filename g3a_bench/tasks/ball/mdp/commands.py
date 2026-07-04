@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 import torch
 from mjlab.entity import Entity
 from mjlab.managers.command_manager import CommandTerm, CommandTermCfg
+from mjlab.managers.scene_entity_config import SceneEntityCfg
 
 from g3a_bench.tasks.ball.variants import (
     BALL_RADIUS,
@@ -32,6 +33,7 @@ class BallCommandCfg(CommandTermCfg):
     variant: BallVariantCfg
     spawn_x_range: tuple[float, float] = (0.24, 0.30)
     spawn_y_range: tuple[float, float] = (-0.08, 0.08)
+    grasp_cfg: SceneEntityCfg | None = None
 
     def build(self, env: ManagerBasedRlEnv) -> BallCommand:
         return BallCommand(self, env)
@@ -44,6 +46,13 @@ class BallCommand(CommandTerm):
         super().__init__(cfg, env)
         self.variant = cfg.variant
         self.ball: Entity = env.scene[cfg.ball_name]
+        self._env_ref = env
+        self.grasp_cfg = cfg.grasp_cfg or SceneEntityCfg("robot")
+        # Resolve names -> indices against the scene. Unlike term ``asset_cfg``s
+        # (which the managers resolve), this command-owned cfg is resolved here,
+        # so ``grasp_cfg.site_ids`` picks out the single grasp site instead of
+        # defaulting to all sites.
+        self.grasp_cfg.resolve(env.scene)
 
         E, dev = self.num_envs, self.device
         self.surface_z = self.variant.surface_z
@@ -75,6 +84,13 @@ class BallCommand(CommandTerm):
         d = self.target_pos_w[:, :2] - self.ball_pos_w[:, :2]
         return d / d.norm(dim=-1, keepdim=True).clamp_min(1e-6)
 
+    def is_ball_released(self) -> torch.Tensor:
+        """Check if ball is released (not held by gripper)."""
+        robot: Entity = self._env_ref.scene[self.grasp_cfg.name]
+        grasp_site_pos = robot.data.site_pos_w[:, self.grasp_cfg.site_ids].squeeze(1)
+        gripper_distance = torch.norm(self.ball_pos_w - grasp_site_pos, dim=-1)
+        return gripper_distance > 0.08
+
     def _update_metrics(self) -> None:
         self.ball_pos_w = self.ball.data.root_link_pos_w
         self.ball_vel_w = self.ball.data.root_link_lin_vel_w
@@ -90,8 +106,11 @@ class BallCommand(CommandTerm):
             at_target = within & on_surface
         at_rest = speed < self.variant.at_rest_speed
 
+        # Check if ball is released (not held by gripper)
+        is_released = self.is_ball_released()
+
         self.at_target = at_target.float()
-        success = (at_target & at_rest).float()
+        success = (at_target & at_rest & is_released).float()
         self.success_steps = (self.success_steps + 1.0) * success
         self.episode_success = torch.maximum(self.episode_success, success)
 

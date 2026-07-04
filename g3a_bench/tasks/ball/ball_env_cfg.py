@@ -19,7 +19,6 @@ from mjlab.terrains import TerrainEntityCfg
 from mjlab.utils.noise import UniformNoiseCfg as Unoise
 from mjlab.viewer import ViewerConfig
 
-from g3a_bench.robots.interface import ManipulatorInterface
 from g3a_bench.tasks.ball import mdp as ball_mdp
 from g3a_bench.tasks.ball.assets import get_ball_spec, get_field_spec
 from g3a_bench.tasks.ball.variants import BallVariantCfg
@@ -46,7 +45,11 @@ REWARD_MODE_TERMS: dict[str, frozenset[str]] = {
 def _action_rewards(
     variant: BallVariantCfg, grasp_cfg: SceneEntityCfg
 ) -> dict[str, RewardTermCfg]:
-    """Action-specific shaping (golf strike / push guide / throw)."""
+    """Action-specific dense shaping (golf strike / push guide / throw).
+
+    Not used in the default sparse reward setup; kept defined so re-enabling it
+    is a one-line ``rewards.update(_action_rewards(...))`` in ``make_ball_env_cfg``.
+    """
     if variant.action == "golf":
         return {
             "strike": RewardTermCfg(
@@ -103,14 +106,21 @@ def _action_rewards(
 
 def make_ball_env_cfg(
     variant: BallVariantCfg,
-    robot: ManipulatorInterface,
     play: bool = False,
 ) -> ManagerBasedRlEnvCfg:
-    entities: dict[str, EntityCfg] = {"robot": robot.entity_cfg_fn()}
-    entities["field"] = EntityCfg(spec_fn=lambda v=variant: get_field_spec(v))
-    entities["ball"] = EntityCfg(spec_fn=get_ball_spec)
+    """Build the robot-agnostic ball cfg.
 
-    grasp_cfg = SceneEntityCfg("robot", site_names=(robot.grasp_site,))
+    Robot-specific knobs are left as placeholders here (empty grasp site, action
+    scale, friction geoms, viewer body, and no ``"robot"`` scene entity). Fill
+    them by calling ``wire_manipulator_into_env`` with a concrete
+    ``ManipulatorInterface`` before registering the task.
+    """
+    entities: dict[str, EntityCfg] = {
+        "field": EntityCfg(spec_fn=lambda v=variant: get_field_spec(v)),
+        "ball": EntityCfg(spec_fn=get_ball_spec),
+    }
+
+    grasp_cfg = SceneEntityCfg("robot", site_names=())  # Set per-robot.
 
     actor_terms = {
         "joint_pos": ObservationTermCfg(
@@ -149,7 +159,7 @@ def make_ball_env_cfg(
         "joint_pos": JointPositionActionCfg(
             entity_name="robot",
             actuator_names=(".*",),
-            scale=robot.action_scale,
+            scale=0.5,  # Set per-robot.
             use_default_offset=True,
         )
     }
@@ -160,6 +170,7 @@ def make_ball_env_cfg(
             variant=variant,
             resampling_time_range=(1.0e9, 1.0e9),
             debug_vis=True,
+            grasp_cfg=grasp_cfg,
         )
     }
 
@@ -191,7 +202,7 @@ def make_ball_env_cfg(
             mode="startup",
             func=dr.geom_friction,
             params={
-                "asset_cfg": SceneEntityCfg("robot", geom_names=robot.finger_pad_geoms),
+                "asset_cfg": SceneEntityCfg("robot", geom_names=()),  # Set per-robot.
                 "operation": "abs",
                 "distribution": "uniform",
                 "axes": [0],
@@ -200,17 +211,21 @@ def make_ball_env_cfg(
         ),
     }
 
+    # Sparse reward design: the task signal is only the (near-)binary outcome of
+    # the ball reaching the target -- no dense distance/strike/reach/push shaping.
+    # This is meant to be paired with a demonstration pipeline (GELLO teleop ->
+    # offline-to-online RL), which supplies the exploration that dense shaping
+    # previously provided. The dense terms (``ball_distance_reward`` and the
+    # action-specific shaping assembled by ``_action_rewards``) are left defined so
+    # this is a one-line switch back if needed (re-add the ``rewards.update`` below).
     rewards = {
-        "ball_distance": RewardTermCfg(
-            func=ball_mdp.ball_distance_reward,
-            weight=2.0,
-            params={"command_name": COMMAND_NAME, "std": 0.15},
-        ),
+        # Sparse task signal: only fires while the ball is at the target.
         "success": RewardTermCfg(
             func=ball_mdp.success_reward,
-            weight=3.0,
+            weight=5.0,
             params={"command_name": COMMAND_NAME},
         ),
+        # Regularization (not task shaping): keep motions smooth and feasible.
         "action_rate_l2": RewardTermCfg(func=mdp.action_rate_l2, weight=-0.01),
         "joint_pos_limits": RewardTermCfg(
             func=mdp.joint_pos_limits,
@@ -226,17 +241,26 @@ def make_ball_env_cfg(
             },
         ),
     }
-    rewards.update(_action_rewards(variant, grasp_cfg))
+    # Dense shaping, disabled for the sparse + demonstration setup. Re-enable with:
+    # rewards.update(_action_rewards(variant, grasp_cfg))
 
     terminations = {
         "time_out": TerminationTermCfg(func=mdp.time_out, time_out=True),
         "success": TerminationTermCfg(
             func=ball_mdp.ball_at_target,
-            params={"command_name": COMMAND_NAME, "hold_time": 0.3},
+            params={"command_name": COMMAND_NAME, "hold_time": 0.0},
         ),
         "out_of_bounds": TerminationTermCfg(
             func=ball_mdp.ball_out_of_bounds,
             params={"command_name": COMMAND_NAME, "max_radius": 1.2},
+        ),
+        "ground_collision": TerminationTermCfg(
+            func=ball_mdp.ball_hits_ground,
+            params={"command_name": COMMAND_NAME},
+        ),
+        "wall_collision": TerminationTermCfg(
+            func=ball_mdp.ball_hits_wall,
+            params={"command_name": COMMAND_NAME},
         ),
     }
 
@@ -271,7 +295,7 @@ def make_ball_env_cfg(
         viewer=ViewerConfig(
             origin_type=ViewerConfig.OriginType.ASSET_BODY,
             entity_name="robot",
-            body_name=robot.viewer_body,
+            body_name="",  # Set per-robot.
             distance=1.6,
             elevation=-20.0,
             azimuth=150.0,
