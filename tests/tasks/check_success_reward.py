@@ -222,10 +222,10 @@ def _check_insertion_twosheet(device: str, *, render: bool = False) -> str | Non
 def _check_ball(device: str, task_id: str, *, render: bool = False) -> str | None:
     from typing import cast
 
-    # play=True removes the success termination (hold_time=0.0 means it fires
-    # the instant the teleported ball registers at_target, auto-resetting the
-    # env before the fraction below is measured) -- same reset-mid-measurement
-    # issue play=True works around for the cube checks.
+    # play=True removes the success termination -- it fires the instant the
+    # teleported ball registers success, auto-resetting the env before the
+    # fraction below is measured. Same issue play=True works around for the
+    # cube and insertion checks.
     env = _make_env(task_id, device, play=True)
     cmd = cast(BallCommand, env.command_manager.get_term("ball_target"))
     zeros = _zeros(env, device)
