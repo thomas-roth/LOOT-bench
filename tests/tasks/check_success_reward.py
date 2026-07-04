@@ -184,7 +184,10 @@ def _check_insertion_single(
 ) -> str | None:
     from typing import cast
 
-    env = _make_env(task_id, device)
+    # play=True removes success termination; insertion terminates the instant
+    # all pegs are inserted, which would reset the env mid-measurement in the
+    # training config.
+    env = _make_env(task_id, device, play=True)
     cmd = cast(InsertionCommand, env.command_manager.get_term("insertion"))
     zeros = _zeros(env, device)
     env.step(zeros)
@@ -202,7 +205,7 @@ def _check_insertion_twosheet(device: str, *, render: bool = False) -> str | Non
     from typing import cast
 
     task_id = "G3a-Insertion-TwoSheet-Dk1_uni"
-    env = _make_env(task_id, device)
+    env = _make_env(task_id, device, play=True)
     cmd = cast(InsertionCommand, env.command_manager.get_term("insertion"))
     zeros = _zeros(env, device)
     env.step(zeros)

@@ -34,8 +34,10 @@ For each socket the assigned peg counts as *inserted* when
 3. its long axis is aligned with the bore axis (within `tilt_tol_deg`).
 
 Two-sheet variants additionally require the top sheet hole to be aligned over
-the bottom hole. An episode terminates successfully when all pegs stay
-inserted for `hold_time` (0.5 s).
+the bottom hole. Success also requires every peg to be at rest and the
+gripper open. The episode terminates successfully on the first step all of
+that holds; the `success` reward and `episode_success` metric use the same
+condition.
 
 ## Observations (state-based)
 
@@ -52,8 +54,8 @@ Sparse by design, to pair with a demonstration pipeline (GELLO teleop →
 offline-to-online RL) that supplies the exploration dense shaping would
 otherwise provide:
 
-- `inserted_count`: fraction of pegs correctly inserted
-- `success`: bonus while every peg is inserted
+- `inserted_count`: fraction of pegs correctly inserted (position only)
+- `success`: bonus while every peg is inserted, at rest, and released
 - penalties: action rate, joint position limits, joint velocity hinge
   (with the standard curriculum)
 

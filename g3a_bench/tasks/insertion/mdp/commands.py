@@ -49,6 +49,10 @@ class InsertionCommandCfg(CommandTermCfg):
     """Movable top sheet entity (two-sheet variant only)."""
     sheet_align_tol: float = 0.010
     """Max top-sheet/bottom-hole offset to count as aligned."""
+    peg_vel_threshold: float = 0.05
+    """Max linear speed (m/s) of any assigned peg to count success."""
+    gripper_open_threshold: float = -0.015
+    """Min gripper_left joint position (m) to count success (> -0.015 = ≥2/3 open)."""
 
     def build(self, env: ManagerBasedRlEnv) -> InsertionCommand:
         return InsertionCommand(self, env)
@@ -94,9 +98,12 @@ class InsertionCommand(CommandTerm):
 
         self.peg_pos_w = torch.zeros(E, N, 3, device=dev)
         self.inserted = torch.zeros(E, S, device=dev)
-        self.success_steps = torch.zeros(E, device=dev)
+        self.success = torch.zeros(E, device=dev)
         self.episode_success = torch.zeros(E, device=dev)
         self._half_len = PEG_HALF_LEN
+
+        # Resolved lazily: joint data isn't available at __init__ time.
+        self._gripper_joint_idx: int = -1
 
         # Pegs are spawned upright into the parts tray ("Werkbox"): a jittered
         # grid over the tray's spawn region (env-local; env origins are added at
@@ -171,13 +178,33 @@ class InsertionCommand(CommandTerm):
             self.metrics["sheet_align_error"] = align_err
 
         self.inserted = inserted.float()
-        all_in = inserted.all(dim=1).float()
-        self.success_steps = (self.success_steps + 1.0) * all_in
-        self.episode_success = torch.maximum(self.episode_success, all_in)
+        all_in = inserted.all(dim=1)
+
+        if self._gripper_joint_idx < 0:
+            robot = self._env.scene["robot"]
+            self._gripper_joint_idx = list(robot.joint_names).index("gripper_left")
+
+        # Velocity gate: every assigned peg moving slowly.
+        peg_lin_vel_w = torch.stack(
+            [p.data.root_link_lin_vel_w for p in self.pegs], dim=1
+        )  # (E, N, 3)
+        assigned_vel = peg_lin_vel_w[:, : self.num_sockets]
+        pegs_still = (
+            assigned_vel.norm(dim=-1).max(dim=-1).values <= self.cfg.peg_vel_threshold
+        )
+
+        # Gripper-open gate.
+        robot = self._env.scene["robot"]
+        gripper_q = robot.data.joint_pos[:, self._gripper_joint_idx]
+        gripper_open = gripper_q > self.cfg.gripper_open_threshold
+
+        all_conditions = all_in & pegs_still & gripper_open
+        self.success = all_conditions.float()
+        self.episode_success = torch.maximum(self.episode_success, self.success)
 
         self.metrics["lateral_error"] = lateral.mean(dim=1)
         self.metrics["num_inserted"] = self.inserted.sum(dim=1)
-        self.metrics["all_inserted"] = all_in
+        self.metrics["all_inserted"] = all_in.float()
         self.metrics["episode_success"] = self.episode_success
 
     def _resample_command(self, env_ids: torch.Tensor) -> None:
@@ -188,7 +215,7 @@ class InsertionCommand(CommandTerm):
         N = self.num_pegs
         origins = self._env.scene.env_origins[env_ids]
 
-        self.success_steps[env_ids] = 0.0
+        self.success[env_ids] = 0.0
         self.episode_success[env_ids] = 0.0
         self.inserted[env_ids] = 0.0
 

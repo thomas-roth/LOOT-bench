@@ -19,5 +19,5 @@ def inserted_count_reward(env: ManagerBasedRlEnv, command_name: str) -> torch.Te
 
 
 def success_reward(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
-    """Sparse bonus while all pegs are inserted."""
-    return _command(env, command_name).inserted.all(dim=1).float()
+    """Sparse bonus while all pegs are inserted, at rest, and released."""
+    return _command(env, command_name).success

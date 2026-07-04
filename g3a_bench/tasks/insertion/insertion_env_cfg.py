@@ -255,7 +255,7 @@ def make_insertion_env_cfg(
         ),
         "success": TerminationTermCfg(
             func=ins_mdp.insertion_complete,
-            params={"command_name": COMMAND_NAME, "hold_time": 0.5},
+            params={"command_name": COMMAND_NAME},
         ),
     }
 
