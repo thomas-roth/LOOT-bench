@@ -83,7 +83,7 @@ touch a working, verified stack).
 | # | Step | Status |
 |---|---|---|
 | 1 | MLP | ✅ done |
-| 2 | FourierFeatures | not started |
+| 2 | FourierFeatures | ✅ done |
 | 3 | ActorVectorField | not started |
 | 4 | Value | not started |
 | 5 | Dataset | not started |
@@ -366,7 +366,9 @@ and watching return go up, not by any offline test.
 # from g3a-bench repo root
 PYTHONPATH="g3a_bench/scripts/qc_fql:$PYTHONPATH" uv run python -m pytest g3a_bench/scripts/qc_fql/tests/ -v
 
-# regenerate gold data for a module (needs jax+flax, installed via `uv pip install`,
-# NOT added to pyproject.toml/uv.lock — they're dev-only for gold-data generation)
+# regenerate gold data for a module (needs jax+flax+distrax, installed via
+# `uv pip install`, NOT added to pyproject.toml/uv.lock — dev-only, for
+# gold-data generation. distrax is only needed because `qc/utils/networks.py`
+# imports it at module level for other classes we don't use.)
 uv run python g3a_bench/scripts/qc_fql/tests/gen_gold_mlp.py
 ```
