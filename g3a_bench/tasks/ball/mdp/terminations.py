@@ -19,7 +19,7 @@ def ball_at_target(
 ) -> torch.Tensor:
     """Ball in the target at rest (instant reset when goal reached)."""
     command = cast(BallCommand, env.command_manager.get_term(command_name))
-    at_target = command.at_target
+    at_target = command.at_target.bool()
     at_rest = command.success_steps * env.step_dt >= hold_time
     return at_target & at_rest
 

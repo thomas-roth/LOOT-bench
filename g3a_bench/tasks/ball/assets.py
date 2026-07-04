@@ -17,6 +17,7 @@ from g3a_bench.tasks.ball.variants import (
     BALL_RADIUS,
     HOLE_RADIUS,
     PLATFORM_Z,
+    TARGET_X,
     WALL_HEIGHT,
     WALL_X,
     BallVariantCfg,
@@ -28,8 +29,12 @@ WALL_RGBA = (0.55, 0.55, 0.6, 1.0)
 PLATFORM_RGBA = (0.72, 0.6, 0.42, 1.0)
 RIM_RGBA = (0.85, 0.2, 0.2, 1.0)
 
-# Platform footprint for hole variants.
-PLAT_X = (0.18, 0.62)
+# Platform footprint for hole variants. Shared across every action, so the
+# right edge must clear the farthest target's hole (golf, x=0.65) plus a rim
+# margin -- derive it from TARGET_X/HOLE_RADIUS instead of hardcoding it, or
+# it silently falls out of sync again if a target moves.
+_PLAT_RIM = 0.08
+PLAT_X = (0.18, max(TARGET_X.values()) + HOLE_RADIUS + _PLAT_RIM)
 PLAT_Y = (-0.22, 0.22)
 
 
