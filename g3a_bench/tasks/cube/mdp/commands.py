@@ -81,7 +81,7 @@ class PieceArrangementCommand(CommandTerm):
         self.row_yaw = torch.zeros(E, device=dev)  # domino row direction
         self.piece_pos_w = torch.zeros(E, N, 3, device=dev)
         self.slot_at_goal = torch.zeros(E, G, device=dev)
-        self.success_steps = torch.zeros(E, device=dev)
+        self.success = torch.zeros(E, device=dev)
         self.episode_success = torch.zeros(E, device=dev)
 
         # Slot heights -> goal z per slot (cumulative within each stack).
@@ -129,9 +129,8 @@ class PieceArrangementCommand(CommandTerm):
         )
         assert self._cells.shape[0] >= N
 
-        self._gripper_joint_idx: int = (
-            -1
-        )  # resolved lazily on first _update_metrics call
+        # Resolved lazily: joint data isn't available at __init__ time.
+        self._gripper_joint_idx: int = -1
 
         self.metrics["position_error"] = torch.zeros(E, device=dev)
         self.metrics["num_placed"] = torch.zeros(E, device=dev)
@@ -157,18 +156,12 @@ class PieceArrangementCommand(CommandTerm):
 
     def slot_piece_pos(self) -> torch.Tensor:
         """Positions of the piece assigned to each slot, (E, G, 3)."""
-        idx = self.piece_for_slot.unsqueeze(-1).expand(-1, -1, 3)
-        return torch.gather(self.piece_pos_w, 1, idx)
+        return self._gather_slot(self.piece_pos_w)
 
-    def next_slot(self) -> torch.Tensor:
-        """First unplaced slot index per env (clamped to G-1 when done)."""
-        unplaced = self.slot_at_goal < 0.5
-        idx = torch.where(
-            unplaced.any(dim=1),
-            unplaced.float().argmax(dim=1),
-            torch.full_like(self.piece_for_slot[:, 0], self.num_slots - 1),
-        )
-        return idx
+    def _gather_slot(self, per_piece: torch.Tensor) -> torch.Tensor:
+        """Per-piece values (E, N, D) -> per-slot values via piece_for_slot."""
+        idx = self.piece_for_slot.unsqueeze(-1).expand(-1, -1, per_piece.shape[-1])
+        return torch.gather(per_piece, 1, idx)
 
     # CommandTerm interface. ------------------------------------------------
 
@@ -183,8 +176,7 @@ class PieceArrangementCommand(CommandTerm):
         # Upright (and row alignment) checks for dominos.
         if self.variant.arrangement == "domino":
             quats = torch.stack([p.data.root_link_quat_w for p in self.pieces], dim=1)
-            idx = self.piece_for_slot.unsqueeze(-1).expand(-1, -1, 4)
-            q = torch.gather(quats, 1, idx)  # (E, G, 4) wxyz
+            q = self._gather_slot(quats)  # (E, G, 4) wxyz
             w, x, y, z = q.unbind(-1)
             # Body z-axis dot world z.
             up_cos = 1.0 - 2.0 * (x * x + y * y)
@@ -201,7 +193,6 @@ class PieceArrangementCommand(CommandTerm):
         self.slot_at_goal = at_goal.float()
         all_placed_bool = at_goal.all(dim=1)
 
-        # Lazy-resolve gripper joint index (data not available at __init__ time).
         if self._gripper_joint_idx < 0:
             robot = self._env.scene["robot"]
             self._gripper_joint_idx = list(robot.joint_names).index("gripper_left")
@@ -210,8 +201,7 @@ class PieceArrangementCommand(CommandTerm):
         piece_lin_vel_w = torch.stack(
             [p.data.root_link_lin_vel_w for p in self.pieces], dim=1
         )  # (E, N, 3)
-        idx3 = self.piece_for_slot.unsqueeze(-1).expand(-1, -1, 3)
-        goal_vel = torch.gather(piece_lin_vel_w, 1, idx3)  # (E, G, 3)
+        goal_vel = self._gather_slot(piece_lin_vel_w)  # (E, G, 3)
         pieces_still = (
             goal_vel.norm(dim=-1).max(dim=-1).values <= self.cfg.piece_vel_threshold
         )
@@ -223,8 +213,8 @@ class PieceArrangementCommand(CommandTerm):
 
         all_conditions = all_placed_bool & pieces_still & gripper_open
         all_placed = all_placed_bool.float()
-        self.success_steps = (self.success_steps + 1.0) * all_conditions.float()
-        self.episode_success = torch.maximum(self.episode_success, all_placed)
+        self.success = all_conditions.float()
+        self.episode_success = torch.maximum(self.episode_success, self.success)
 
         self.metrics["position_error"] = error.mean(dim=1)
         self.metrics["num_placed"] = self.slot_at_goal.sum(dim=1)
@@ -240,7 +230,7 @@ class PieceArrangementCommand(CommandTerm):
         G, N = self.num_slots, self.num_pieces
         origins = self._env.scene.env_origins[env_ids]
 
-        self.success_steps[env_ids] = 0.0
+        self.success[env_ids] = 0.0
         self.episode_success[env_ids] = 0.0
         self.slot_at_goal[env_ids] = 0.0
 
@@ -259,9 +249,6 @@ class PieceArrangementCommand(CommandTerm):
             bases = base_cells[pick]  # (n, num_stacks, 2)
             bases = bases + (torch.rand_like(bases) - 0.5) * 0.03
             slot_xy = bases[:, self._slot_to_stack, :]  # (n, G, 2)
-            goal = torch.cat(
-                [slot_xy, self._slot_goal_z.expand(n, G).unsqueeze(-1)], dim=-1
-            )
         else:
             # Domino row: mostly lateral so the row always fits in x.
             spacing = self.variant.domino_spacing
@@ -276,11 +263,11 @@ class PieceArrangementCommand(CommandTerm):
             slot_xy = center.unsqueeze(1) + steps.view(
                 1, G, 1
             ) * spacing * dir_xy.unsqueeze(1)
-            goal = torch.cat(
-                [slot_xy, self._slot_goal_z.expand(n, G).unsqueeze(-1)], dim=-1
-            )
             self.row_yaw[env_ids] = yaw
 
+        goal = torch.cat(
+            [slot_xy, self._slot_goal_z.expand(n, G).unsqueeze(-1)], dim=-1
+        )
         self.slot_goal_pos[env_ids] = goal + origins.unsqueeze(1)
 
         # --- Slot assignment among interchangeable pieces. ---

@@ -46,7 +46,6 @@ class BallCommand(CommandTerm):
         super().__init__(cfg, env)
         self.variant = cfg.variant
         self.ball: Entity = env.scene[cfg.ball_name]
-        self._env_ref = env
         self.grasp_cfg = cfg.grasp_cfg or SceneEntityCfg("robot")
         # Resolve names -> indices against the scene. Unlike term ``asset_cfg``s
         # (which the managers resolve), this command-owned cfg is resolved here,
@@ -68,7 +67,7 @@ class BallCommand(CommandTerm):
         self.ball_pos_w = torch.zeros(E, 3, device=dev)
         self.ball_vel_w = torch.zeros(E, 3, device=dev)
         self.at_target = torch.zeros(E, device=dev)
-        self.success_steps = torch.zeros(E, device=dev)
+        self.success = torch.zeros(E, device=dev)
         self.episode_success = torch.zeros(E, device=dev)
 
         self.metrics["target_distance"] = torch.zeros(E, device=dev)
@@ -79,14 +78,9 @@ class BallCommand(CommandTerm):
     def command(self) -> torch.Tensor:
         return self.target_pos_w - self.ball_pos_w
 
-    def dir_to_target(self) -> torch.Tensor:
-        """Unit horizontal direction from the ball to the target, (E, 2)."""
-        d = self.target_pos_w[:, :2] - self.ball_pos_w[:, :2]
-        return d / d.norm(dim=-1, keepdim=True).clamp_min(1e-6)
-
     def is_ball_released(self) -> torch.Tensor:
         """Check if ball is released (not held by gripper)."""
-        robot: Entity = self._env_ref.scene[self.grasp_cfg.name]
+        robot: Entity = self._env.scene[self.grasp_cfg.name]
         grasp_site_pos = robot.data.site_pos_w[:, self.grasp_cfg.site_ids].squeeze(1)
         gripper_distance = torch.norm(self.ball_pos_w - grasp_site_pos, dim=-1)
         return gripper_distance > 0.08
@@ -105,14 +99,11 @@ class BallCommand(CommandTerm):
             on_surface = self.ball_pos_w[:, 2] < self.surface_z + 3 * BALL_RADIUS
             at_target = within & on_surface
         at_rest = speed < self.variant.at_rest_speed
-
-        # Check if ball is released (not held by gripper)
         is_released = self.is_ball_released()
 
         self.at_target = at_target.float()
-        success = (at_target & at_rest & is_released).float()
-        self.success_steps = (self.success_steps + 1.0) * success
-        self.episode_success = torch.maximum(self.episode_success, success)
+        self.success = (at_target & at_rest & is_released).float()
+        self.episode_success = torch.maximum(self.episode_success, self.success)
 
         self.metrics["target_distance"] = d_xy
         self.metrics["at_target"] = self.at_target
@@ -125,7 +116,7 @@ class BallCommand(CommandTerm):
         dev = self.device
         origins = self._env.scene.env_origins[env_ids]
 
-        self.success_steps[env_ids] = 0.0
+        self.success[env_ids] = 0.0
         self.episode_success[env_ids] = 0.0
 
         x0, x1 = self.cfg.spawn_x_range

@@ -32,9 +32,9 @@ PLATFORM_RGBA = TABLE_RGBA
 RIM_RGBA = (0.85, 0.2, 0.2, 1.0)
 
 # Platform footprint for hole variants. Shared across every action, so the
-# right edge must clear the farthest target's hole (golf, x=0.65) plus a rim
-# margin -- derive it from TARGET_X/HOLE_RADIUS instead of hardcoding it, or
-# it silently falls out of sync again if a target moves.
+# right edge must clear the farthest target's hole plus a rim margin -- derive
+# it from TARGET_X/HOLE_RADIUS instead of hardcoding it, or it silently falls
+# out of sync again if a target moves.
 _PLAT_RIM = 0.08
 PLAT_X = (0.18, max(TARGET_X.values()) + HOLE_RADIUS + _PLAT_RIM)
 PLAT_Y = (-0.22, 0.22)
@@ -56,17 +56,26 @@ def get_ball_spec(name: str = "ball") -> mujoco.MjSpec:
     return spec
 
 
-def _add_box(body, name, x, y, z, hx, hy, hz, rgba, visual=False):
-    kw = {}
-    if visual:
-        kw = {"contype": 0, "conaffinity": 0}
+def _add_box(body, name, x, y, z, hx, hy, hz, rgba):
     body.add_geom(
         name=name,
         type=mujoco.mjtGeom.mjGEOM_BOX,
         pos=(x, y, z),
         size=(hx, hy, hz),
         rgba=rgba,
-        **kw,
+    )
+
+
+def _add_marker(body, name, x, y, z, r, rgba, thickness=0.0008):
+    """Flat, non-colliding disk used to paint a target/rim onto a surface."""
+    body.add_geom(
+        name=name,
+        type=mujoco.mjtGeom.mjGEOM_CYLINDER,
+        pos=(x, y, z),
+        size=(r, thickness, 0.0),
+        rgba=rgba,
+        contype=0,
+        conaffinity=0,
     )
 
 
@@ -78,16 +87,7 @@ def _add_u_pocket(body, tcx, tcy, sz, r):
     _add_box(body, "u_back", tcx + r, tcy, z, t, r + t, h / 2, WALL_RGBA)
     _add_box(body, "u_left", tcx, tcy + r, z, r, t, h / 2, WALL_RGBA)
     _add_box(body, "u_right", tcx, tcy - r, z, r, t, h / 2, WALL_RGBA)
-    # Floor marker.
-    body.add_geom(
-        name="u_mark",
-        type=mujoco.mjtGeom.mjGEOM_CYLINDER,
-        pos=(tcx, tcy, sz + 0.0008),
-        size=(r, 0.0008, 0.0),
-        rgba=TARGET_RGBA,
-        contype=0,
-        conaffinity=0,
-    )
+    _add_marker(body, "u_mark", tcx, tcy, sz + 0.0008, r, TARGET_RGBA)
 
 
 def _add_platform_with_hole(body, tcx, tcy):
@@ -123,15 +123,8 @@ def _add_platform_with_hole(body, tcx, tcy):
     # Front / back of the hole (middle x band).
     _add_box(body, "plat_f", tcx, (y0 - g) / 2, hz, g, (-g - y0) / 2, hz, PLATFORM_RGBA)
     _add_box(body, "plat_b", tcx, (y1 + g) / 2, hz, g, (y1 - g) / 2, hz, PLATFORM_RGBA)
-    # Red rim marker around the pit edge.
-    body.add_geom(
-        name="hole_rim",
-        type=mujoco.mjtGeom.mjGEOM_CYLINDER,
-        pos=(tcx, tcy, PLATFORM_Z + 0.001),
-        size=(g + 0.006, 0.001, 0.0),
-        rgba=RIM_RGBA,
-        contype=0,
-        conaffinity=0,
+    _add_marker(
+        body, "hole_rim", tcx, tcy, PLATFORM_Z + 0.001, g + 0.006, RIM_RGBA, 0.001
     )
 
 
@@ -142,15 +135,7 @@ def get_field_spec(variant: BallVariantCfg, name: str = "field") -> mujoco.MjSpe
     r = variant.target_radius
 
     if variant.target == "marked":
-        field.add_geom(
-            name="target_mark",
-            type=mujoco.mjtGeom.mjGEOM_CYLINDER,
-            pos=(tcx, tcy, sz + 0.0008),
-            size=(r, 0.0008, 0.0),
-            rgba=TARGET_RGBA,
-            contype=0,
-            conaffinity=0,
-        )
+        _add_marker(field, "target_mark", tcx, tcy, sz + 0.0008, r, TARGET_RGBA)
     elif variant.target == "u_boundary":
         _add_u_pocket(field, tcx, tcy, sz, r)
     else:  # hole

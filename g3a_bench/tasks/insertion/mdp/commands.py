@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 import torch
@@ -128,19 +128,6 @@ class InsertionCommand(CommandTerm):
     def assigned_peg_pos(self) -> torch.Tensor:
         """Position of the peg assigned to each socket, (E, S, 3)."""
         return self.peg_pos_w[:, : self.num_sockets]
-
-    def pre_insert_waypoint(self) -> torch.Tensor:
-        """A point just outside each bore mouth along its axis, (E, S, 3)."""
-        return self.socket_mouth_w + self.socket_axis_w * 0.05
-
-    def next_socket(self) -> torch.Tensor:
-        """First un-inserted socket index per env (clamped to S-1)."""
-        empty = self.inserted < 0.5
-        return torch.where(
-            empty.any(dim=1),
-            empty.float().argmax(dim=1),
-            torch.full((self.num_envs,), self.num_sockets - 1, device=self.device),
-        )
 
     @property
     def command(self) -> torch.Tensor:
@@ -257,3 +244,7 @@ class InsertionCommand(CommandTerm):
                 visualizer.add_sphere(
                     center=mouth, radius=0.015, color=color, label=f"bore_{batch}_{s}"
                 )
+
+
+def get_command(env: ManagerBasedRlEnv, name: str) -> InsertionCommand:
+    return cast(InsertionCommand, env.command_manager.get_term(name))

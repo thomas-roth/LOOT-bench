@@ -18,10 +18,4 @@ def _command(env: ManagerBasedRlEnv, name: str) -> BallCommand:
 
 def success_reward(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
     """Bonus when the ball is in target, at rest, and released."""
-    command = _command(env, command_name)
-    d_xy = torch.norm(command.ball_pos_w[:, :2] - command.target_pos_w[:, :2], dim=-1)
-    within = d_xy < command.target_radius
-    speed = torch.norm(command.ball_vel_w, dim=-1)
-    at_rest = speed < command.variant.at_rest_speed
-    is_released = command.is_ball_released()
-    return (within & at_rest & is_released).float()
+    return _command(env, command_name).success

@@ -186,7 +186,7 @@ def make_ball_env_cfg(
         "time_out": TerminationTermCfg(func=mdp.time_out, time_out=True),
         "success": TerminationTermCfg(
             func=ball_mdp.ball_at_target,
-            params={"command_name": COMMAND_NAME, "hold_time": 0.0},
+            params={"command_name": COMMAND_NAME},
         ),
         "out_of_bounds": TerminationTermCfg(
             func=ball_mdp.ball_out_of_bounds,

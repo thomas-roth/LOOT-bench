@@ -23,15 +23,7 @@ _GRASP_OBS_TERMS = ("pegs_rel_grasp", "sheet_rel_grasp")
 def wire_manipulator_into_env(
     cfg: ManagerBasedRlEnvCfg, manipulator: ManipulatorInterface
 ) -> None:
-    """Apply ``manipulator`` to ``cfg`` in place.
-
-    Pulls the robot's ``EntityCfg`` and every robot-specific knob from the
-    interface and replaces the placeholders left by ``make_insertion_env_cfg``:
-    adds the robot as the ``"robot"`` scene entity, and sets the action scale,
-    grasp site, finger-pad friction geoms, end-effector contact subtree, and
-    viewer body. The caller owns the task objects (board, sheet, pegs), which it
-    must place in ``cfg.scene.entities`` before calling.
-    """
+    """Fill the robot placeholders left by ``make_insertion_env_cfg`` in place."""
     cfg.scene.entities["robot"] = manipulator.entity_cfg_fn()
 
     action = cfg.actions["joint_pos"]

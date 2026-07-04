@@ -2,18 +2,14 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 import torch
 
-from g3a_bench.tasks.insertion.mdp.commands import InsertionCommand
+from g3a_bench.tasks.insertion.mdp.commands import get_command as _command
 
 if TYPE_CHECKING:
     from mjlab.envs import ManagerBasedRlEnv
-
-
-def _command(env: ManagerBasedRlEnv, name: str) -> InsertionCommand:
-    return cast(InsertionCommand, env.command_manager.get_term(name))
 
 
 def inserted_count_reward(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:

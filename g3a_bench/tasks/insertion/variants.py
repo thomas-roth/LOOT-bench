@@ -122,12 +122,6 @@ class InsertionVariantCfg:
             assert self.orientation == "vertical"
 
 
-def _socket(
-    shape: Shape, color: str, orientation: Orientation = "vertical"
-) -> SocketCfg:
-    return SocketCfg(shape=shape, color=color, orientation=orientation)
-
-
 INSERTION_VARIANTS: dict[str, InsertionVariantCfg] = {
     v.name: v
     for v in (
@@ -135,48 +129,48 @@ INSERTION_VARIANTS: dict[str, InsertionVariantCfg] = {
         InsertionVariantCfg(
             name="PegCylinder",
             kind="peg",
-            sockets=(_socket("circle", "blue"),),
+            sockets=(SocketCfg("circle", "blue"),),
         ),
         InsertionVariantCfg(
             name="PegCuboid",
             kind="peg",
-            sockets=(_socket("rect", "red"),),
+            sockets=(SocketCfg("rect", "red"),),
         ),
         InsertionVariantCfg(
             name="PegHex",
             kind="peg",
-            sockets=(_socket("hexagon", "green"),),
+            sockets=(SocketCfg("hexagon", "green"),),
         ),
         # Same peg but the bore faces the robot (horizontal insertion).
         InsertionVariantCfg(
             name="PegCylinderH",
             kind="peg",
-            sockets=(_socket("circle", "blue", "horizontal"),),
+            sockets=(SocketCfg("circle", "blue", "horizontal"),),
         ),
         # --- Two-sheet alignment: slide the top sheet, then insert. ---
         InsertionVariantCfg(
             name="TwoSheet",
             kind="two_sheet",
-            sockets=(_socket("circle", "blue"),),
+            sockets=(SocketCfg("circle", "blue"),),
         ),
         # --- Shape sorter: each peg only fits its own hole. ---
         InsertionVariantCfg(
             name="Sorter3",
             kind="sorter",
             sockets=(
-                _socket("circle", "blue"),
-                _socket("square", "red"),
-                _socket("triangle", "yellow"),
+                SocketCfg("circle", "blue"),
+                SocketCfg("square", "red"),
+                SocketCfg("triangle", "yellow"),
             ),
         ),
         InsertionVariantCfg(
             name="Sorter4",
             kind="sorter",
             sockets=(
-                _socket("circle", "blue"),
-                _socket("square", "red"),
-                _socket("triangle", "yellow"),
-                _socket("hexagon", "green"),
+                SocketCfg("circle", "blue"),
+                SocketCfg("square", "red"),
+                SocketCfg("triangle", "yellow"),
+                SocketCfg("hexagon", "green"),
             ),
         ),
     )

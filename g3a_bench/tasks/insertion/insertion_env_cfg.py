@@ -221,7 +221,6 @@ def make_insertion_env_cfg(
     # be paired with a demonstration pipeline (GELLO teleop -> offline-to-online
     # RL), which supplies the exploration that dense shaping previously provided.
     rewards = {
-        # Sparse task signal: only fires when pegs are genuinely inserted.
         "inserted_count": RewardTermCfg(
             func=ins_mdp.inserted_count_reward,
             weight=2.0,
@@ -299,7 +298,8 @@ def make_insertion_env_cfg(
             azimuth=150.0,
         ),
         sim=SimulationCfg(
-            # explicitly increase for 2 sheets (2 rings (from 16 boxes) lying on top of each other)
+            # Two-sheet: two 16-box rings stacked on top of each other need
+            # extra contact/constraint headroom.
             nconmax=120 + 120 * num_pegs + (200 if two_sheet else 0),
             njmax=900 + 90 * num_pegs + (400 if two_sheet else 0),
             mujoco=MujocoCfg(

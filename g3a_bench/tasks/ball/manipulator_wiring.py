@@ -13,12 +13,7 @@ from mjlab.envs.mdp.actions import JointPositionActionCfg
 
 from g3a_bench.robots.interface import ManipulatorInterface
 
-# Term keys whose ``asset_cfg`` points at the grasp site. The grasp reward terms
-# are action-specific (golf adds "reach"/"contact_time", push adds "push_guide",
-# throw adds "reach"); absent keys are skipped so the same wiring fits every
-# variant.
 _GRASP_OBS_TERMS = ("ball_rel_grasp",)
-_GRASP_REWARD_TERMS = ("reach", "contact_time", "push_guide")
 
 
 def wire_manipulator_into_env(
@@ -45,10 +40,6 @@ def wire_manipulator_into_env(
             term = group.terms.get(key)
             if term is not None:
                 term.params["asset_cfg"].site_names = grasp
-    for key in _GRASP_REWARD_TERMS:
-        reward = cfg.rewards.get(key)
-        if reward is not None:
-            reward.params["asset_cfg"].site_names = grasp
 
     geoms = manipulator.finger_pad_geoms
     cfg.events["fingertip_friction_slide"].params["asset_cfg"].geom_names = geoms

@@ -2,22 +2,18 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 import torch
 from mjlab.entity import Entity
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 
-from g3a_bench.tasks.insertion.mdp.commands import InsertionCommand
+from g3a_bench.tasks.insertion.mdp.commands import get_command as _command
 
 if TYPE_CHECKING:
     from mjlab.envs import ManagerBasedRlEnv
 
 _DEFAULT_ASSET_CFG = SceneEntityCfg("robot")
-
-
-def _command(env: ManagerBasedRlEnv, name: str) -> InsertionCommand:
-    return cast(InsertionCommand, env.command_manager.get_term(name))
 
 
 def pegs_rel_grasp(

@@ -28,8 +28,8 @@ poses and scatters the pieces at every episode reset:
 A slot counts as *placed* when its piece is within `pos_threshold` (1.5 cm) of
 the slot goal; domino slots additionally require the piece to be upright and
 rotated so its thin axis lies along the row (otherwise toppling would not
-propagate). The episode terminates successfully when all slots stay placed
-for one second.
+propagate). The episode terminates successfully on the first step where every
+slot is placed, all goal pieces are moving slowly, and the gripper is open.
 
 ## Observations (state-based)
 
@@ -42,8 +42,6 @@ for one second.
 
 ## Rewards
 
-- `staged_next_slot`: `reaching * (1 + bringing)` shaping focused on the
-  first unplaced slot (same structure as mjlab's lift-cube reward)
 - `placed_slots`: fraction of placed slots (progress + keep-placed incentive)
 - `success`: bonus while the full arrangement is complete
 - penalties: action rate, joint position limits, joint velocity hinge
@@ -67,5 +65,5 @@ Train e.g. with:
 
 ```bash
 uv run g3a-train G3a-Cube-Stack3-Dk1_uni --env.scene.num-envs 1024
-& ".venv\Scripts\python.exe" g3a_bench/scripts/play.py G3a-Cube-Stack3-Dk1_uni --checkpoint-file "out/model_3200_copy.pt"
+uv run g3a-play G3a-Cube-Stack3-Dk1_uni
 ```

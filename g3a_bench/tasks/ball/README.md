@@ -29,9 +29,11 @@ target.
 ## Success
 
 The ball is *at target* when it is within the target radius and on the surface
-(for `hole`, when it has dropped below the platform surface). An episode
-terminates successfully when the ball stays at target and at rest for
-`hold_time` (0.3 s); it also terminates if the ball leaves the workspace.
+(for `hole`, when it has dropped below the platform surface). Success also
+requires the ball to be at rest and released from the gripper — the
+termination, the `success` reward, and the `episode_success` metric all use
+this same condition. The episode also terminates if the ball leaves the
+workspace.
 
 ## Observations (state-based)
 

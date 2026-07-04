@@ -16,4 +16,4 @@ def placed_slots_reward(env: ManagerBasedRlEnv, command_name: str) -> torch.Tens
 
 def success_reward(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
     """Sparse bonus while the full arrangement is complete."""
-    return get_cube_command(env, command_name).slot_at_goal.all(dim=1).float()
+    return get_cube_command(env, command_name).success

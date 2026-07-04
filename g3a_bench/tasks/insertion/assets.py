@@ -237,6 +237,8 @@ def _add_walls(body, frame: SocketFrame, bore_depth: float, rgba) -> None:
     for j, (pos, quat, size) in enumerate(
         _wall_boxes(frame.mouth, frame.axis_out, frame.shape, bore_depth)
     ):
+        # Mouth y distinguishes sockets sharing a board (sorter); safe since
+        # SORTER_SPACING keeps their y offsets distinct.
         body.add_geom(
             name=f"{body.name}_wall_{int(frame.mouth[1] * 1e4)}_{j}",
             type=mujoco.mjtGeom.mjGEOM_BOX,
