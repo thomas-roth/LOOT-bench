@@ -22,6 +22,7 @@ from mjlab.viewer import ViewerConfig
 from g3a_bench.tasks.ball import mdp as ball_mdp
 from g3a_bench.tasks.ball.assets import get_ball_spec, get_field_spec
 from g3a_bench.tasks.ball.variants import BallVariantCfg
+from g3a_bench.tasks.common.table import TABLE_POS, get_table_spec
 
 COMMAND_NAME = "ball_target"
 
@@ -45,6 +46,11 @@ def make_ball_env_cfg(
     entities: dict[str, EntityCfg] = {
         "field": EntityCfg(spec_fn=lambda v=variant: get_field_spec(v)),
         "ball": EntityCfg(spec_fn=get_ball_spec),
+        # Shared visual-only table, same asset reused by every task category.
+        "table": EntityCfg(
+            spec_fn=get_table_spec,
+            init_state=EntityCfg.InitialStateCfg(pos=TABLE_POS),
+        ),
     }
 
     grasp_cfg = SceneEntityCfg("robot", site_names=())  # Set per-robot.
@@ -123,6 +129,15 @@ def make_ball_env_cfg(
                 "position_range": (0.0, 0.0),
                 "velocity_range": (0.0, 0.0),
                 "asset_cfg": SceneEntityCfg("robot", joint_names=(".*",)),
+            },
+        ),
+        "reset_table": EventTermCfg(
+            func=mdp.reset_root_state_uniform,
+            mode="reset",
+            params={
+                "pose_range": {},
+                "velocity_range": {},
+                "asset_cfg": SceneEntityCfg("table"),
             },
         ),
         "fingertip_friction_slide": EventTermCfg(

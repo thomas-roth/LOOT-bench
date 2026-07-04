@@ -22,6 +22,7 @@ from mjlab.terrains import TerrainEntityCfg
 from mjlab.utils.noise import UniformNoiseCfg as Unoise
 from mjlab.viewer import ViewerConfig
 
+from g3a_bench.tasks.common.table import TABLE_POS, get_table_spec
 from g3a_bench.tasks.insertion import mdp as ins_mdp
 from g3a_bench.tasks.insertion.assets import (
     BOARD_POS,
@@ -176,6 +177,11 @@ def make_insertion_env_cfg(
             spec_fn=get_decor_spec,
             init_state=EntityCfg.InitialStateCfg(pos=DECOR_POS),
         ),
+        # Shared visual-only table, same asset reused by every task category.
+        "table": EntityCfg(
+            spec_fn=get_table_spec,
+            init_state=EntityCfg.InitialStateCfg(pos=TABLE_POS),
+        ),
     }
     if two_sheet:
         entities["board"] = EntityCfg(
@@ -268,6 +274,15 @@ def make_insertion_env_cfg(
                 "pose_range": {},
                 "velocity_range": {},
                 "asset_cfg": SceneEntityCfg("decor"),
+            },
+        ),
+        "reset_table": EventTermCfg(
+            func=mdp.reset_root_state_uniform,
+            mode="reset",
+            params={
+                "pose_range": {},
+                "velocity_range": {},
+                "asset_cfg": SceneEntityCfg("table"),
             },
         ),
         "reset_robot_joints": EventTermCfg(

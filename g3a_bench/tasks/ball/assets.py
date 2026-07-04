@@ -22,11 +22,13 @@ from g3a_bench.tasks.ball.variants import (
     WALL_X,
     BallVariantCfg,
 )
+from g3a_bench.tasks.common.table import TABLE_RGBA
 
 BALL_RGBA = (0.95, 0.35, 0.1, 1.0)
 TARGET_RGBA = (0.15, 0.8, 0.25, 0.45)
 WALL_RGBA = (0.55, 0.55, 0.6, 1.0)
-PLATFORM_RGBA = (0.72, 0.6, 0.42, 1.0)
+# Golf platform top: same flat neutral gray as the shared table.
+PLATFORM_RGBA = TABLE_RGBA
 RIM_RGBA = (0.85, 0.2, 0.2, 1.0)
 
 # Platform footprint for hole variants. Shared across every action, so the

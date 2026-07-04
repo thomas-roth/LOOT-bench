@@ -19,6 +19,7 @@ from mjlab.terrains import TerrainEntityCfg
 from mjlab.utils.noise import UniformNoiseCfg as Unoise
 from mjlab.viewer import ViewerConfig
 
+from g3a_bench.tasks.common.table import TABLE_POS, get_table_spec
 from g3a_bench.tasks.cube import mdp as cube_mdp
 from g3a_bench.tasks.cube.assets import get_piece_spec
 from g3a_bench.tasks.cube.variants import CubeVariantCfg
@@ -45,7 +46,13 @@ def make_cube_env_cfg(
     """
     piece_names = tuple(f"piece_{i}" for i in range(len(variant.pieces)))
 
-    entities: dict[str, EntityCfg] = {}  # Robot added by wire_manipulator_into_env.
+    entities: dict[str, EntityCfg] = {
+        # Shared visual-only table, same asset reused by every task category.
+        "table": EntityCfg(
+            spec_fn=get_table_spec,
+            init_state=EntityCfg.InitialStateCfg(pos=TABLE_POS),
+        ),
+    }  # Robot added by wire_manipulator_into_env.
     for name, piece in zip(piece_names, variant.pieces, strict=True):
         entities[name] = EntityCfg(spec_fn=lambda p=piece, n=name: get_piece_spec(p, n))
 
@@ -117,6 +124,15 @@ def make_cube_env_cfg(
                 "position_range": (0.0, 0.0),
                 "velocity_range": (0.0, 0.0),
                 "asset_cfg": SceneEntityCfg("robot", joint_names=(".*",)),
+            },
+        ),
+        "reset_table": EventTermCfg(
+            func=mdp.reset_root_state_uniform,
+            mode="reset",
+            params={
+                "pose_range": {},
+                "velocity_range": {},
+                "asset_cfg": SceneEntityCfg("table"),
             },
         ),
         "fingertip_friction_slide": EventTermCfg(
