@@ -302,12 +302,6 @@ def main():
     # 1. Load task config (play mode: infinite, no noise).
     cfg = load_env_cfg(args.task, play=True)
     cfg.terminations["time_out"].time_out = False
-    # Play mode pops the success termination but leaves ee_ground_collision
-    # active. The scene has no table — cubes rest on the ground plane — so the
-    # gripper approaches z=0 to pick/place. A single >10 N contact would fire
-    # the termination and (auto_reset=True) snap the arm home + respawn cubes
-    # mid-demo, gluing two trajectories into one episode. Drop it for teleop.
-    cfg.terminations.pop("ee_ground_collision", None)
 
     # 2. Create environment.
     env = ManagerBasedRlEnv(cfg=cfg, device=device)

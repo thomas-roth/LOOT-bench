@@ -13,7 +13,6 @@ from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.managers.termination_manager import TerminationTermCfg
 from mjlab.scene import SceneCfg
-from mjlab.sensor import ContactMatch, ContactSensorCfg
 from mjlab.sim import MujocoCfg, SimulationCfg
 from mjlab.tasks.manipulation import mdp as manipulation_mdp
 from mjlab.terrains import TerrainEntityCfg
@@ -29,7 +28,6 @@ COMMAND_NAME = "arrangement"
 REWARD_MODE_TERMS: dict[str, frozenset[str]] = {
     "success": frozenset(["success"]),
     "progress": frozenset(["placed_slots", "success"]),
-    "dense": frozenset(["staged_next_slot", "placed_slots", "success"]),
 }
 
 
@@ -134,29 +132,7 @@ def make_cube_env_cfg(
         ),
     }
 
-    ee_ground_collision_cfg = ContactSensorCfg(
-        name="ee_ground_collision",
-        primary=ContactMatch(
-            mode="subtree", pattern="", entity="robot"
-        ),  # Set per-robot.
-        secondary=ContactMatch(mode="body", pattern="terrain"),
-        fields=("found", "force"),
-        reduce="none",
-        num_slots=1,
-        history_length=4,
-    )
-
     rewards = {
-        "staged_next_slot": RewardTermCfg(
-            func=cube_mdp.staged_next_slot_reward,
-            weight=1.0,
-            params={
-                "command_name": COMMAND_NAME,
-                "reaching_std": 0.2,
-                "bringing_std": 0.3,
-                "asset_cfg": grasp_cfg,
-            },
-        ),
         "placed_slots": RewardTermCfg(
             func=cube_mdp.placed_slots_reward,
             weight=2.0,
@@ -185,10 +161,6 @@ def make_cube_env_cfg(
 
     terminations = {
         "time_out": TerminationTermCfg(func=mdp.time_out, time_out=True),
-        "ee_ground_collision": TerminationTermCfg(
-            func=manipulation_mdp.illegal_contact,
-            params={"sensor_name": "ee_ground_collision", "force_threshold": 10.0},
-        ),
         "success": TerminationTermCfg(
             func=cube_mdp.arrangement_complete,
             params={"command_name": COMMAND_NAME},
@@ -216,7 +188,6 @@ def make_cube_env_cfg(
             entities=entities,
             num_envs=1,
             env_spacing=1.5,
-            sensors=(ee_ground_collision_cfg,),
         ),
         observations=observations,
         actions=actions,

@@ -18,10 +18,9 @@ from g3a_bench.robots.interface import ManipulatorInterface
 from g3a_bench.tasks.insertion.insertion_env_cfg import _CAMERA_OBS_NAME
 
 # Term keys whose ``asset_cfg`` points at the grasp site. The two_sheet variant
-# adds "sheet_rel_grasp"/"sheet_alignment"; absent keys are skipped so the same
-# wiring fits every variant.
+# adds "sheet_rel_grasp"; absent keys are skipped so the same wiring fits every
+# variant.
 _GRASP_OBS_TERMS = ("pegs_rel_grasp", "sheet_rel_grasp")
-_GRASP_REWARD_TERMS = ("staged_next_socket", "sheet_alignment")
 
 
 def wire_manipulator_into_env(
@@ -46,17 +45,13 @@ def wire_manipulator_into_env(
             term = group.terms.get(key)
             if term is not None:
                 term.params["asset_cfg"].site_names = grasp
-    for key in _GRASP_REWARD_TERMS:
-        reward = cfg.rewards.get(key)
-        if reward is not None:
-            reward.params["asset_cfg"].site_names = grasp
 
     geoms = manipulator.finger_pad_geoms
     cfg.events["fingertip_friction_slide"].params["asset_cfg"].geom_names = geoms
 
     assert cfg.scene.sensors is not None
     for sensor in cfg.scene.sensors:
-        if sensor.name in ("ee_ground_collision", "ee_werkbox_collision"):
+        if sensor.name == "ee_werkbox_collision":
             assert isinstance(sensor, ContactSensorCfg)
             sensor.primary.pattern = manipulator.ee_subtree
         elif sensor.name == _CAMERA_OBS_NAME:

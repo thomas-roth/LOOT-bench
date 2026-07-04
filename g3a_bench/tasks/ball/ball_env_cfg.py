@@ -27,81 +27,8 @@ COMMAND_NAME = "ball_target"
 
 REWARD_MODE_TERMS: dict[str, frozenset[str]] = {
     "success": frozenset(["success"]),
-    "progress": frozenset(["ball_distance", "success"]),
-    "dense": frozenset(
-        [
-            "ball_distance",
-            "success",
-            "strike",
-            "reach",
-            "contact_time",
-            "push_guide",
-            "throw_height",
-        ]
-    ),
+    "progress": frozenset(["success"]),
 }
-
-
-def _action_rewards(
-    variant: BallVariantCfg, grasp_cfg: SceneEntityCfg
-) -> dict[str, RewardTermCfg]:
-    """Action-specific dense shaping (golf strike / push guide / throw).
-
-    Not used in the default sparse reward setup; kept defined so re-enabling it
-    is a one-line ``rewards.update(_action_rewards(...))`` in ``make_ball_env_cfg``.
-    """
-    if variant.action == "golf":
-        return {
-            "strike": RewardTermCfg(
-                func=ball_mdp.strike_reward,
-                weight=0.5,
-                params={"command_name": COMMAND_NAME},
-            ),
-            "reach": RewardTermCfg(
-                func=ball_mdp.gripper_ball_reach_reward,
-                weight=0.3,
-                params={
-                    "command_name": COMMAND_NAME,
-                    "std": 0.15,
-                    "asset_cfg": grasp_cfg,
-                },
-            ),
-            "contact_time": RewardTermCfg(
-                func=ball_mdp.contact_time_penalty,
-                weight=-0.2,
-                params={
-                    "command_name": COMMAND_NAME,
-                    "contact_dist": 0.06,
-                    "asset_cfg": grasp_cfg,
-                },
-            ),
-        }
-    if variant.action == "push":
-        return {
-            "push_guide": RewardTermCfg(
-                func=ball_mdp.push_guide_reward,
-                weight=1.5,
-                params={
-                    "command_name": COMMAND_NAME,
-                    "reaching_std": 0.15,
-                    "bringing_std": 0.2,
-                    "asset_cfg": grasp_cfg,
-                },
-            ),
-        }
-    # throw
-    return {
-        "reach": RewardTermCfg(
-            func=ball_mdp.gripper_ball_reach_reward,
-            weight=0.5,
-            params={"command_name": COMMAND_NAME, "std": 0.15, "asset_cfg": grasp_cfg},
-        ),
-        "throw_height": RewardTermCfg(
-            func=ball_mdp.throw_height_reward,
-            weight=0.5,
-            params={"command_name": COMMAND_NAME},
-        ),
-    }
 
 
 def make_ball_env_cfg(
@@ -215,9 +142,7 @@ def make_ball_env_cfg(
     # the ball reaching the target -- no dense distance/strike/reach/push shaping.
     # This is meant to be paired with a demonstration pipeline (GELLO teleop ->
     # offline-to-online RL), which supplies the exploration that dense shaping
-    # previously provided. The dense terms (``ball_distance_reward`` and the
-    # action-specific shaping assembled by ``_action_rewards``) are left defined so
-    # this is a one-line switch back if needed (re-add the ``rewards.update`` below).
+    # previously provided.
     rewards = {
         # Sparse task signal: only fires while the ball is at the target.
         "success": RewardTermCfg(
@@ -241,8 +166,6 @@ def make_ball_env_cfg(
             },
         ),
     }
-    # Dense shaping, disabled for the sparse + demonstration setup. Re-enable with:
-    # rewards.update(_action_rewards(variant, grasp_cfg))
 
     terminations = {
         "time_out": TerminationTermCfg(func=mdp.time_out, time_out=True),

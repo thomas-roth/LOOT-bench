@@ -39,15 +39,6 @@ COMMAND_NAME = "insertion"
 REWARD_MODE_TERMS: dict[str, frozenset[str]] = {
     "success": frozenset(["success"]),
     "progress": frozenset(["inserted_count", "success"]),
-    "dense": frozenset(
-        [
-            "staged_next_socket",
-            "insertion_depth",
-            "sheet_alignment",
-            "inserted_count",
-            "success",
-        ]
-    ),
 }
 
 ActionMode = Literal["eef", "joint"]
@@ -301,17 +292,6 @@ def make_insertion_env_cfg(
         ),
     }
 
-    ee_ground_collision_cfg = ContactSensorCfg(
-        name="ee_ground_collision",
-        # pattern set per-robot.
-        primary=ContactMatch(mode="subtree", pattern="", entity="robot"),
-        secondary=ContactMatch(mode="body", pattern="terrain"),
-        fields=("found", "force"),
-        reduce="none",
-        num_slots=1,
-        history_length=4,
-    )
-
     # Robot end-effector colliding with the parts tray ("Werkbox"). The tray is
     # a child body of the decor entity with real collision geometry (see
     # decor/workstation_decor.xml); the rest of the decor stays visual-only.
@@ -326,36 +306,16 @@ def make_insertion_env_cfg(
         history_length=4,
     )
 
-    sensors: tuple[SensorCfg, ...] = (ee_ground_collision_cfg, ee_werkbox_collision_cfg)
+    sensors: tuple[SensorCfg, ...] = (ee_werkbox_collision_cfg,)
     if obs_mode == "camera":
         sensors += (_add_camera_obs(observations, events, peg_names),)
 
+    # Sparse reward design: the task signal is only the (near-)binary outcome of
+    # actually inserting pegs -- no dense distance/depth shaping. This is meant to
+    # be paired with a demonstration pipeline (GELLO teleop -> offline-to-online
+    # RL), which supplies the exploration that dense shaping previously provided.
     rewards = {
-        "staged_next_socket": RewardTermCfg(
-            func=ins_mdp.staged_next_socket_reward,
-            weight=1.0,
-            params={
-                "command_name": COMMAND_NAME,
-                "reaching_std": 0.2,
-                "bringing_std": 0.3,
-                "asset_cfg": grasp_cfg,
-            },
-        ),
-        "insertion_depth": RewardTermCfg(
-            func=ins_mdp.insertion_depth_reward,
-            weight=1.0,
-            params={"command_name": COMMAND_NAME},
-        ),
-        "sheet_alignment": RewardTermCfg(
-            func=ins_mdp.sheet_alignment_reward,
-            weight=1.0,
-            params={
-                "command_name": COMMAND_NAME,
-                "reaching_std": 0.2,
-                "bringing_std": 0.3,
-                "asset_cfg": grasp_cfg,
-            },
-        ),
+        # Sparse task signal: only fires when pegs are genuinely inserted.
         "inserted_count": RewardTermCfg(
             func=ins_mdp.inserted_count_reward,
             weight=2.0,
@@ -384,10 +344,6 @@ def make_insertion_env_cfg(
 
     terminations = {
         "time_out": TerminationTermCfg(func=mdp.time_out, time_out=True),
-        "ee_ground_collision": TerminationTermCfg(
-            func=manipulation_mdp.illegal_contact,
-            params={"sensor_name": "ee_ground_collision", "force_threshold": 10.0},
-        ),
         "ee_werkbox_collision": TerminationTermCfg(
             func=manipulation_mdp.illegal_contact,
             params={"sensor_name": "ee_werkbox_collision", "force_threshold": 10.0},

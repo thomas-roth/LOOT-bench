@@ -34,7 +34,7 @@ Task ids look like `G3a-Cube-<Variant>-<Robot>`, e.g. `G3a-Cube-Stack3-Dk1_uni`.
 | [`cube_env_cfg.py`](../g3a_bench/tasks/cube/cube_env_cfg.py) | `make_cube_env_cfg(variant, robot, play)` — assembles the full `ManagerBasedRlEnvCfg` (entities, observations, actions, command, events, rewards, terminations, curriculum, sim/viewer). |
 | [`mdp/commands.py`](../g3a_bench/tasks/cube/mdp/commands.py) | `PieceArrangementCommand(Cfg)` — the heart of the domain: samples goals, scatters pieces, computes "placed" per slot, tracks success. |
 | [`mdp/observations.py`](../g3a_bench/tasks/cube/mdp/observations.py) | `pieces_rel_grasp`, `slot_goal_deltas`, `slot_placed_flags`. |
-| [`mdp/rewards.py`](../g3a_bench/tasks/cube/mdp/rewards.py) | `staged_next_slot_reward`, `placed_slots_reward`, `success_reward`. |
+| [`mdp/rewards.py`](../g3a_bench/tasks/cube/mdp/rewards.py) | `placed_slots_reward`, `success_reward`. |
 | [`mdp/terminations.py`](../g3a_bench/tasks/cube/mdp/terminations.py) | `arrangement_complete` — success when all slots held for `hold_time`. |
 | [`mdp/__init__.py`](../g3a_bench/tasks/cube/mdp/__init__.py) | Re-exports the MDP terms. |
 | [`rl_cfg.py`](../g3a_bench/tasks/cube/rl_cfg.py) | `cube_ppo_runner_cfg` — the RSL-RL PPO runner config. |
@@ -232,8 +232,6 @@ joint pos/vel + last action (mjlab built-ins), plus the cube-specific
 command. The actor group has observation noise; the critic group does not.
 
 **Rewards** ([`mdp/rewards.py`](../g3a_bench/tasks/cube/mdp/rewards.py)):
-- `staged_next_slot` — `reaching * (1 + bringing)` shaping aimed at the first
-  unplaced slot; same structure as mjlab's lift-cube reward.
 - `placed_slots` — fraction of placed slots (progress + keep-placed).
 - `success` — bonus while the whole arrangement is complete.
 - Penalties (mjlab built-ins): action rate, joint position limits, joint velocity
@@ -241,9 +239,8 @@ command. The actor group has observation noise; the critic group does not.
 
 **Termination** ([`mdp/terminations.py`](../g3a_bench/tasks/cube/mdp/terminations.py)):
 `arrangement_complete` fires when every slot has stayed placed for `hold_time`
-(1 s). Also: `time_out`, and `ee_ground_collision` (illegal contact between the
-end-effector subtree and the floor). In `play` mode the success termination is
-removed so sessions run indefinitely.
+(1 s). Also: `time_out`. In `play` mode the success termination is removed so
+sessions run indefinitely.
 
 ---
 

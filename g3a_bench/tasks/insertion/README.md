@@ -48,12 +48,12 @@ inserted for `hold_time` (0.5 s).
 
 ## Rewards
 
-- `staged_next_socket`: `reaching * (1 + approaching)` focused on the next
-  un-inserted socket (reach the peg, bring it to a pre-insertion waypoint)
-- `insertion_depth`: per-socket depth fraction, gated by lateral alignment
+Sparse by design, to pair with a demonstration pipeline (GELLO teleop →
+offline-to-online RL) that supplies the exploration dense shaping would
+otherwise provide:
+
 - `inserted_count`: fraction of pegs correctly inserted
 - `success`: bonus while every peg is inserted
-- two-sheet only: `sheet_alignment` shaping (reach the sheet, align its hole)
 - penalties: action rate, joint position limits, joint velocity hinge
   (with the standard curriculum)
 

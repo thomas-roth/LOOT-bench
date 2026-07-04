@@ -32,9 +32,6 @@ def main():
     # ------------------------------------------------------------------
     cfg = load_env_cfg("G3a-Cube-Stack3-Dk1_uni", play=True)
     cfg.terminations["time_out"].time_out = False
-    # Drop ee_ground_collision so a >10 N gripper-vs-ground contact doesn't
-    # auto-reset the env mid-replay (it survives the play-mode termination pop).
-    cfg.terminations.pop("ee_ground_collision", None)
 
     # ------------------------------------------------------------------
     # 2. Create the environment.

@@ -1,8 +1,8 @@
 """Train entry point: mjlab's trainer with g3a-bench tasks registered.
 
-Adds a ``--reward-mode success|progress|dense`` pre-parse step that zeros
-reward weights outside the chosen tier before forwarding to mjlab. Default is
-``dense`` so the GELLO demo pipeline captures maximum reward signal.
+Adds a ``--reward-mode success|progress`` pre-parse step that zeros reward
+weights outside the chosen tier before forwarding to mjlab. Default is
+``progress`` (sparse task signal plus discrete progress shaping).
 """
 
 import argparse
@@ -38,8 +38,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument(
         "--reward-mode",
-        default="dense",
-        choices=["success", "progress", "dense"],
+        default="progress",
+        choices=["success", "progress"],
     )
     args, remaining = parser.parse_known_args()
     # Strip --reward-mode and its value from sys.argv before mjlab parses it.
@@ -47,7 +47,7 @@ def main() -> None:
 
     import g3a_bench  # noqa: F401  (registers benchmark tasks)
 
-    if args.reward_mode != "dense":
+    if args.reward_mode != "progress":
         task_id = next((a for a in remaining if not a.startswith("-")), None)
         if task_id is not None:
             _apply_reward_mode(task_id, args.reward_mode)

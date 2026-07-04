@@ -41,10 +41,6 @@ def main():
     # 1. Load cube task config (play mode: infinite, no noise).
     cfg = load_env_cfg("G3a-Cube-Stack3-Dk1_uni", play=True)
     cfg.terminations["time_out"].time_out = False
-    # Drop ee_ground_collision: it survives the play-mode termination pop, and a
-    # single >10 N gripper-vs-ground contact in the replayed trajectory would
-    # auto-reset the env mid-episode (auto_reset=True) and corrupt the recording.
-    cfg.terminations.pop("ee_ground_collision", None)
 
     # 2. Create environment.
     env = ManagerBasedRlEnv(cfg=cfg, device=device)
