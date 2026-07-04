@@ -88,7 +88,7 @@ touch a working, verified stack).
 | 4 | Value | ✅ done |
 | 5 | Dataset | ✅ done |
 | 6 | ReplayBuffer | ✅ done |
-| 7 | Config | not started |
+| 7 | Config | ✅ done |
 | 8 | Agent (QCFQLAgent) | not started |
 | 9 | Evaluate loop | not started |
 | 10 | Training script | not started |
@@ -295,23 +295,35 @@ and must match exactly (`np.array_equal`). Also covers
 `create_from_initial_dataset`, inherited `sample_sequence` (seeded, same
 determinism trick as step 5), and `clear`.
 
-### 7. Config
+### 7. Config — done
 
-**Copied:** every hyperparameter name and default value from `get_config()`
-verbatim (lr, batch_size, actor/value hidden dims, layer_norm flags,
-discount, tau, q_agg, alpha, num_qs, flow_steps, horizon_length,
+**Copied:** every consumed hyperparameter name and default value from
+`get_config()` verbatim (lr, batch_size, actor/value hidden dims, layer_norm
+flags, discount, tau, q_agg, alpha, num_qs, flow_steps, horizon_length,
 action_chunking, actor_type, actor_num_samples, use_fourier_features,
-fourier_feature_dim, weight_decay).
+fourier_feature_dim, weight_decay). `ob_dims`/`action_dim` are dataclass
+fields with `init=False`, set later by `QCFQLAgent.create()` — matching how
+JAX's `create()` assigns `config['ob_dims']`/`config['action_dim']` on the fly.
 
 **Changed:**
 - `ml_collections.ConfigDict` (supports `absl.flags` CLI integration and
   JAX-pytree-safe placeholders like `config_dict.placeholder(int)` for
-  "set later" fields) → plain Python `@dataclass` with `Optional[...] = None`
-  for `ob_dims`/`action_dim` (set in `create()`). *Why valid:* the
+  "set later" fields) → plain Python `@dataclass`. *Why valid:* the
   flag-system/pytree integration is JAX/absl-specific tooling our PyTorch
   code doesn't use; a dataclass gives identical attribute-access semantics
   and defaults with none of that machinery needed.
-- Drop `encoder` field (no vision).
+- Dropped three fields, each confirmed by grepping the *entire* `acfql.py`
+  (not just `get_config()`) rather than assuming: `agent_name` (never read
+  inside `acfql.py` — only used by `main.py`'s multi-agent registry lookup;
+  we build exactly one agent), `normalize_q_loss` (defined but never read
+  anywhere in the file — genuinely dead), `encoder` (real logic in JAX, but
+  always `None` for state-based tasks, and the plumbing itself was already
+  dropped from `ActorVectorField`/`Value` in steps 3–4).
+
+**No gold-data test for this step** — it's a pure config container with no
+numerical computation to verify against JAX; instantiation/defaults were
+smoke-tested directly instead (matches the original plan, which also had no
+dedicated test for the Config task, only for the Agent).
 
 ### 8. Agent — the one with a real structural correction
 
