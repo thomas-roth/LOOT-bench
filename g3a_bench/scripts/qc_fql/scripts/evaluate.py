@@ -29,9 +29,10 @@ def evaluate(
 
     Assumes a gym-style single env (`obs, info = env.reset()`; `next_obs,
     reward, terminated, truncated, info = env.step(action)`), matching the
-    JAX original's own assumption -- not mjlab's vectorized API. Wiring the
-    real mjlab env to satisfy this interface (or adapting this loop to
-    mjlab's actual API) is step 11's job, not this one's.
+    JAX original's own assumption -- not mjlab's vectorized API directly.
+    `scripts/mjlab_env.py::MjlabSingleEnv` adapts a real mjlab
+    `ManagerBasedRlEnv` to this exact interface; pass an instance of it (or
+    anything satisfying the same contract) as `env`.
 
     Dropped vs. the source (confirmed unused by every real caller, or dead in
     the source itself): explicit `rng` threading (`supply_rng`), full

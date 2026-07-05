@@ -7,10 +7,14 @@ agent entirely, `ACRLPDAgent`). See the README's step 10 section for the
 full copied/dropped/added breakdown.
 
 The online phase needs a gym-style env (`obs, info = env.reset()`; `next_obs,
-reward, terminated, truncated, info = env.step(action)`) -- mjlab integration
-is step 11, not this one. `train_online()` is fully implemented and tested
-against a synthetic env; `main()` runs the offline phase for real (needs no
-env) and raises clearly if online training is requested without one.
+reward, terminated, truncated, info = env.step(action)`).
+`scripts/mjlab_env.py::MjlabSingleEnv` provides exactly this over a real
+mjlab task (cube family, DK1 unimanual so far); pass an instance of it as
+`env` to call `train_online()` directly. `main()`'s CLI still only runs the
+offline phase (needs no env) and raises clearly if `--online-steps > 0` is
+requested, since no converted demo dataset exists yet to pretrain from for
+this task -- wiring a real end-to-end CLI run is separate from having the
+adapter itself work (verified directly, see README step 11).
 """
 
 import argparse

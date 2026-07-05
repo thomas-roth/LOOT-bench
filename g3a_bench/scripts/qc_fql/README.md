@@ -94,7 +94,7 @@ touch a working, verified stack).
 | 8 | Agent (QCFQLAgent) | ✅ done |
 | 9 | Evaluate loop | ✅ done |
 | 10 | Training script | ✅ done |
-| 11 | g3a-bench / mjlab integration | not started |
+| 11 | g3a-bench / mjlab integration | ✅ done (cube, DK1 unimanual) |
 
 For each step below: what's copied verbatim from JAX, what's changed because
 PyTorch ≠ JAX, and why that change doesn't alter the algorithm (or, where it
@@ -528,17 +528,69 @@ requested without one — honest about the gap rather than writing speculative
 mjlab-specific code we already know would need rewriting once step 11 nails
 down the real API (auto-reset, tensor/dict observations).
 
-### 11. g3a-bench / mjlab integration — no JAX equivalent, no allclose net
+### 11. g3a-bench / mjlab integration — done (cube tasks, DK1 unimanual)
 
-Nothing here is a JAX→PyTorch translation — it's genuinely new code, because
-mjlab's `ManagerBasedRlEnv` is not a gym-style env. Verified directly against
-mjlab's source: `step()` **auto-resets terminated envs inside the call**
-(when `cfg.auto_reset=True`) and returns torch tensors, not numpy;
-observations come back as `self.obs_buf`, a dict keyed by observation-group
-name, not a flat array. The `if done: env.reset()` pattern and `obs[i]`
-indexing from the JAX reference scripts don't apply — this step has to be
-written fresh against mjlab's actual API and verified by running training
-and watching return go up, not by any offline test.
+Nothing here is a JAX→PyTorch translation — genuinely new code, verified by
+*running it against the real env*, not `allclose`. Scope: cube task family,
+DK1 unimanual robot (per user decision) — action denormalization constants
+are DK1-unimanual-specific, not yet generalized to other robots/categories.
+
+`scripts/mjlab_env.py::MjlabSingleEnv` wraps `ManagerBasedRlEnv` (`num_envs=1`)
+as the gym-style single-env interface `evaluate.py`/`train_online.py` already
+assume — no changes needed to either of those files. Every design fact below
+was checked directly against the real, running env (see the module's own
+docstring for the exact probes), not assumed from reading docs:
+
+- **Observations**: `{"actor": Tensor(1,53), "critic": Tensor(1,53)}` for
+  cube tasks — two groups (not `"policy"`), each already a flat, concatenated
+  vector. Uses `"actor"` (the noisy/corrupted group — matches what a
+  deployed policy actually perceives; `"critic"` is clean-state-only).
+- **Action denormalization**: mjlab does not clip/normalize actions —
+  `target = raw_action * scale + default_joint_pos`, with `scale` varying
+  >700× across the 7 DK1 joints. QC-FQL's policy outputs `[-1,1]`.
+  `g3a_bench/scripts/live_bridge/mapper.py::PHYSICAL_RAW_ACTION_MIN/MAX`
+  (the fixed DK1 joint range in raw_action space — a robot constant, not
+  tied to any specific recording) is used to un-normalize before
+  `env.step()`. Confirmed **live**, not assumed, that the real action
+  term's `target_names` (`['joint1',...,'joint6','gripper_left']`) and its
+  `scale`/`offset` tensors are bit-identical to `mapper.py`'s
+  `ACTION_SCALE`/`HOME_JOINT_POS` — no silent joint-ordering mismatch.
+  `lerobot_to_qc.py` already defaults to this same `"physical"` normalization
+  method for recorded demos (not dataset-derived min/max), so the policy and
+  the demos agree on what `[-1,1]` means.
+- **`auto_reset=True`** (kept, per decision): confirmed live that on episode
+  end, `step()`'s returned observation is already the *fresh post-reset* one
+  for the next episode, not the true terminal state (`masks=1-terminated`
+  already neutralizes this correctly for bootstrapping — same limitation
+  `qc`'s own vectorized envs have). Since `evaluate.py`/`train_online.py`
+  expect standard gym semantics (call `.reset()` after `done`), an
+  unconditional external reset would trigger a **redundant second reset**.
+  `MjlabSingleEnv` caches the auto-reset observation and returns it from the
+  next `.reset()` call instead — contained entirely in this one file, so
+  nothing else needed to change, and the existing synthetic-env tests for
+  `evaluate.py`/`train_online.py` (which aren't auto-resetting) stay valid.
+- **`terminated`/`time_outs`** map directly to gym's `terminated`/`truncated`
+  (confirmed: `time_out` is its own termination term with `Time Out=True`;
+  `success`/`ee_ground_collision` are `Time Out=False`).
+- **Success signal**: no framework-level key exists in `extras` — surfaced
+  via `env.command_manager.get_term("arrangement").episode_success`
+  (cube-specific), included in `info["success"]` so `evaluate.py`'s existing
+  generic `flatten(info)` aggregation picks it up with no changes there either.
+
+**Verified by actually running it** (not just unit-testing the wrapper):
+constructed the real `G3a-Cube-Stack3-Dk1_uni` env, ran a fresh (untrained)
+`QCFQLAgent` through the *unmodified* `evaluate()` for a full episode —
+2175 steps, terminated via time-out, produced sane `{return, length,
+success}` stats, no errors. That's the actual verification this step needs;
+`allclose` doesn't apply to any of it.
+
+**Still open** (deliberately out of scope for this pass, not hidden gaps):
+no converted demo `.npz` exists yet for this task — `train_offline` can't be
+run for real until one is recorded (via `live_bridge`) and converted (via
+`lerobot_to_qc.py`, default `physical` norm method — already correct,
+nothing to change there). Action denormalization is DK1-unimanual-specific;
+extending to other robots/categories (insertion, ball, bimanual) means
+locating/deriving their own physical action-range constants the same way.
 
 ## Key decisions
 
