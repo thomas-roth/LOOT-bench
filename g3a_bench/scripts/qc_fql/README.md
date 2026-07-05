@@ -93,7 +93,7 @@ touch a working, verified stack).
 | 7 | Config | ✅ done |
 | 8 | Agent (QCFQLAgent) | ✅ done |
 | 9 | Evaluate loop | ✅ done |
-| 10 | Training script | not started |
+| 10 | Training script | ✅ done |
 | 11 | g3a-bench / mjlab integration | not started |
 
 For each step below: what's copied verbatim from JAX, what's changed because
@@ -478,21 +478,55 @@ confirms the action queue samples exactly `ceil(episode_length /
 horizon_length)` times per episode (not once per step), and that
 return/length/`success` all aggregate correctly across episodes.
 
-### 10. Training script
+### 10. Training script — done
 
-**Copied:** two real reference structures exist in `qc/` — pick one:
-- `main.py`: offline pretrain (loop of `agent.update` on
-  `dataset.sample_sequence`), *then* online fine-tune sampling only from the
-  replay buffer (`agent.batch_update`).
-- `main_online.py`: no separate pretrain phase — every online step mixes
-  **half a batch from the offline dataset + half from the replay buffer**
-  (`utd_ratio`-scaled), plus a random-action warmup (`start_training`)
-  before the policy is used.
+**Resolved: `main.py`, not `main_online.py` — not actually a choice.**
+Checked which agent each script wires up by default
+(`config_flags.DEFINE_config_file('agent', ...)`):
+```python
+# main.py:         'agents/acfql.py'   -> ACFQLAgent (our agent)
+# main_online.py:  'agents/acrlpd.py'  -> ACRLPDAgent (a different agent)
+```
+and `qc/agents/__init__.py` confirms these are two separate classes
+(`agents = dict(acfql=ACFQLAgent, acrlpd=ACRLPDAgent)`). The qc repo's own
+README's "Reproducing paper results" section spells out the same thing:
+QC-FQL (and QC/BFN-n/BFN/FQL-n/FQL) all use `main.py`; RLPD/RLPD-AC/QC-RLPD
+use `main_online.py`. `main_online.py`'s mixed offline+online batch sampling
+was never a design option for QC-FQL — it belongs to a different agent this
+port doesn't touch.
 
-**Decision needed before writing this file:** which structure. Both are
-"valid" — they're different training regimes from the same paper's
-codebase, not a JAX-vs-PyTorch translation question. Single-env constrains
-*env stepping*, not this choice.
+**Copied from `main.py`:** the offline loop (`dataset.sample_sequence` →
+`agent.update`, periodic eval/log); the online loop's action-chunk queue
+(same logic as `evaluate.py`, now writing to a replay buffer instead of just
+executing); `masks = 1.0 - terminated` (**not** `1.0 - done`) — bootstrapping
+disabled only on true termination, not truncation, preserved exactly and
+covered by a dedicated test; the `utd_ratio` batch reshape
+(`jax.tree.map(lambda x: x.reshape((utd_ratio, batch_size) + x.shape[1:]), batch)`
+→ per-key `.reshape((utd_ratio, batch_size) + shape[1:])`) so `batch_update`
+gets `utd_ratio` sequential mini-batches; `ReplayBuffer.create_from_initial_dataset`
+seeding the buffer with offline data before online steps begin.
+
+**Dropped** (confirmed environment/dataset-specific to the original paper's
+benchmark suite — d4rl/ogbench/robomimic — none of which apply to g3a-bench):
+`process_train_dataset`'s `dataset_proportion`/`is_robomimic_env` reward-penalty/
+`sparse` reward handling, antmaze/robomimic online reward adjustment,
+`ogbench_dataset_dir`/`dataset_replace_interval`, `save_all_online_states`;
+`agents[config['agent_name']]` registry lookup → directly `QCFQLAgent.create(...)`;
+`example_batch = train_dataset.sample(())` → `dataset.data["observations"][0]`
+directly (same reasoning as steps 5/8); `wandb`/`CsvLogger`/absl `flags` →
+`argparse` + plain `print` (real experiment-tracking integration is out of
+scope here, can be wired to g3a-bench's existing wandb conventions during
+step 11); `save_agent`'s pickle+flax-serialization → plain
+`torch.save(agent.state_dict(), ...)`.
+
+**Structural decision, not a translation question:** like `evaluate.py`, the
+online phase needs a gym-style env that doesn't exist yet (step 11).
+`train_online()` is fully implemented and tested against the same synthetic
+env as step 9; `main()`'s CLI runs the offline phase for real (needs no env
+at all) and raises a clear `NotImplementedError` if `--online-steps > 0` is
+requested without one — honest about the gap rather than writing speculative
+mjlab-specific code we already know would need rewriting once step 11 nails
+down the real API (auto-reset, tensor/dict observations).
 
 ### 11. g3a-bench / mjlab integration — no JAX equivalent, no allclose net
 
