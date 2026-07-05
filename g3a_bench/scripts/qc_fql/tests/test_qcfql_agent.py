@@ -1,8 +1,27 @@
+"""Agent tests: gold-compared losses plus behavioral checks with no reference trace.
+
+Two evidence tiers, deliberately kept distinct:
+- `critic_loss`/`actor_loss` are compared to the REAL qc agent's outputs on
+  identical noise (injected via the loss methods' noise-override args; see
+  gen_gold_agent.py for how the reference's internal draws were extracted).
+- `update`/`batch_update`/`sample_actions`/`compute_flow_actions` have no
+  extractable reference trace (they mutate state and draw fresh noise), so
+  they get shape/bounds/finiteness/does-it-actually-move checks only.
+
+The gradient-isolation test is the load-bearing one: it fails if the
+requires_grad toggle in actor_loss is removed, and NO loss-value test can
+catch that (forward values are identical with or without it).
+"""
+
 import numpy as np
 import torch
-from agent.config import QCFQLConfig
-from agent.qcfql_agent import QCFQLAgent
-from tests.conftest import load_jax_mlp_weights, load_jax_value_weights
+
+from g3a_bench.scripts.qc_fql.agent.config import QCFQLConfig
+from g3a_bench.scripts.qc_fql.agent.qcfql_agent import QCFQLAgent
+from g3a_bench.scripts.qc_fql.tests.conftest import (
+    load_jax_mlp_weights,
+    load_jax_value_weights,
+)
 
 _GOLD = "g3a_bench/scripts/qc_fql/tests/gold_data/agent_loss.npz"
 
@@ -80,9 +99,11 @@ def test_actor_loss_matches_qc():
 
 
 def test_critic_only_gets_gradient_from_its_own_loss():
-    """The freeze/unfreeze around actor_loss's critic call must leave the
-    critic's own weights with zero gradient contribution from q_loss --
-    only actor_onestep_flow should be trained by it."""
+    """Backprop through actor_loss alone: every critic parameter must end
+    with zero (or no) gradient, while actor_onestep_flow must get real
+    gradient -- the torch equivalent of the reference calling the critic
+    without `params=grad_params`. Verified discriminating: removing the
+    requires_grad toggle in actor_loss makes this fail."""
     gold = np.load(_GOLD)
     agent = _build_agent(gold)
     batch = _build_batch(gold)
@@ -104,9 +125,9 @@ def test_critic_only_gets_gradient_from_its_own_loss():
 
 
 def test_update_runs_and_changes_params():
-    """Not gold-compared (no reference `update()` trace was captured) --
-    smoke test that a single combined step runs end-to-end and actually
-    moves the critic target towards the critic (Polyak update)."""
+    """Behavioral (no reference trace exists for a full update): one joint
+    step must run, report finite losses, and actually move the critic
+    target (Polyak update is easy to forget and invisible to loss values)."""
     gold = np.load(_GOLD)
     agent = _build_agent(gold)
     batch = _build_batch(gold)

@@ -1,6 +1,22 @@
+"""Gold test: port's sample_sequence == real qc Dataset's, on identical draws.
+
+Reconstructs the dataset from the gold file's saved inputs, re-seeds the
+global NumPy RNG with the generator's seed (sample_sequence's only
+randomness is one randint draw, so both sides pick identical windows), and
+compares every output key exactly -- shapes and values. The critical shape
+contract guarded here: `observations` is (B, obs_dim) window-start
+observations, while `full_observations` is the (B, T, obs_dim) sequence.
+"""
+
 import numpy as np
-from data.dataset import Dataset
-from tests.gen_gold_dataset import BATCH_SIZE, DISCOUNT, SAMPLE_SEED, SEQUENCE_LENGTH
+
+from g3a_bench.scripts.qc_fql.data.dataset import Dataset
+from g3a_bench.scripts.qc_fql.tests.gen_gold_dataset import (
+    BATCH_SIZE,
+    DISCOUNT,
+    SAMPLE_SEED,
+    SEQUENCE_LENGTH,
+)
 
 
 def test_sample_sequence_matches_qc():

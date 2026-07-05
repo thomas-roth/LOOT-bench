@@ -1,3 +1,25 @@
+"""Episode-rollout evaluation with the action-chunk queue.
+
+Port of `qc/evaluation.py::evaluate()`. The one algorithm-specific thing
+here is the queue: the policy emits H actions at once, and the env consumes
+them one per step -- so the agent is queried only every H steps, and each
+chunk is executed to completion (the reference does the same during eval;
+re-planning mid-chunk would be a different algorithm).
+
+Env contract is gym-style single-env: `obs, info = env.reset()` and
+`next_obs, reward, terminated, truncated, info = env.step(action)`, the same
+assumption the reference makes. `scripts/mjlab_env.py::MjlabSingleEnv`
+adapts a real mjlab task to exactly this contract.
+
+Scope vs. the reference (each drop verified against the reference's actual
+call sites, all of which do `eval_info, _, _ = evaluate(...)`): trajectory
+and video recording are always discarded, `eval_temperature` is dead even in
+the reference body, `eval_gaussian`/`action_shape`/`observation_shape` are
+never passed, and gripper-contact tracking is paper-robot-specific -- none
+ported. Added beyond the reference: `return`/`length` aggregation, since the
+reference reports only whatever the env's terminal info dict contains.
+"""
+
 from collections import defaultdict
 
 import numpy as np
@@ -5,7 +27,7 @@ import torch
 
 
 def _flatten(d: dict, parent_key: str = "", sep: str = ".") -> dict:
-    """Flatten a nested dict, e.g. {'a': {'b': 1}} -> {'a.b': 1}."""
+    """{'a': {'b': 1}} -> {'a.b': 1}; lets nested env info average per-key."""
     items = []
     for k, v in d.items():
         new_key = f"{parent_key}{sep}{k}" if parent_key else k
@@ -25,29 +47,10 @@ def _add_to(dict_of_lists: dict, single_dict: dict) -> None:
 def evaluate(
     agent, env, action_dim: int, num_eval_episodes: int = 50
 ) -> dict[str, float]:
-    """Port of `qc/evaluation.py::evaluate()`.
+    """Roll out full episodes, return per-key means over episodes.
 
-    Assumes a gym-style single env (`obs, info = env.reset()`; `next_obs,
-    reward, terminated, truncated, info = env.step(action)`), matching the
-    JAX original's own assumption -- not mjlab's vectorized API directly.
-    `scripts/mjlab_env.py::MjlabSingleEnv` adapts a real mjlab
-    `ManagerBasedRlEnv` to this exact interface; pass an instance of it (or
-    anything satisfying the same contract) as `env`.
-
-    Dropped vs. the source (confirmed unused by every real caller, or dead in
-    the source itself): explicit `rng` threading (`supply_rng`), full
-    trajectory/video recording (`trajs`/`renders` -- always discarded via
-    `_, _` at every call site in `main.py`/`main_online.py`), `eval_temperature`
-    (never referenced in the source's own function body), `eval_gaussian`/
-    `action_shape`/`observation_shape` (real code paths, but never passed a
-    non-default value anywhere), and gripper-contact-length tracking
-    (tied to the original paper's specific robot/sensor conventions).
-
-    Added, NOT from source: `return`/`length` tracking. The source relies
-    entirely on whatever the env's terminal `info` dict happens to report
-    (via `flatten(info)`) and never sums reward into an episode return or
-    counts steps itself -- a real gap for a general eval loop. This is a
-    deliberate addition, not a port.
+    Whatever the env reports in its final step's `info` (e.g. `success`) is
+    averaged in alongside `return`/`length` -- no key names are hardcoded.
     """
     stats: dict[str, list] = defaultdict(list)
 
@@ -59,6 +62,8 @@ def evaluate(
         action_queue: list[np.ndarray] = []
 
         while not done:
+            # Refill only when the previous chunk is exhausted: the policy
+            # runs once per H env steps.
             if len(action_queue) == 0:
                 obs_t = torch.from_numpy(np.asarray(observation)).float().unsqueeze(0)
                 action = agent.sample_actions(obs_t).squeeze(0).cpu().numpy()

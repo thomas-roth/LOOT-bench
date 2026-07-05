@@ -1,12 +1,16 @@
 # pyright: reportMissingImports=false
-"""Generate reference ReplayBuffer states from the real qc code.
+"""Dump reference ReplayBuffer states from the REAL qc class for test_replay_buffer.
 
-Covers: `create` + wraparound `add_transition`s, `create_from_initial_dataset`,
-and the inherited `sample_sequence` (seeded for determinism, same trick as the
-Dataset gold test). The port replays the identical saved inputs and must match
-the final buffer arrays / pointer / size and the sampled batch.
+Three scenarios: (1) `create` followed by more `add_transition`s than the
+buffer holds, so the wraparound path -- including the reference's size-caps-
+at-max_size-minus-1 off-by-one, which the port must reproduce, not fix --
+is captured in the saved pointer/size; (2) `create_from_initial_dataset`
+preloading; (3) the inherited `sample_sequence` on the preloaded buffer
+(seeded, same single-randint determinism trick as gen_gold_dataset). The
+test replays the identical transition stream and must match the final
+arrays and counters exactly.
 
-Run from the repo root with:
+Run from the repo root:
     uv run python g3a_bench/scripts/qc_fql/tests/gen_gold_replay_buffer.py
 """
 

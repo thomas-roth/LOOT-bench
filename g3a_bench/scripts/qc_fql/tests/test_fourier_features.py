@@ -1,6 +1,13 @@
+"""Gold test: torch FourierFeatures output == real qc FourierFeatures output.
+
+Parameter-free module (non-learnable mode), so this is a pure input/output
+comparison -- no weight loading. Gold data from gen_gold_fourier_features.py.
+"""
+
 import numpy as np
 import torch
-from networks.fourier_features import FourierFeatures
+
+from g3a_bench.scripts.qc_fql.networks.fourier_features import FourierFeatures
 
 
 def test_fourier_features_matches_jax():

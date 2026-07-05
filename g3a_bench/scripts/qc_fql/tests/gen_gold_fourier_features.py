@@ -1,7 +1,13 @@
 # pyright: reportMissingImports=false
-"""Generate JAX reference outputs for the FourierFeatures module.
+"""Dump reference outputs from the REAL qc FourierFeatures for test_fourier_features.
 
-Run from the repo root with:
+Imports the actual reference class from the sibling qc/ repo (needs the
+dev-only jax/flax install; pyright suppression because that repo isn't on
+the type-checker's path). The module has no learnable parameters in its
+default (non-learnable) mode, so only input/output pairs are saved -- no
+weight dump needed.
+
+Run from the repo root:
     uv run python g3a_bench/scripts/qc_fql/tests/gen_gold_fourier_features.py
 """
 

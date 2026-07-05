@@ -1,9 +1,18 @@
+"""Behavioral tests for the evaluate() rollout loop, on a synthetic env.
+
+No gold data exists for evaluate() (it's orchestration, not math), so these
+check the two properties that define it: stats aggregate correctly across
+episodes, and -- the action-chunking part -- the agent is queried exactly
+ceil(episode_length / horizon_length) times per episode, never per step.
+"""
+
 import math
 
 import numpy as np
-from agent.config import QCFQLConfig
-from agent.qcfql_agent import QCFQLAgent
-from scripts.evaluate import evaluate
+
+from g3a_bench.scripts.qc_fql.agent.config import QCFQLConfig
+from g3a_bench.scripts.qc_fql.agent.qcfql_agent import QCFQLAgent
+from g3a_bench.scripts.qc_fql.scripts.evaluate import evaluate
 
 OBS_DIM = 4
 ACTION_DIM = 2

@@ -1,7 +1,13 @@
 # pyright: reportMissingImports=false
-"""Generate JAX reference outputs for the Value (ensemble critic) module.
+"""Dump reference outputs from the REAL qc Value ensemble for test_value.
 
-Run from the repo root with:
+Two cases because the reference has two structurally different code paths:
+num_ensembles=2 goes through flax's nn.vmap (params grow a leading ensemble
+axis, output is (2, B)), num_ensembles=1 skips vmap entirely (plain params,
+output (B,)). The ensemble case uses layer_norm=True -- the critic's real
+configuration, and the one that catches LayerNorm-related divergence.
+
+Run from the repo root:
     uv run python g3a_bench/scripts/qc_fql/tests/gen_gold_value.py
 """
 

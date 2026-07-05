@@ -1,11 +1,15 @@
 # pyright: reportMissingImports=false
-"""Generate reference outputs for Dataset.sample_sequence from the real qc code.
+"""Dump one reference sample_sequence batch from the REAL qc Dataset for test_dataset.
 
-`sample_sequence` draws a single `np.random.randint(...)` internally, so seeding
-`np.random` identically right before the call makes the JAX-repo original and
-our port select the same indices -- everything downstream is deterministic.
+Determinism trick: the reference's `sample_sequence` is pure NumPy whose only
+randomness is one `np.random.randint` draw at the top -- so seeding the
+global NumPy RNG identically right before the call makes the reference and
+the port pick the same window indices, and everything downstream (n-step
+returns, masks, valid flags) must then match exactly. The input arrays
+include one mid-buffer terminal so the episode-boundary latching logic is
+actually exercised, not just the happy path.
 
-Run from the repo root with:
+Run from the repo root:
     uv run python g3a_bench/scripts/qc_fql/tests/gen_gold_dataset.py
 """
 

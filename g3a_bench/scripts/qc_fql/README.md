@@ -127,9 +127,9 @@ layer except the last (unless `activate_final`), GELU, optional LayerNorm.
   Fixed at the source since it's a real numerical bug, not a test-loading
   quirk.
 
-**Known loose end:** `mlp.py`'s `activation` constructor param is currently
-unused dead code (forward hardcodes `F.gelu`). Harmless since it defaults to
-matching behavior, but worth deleting next time this file is touched.
+**~~Known loose end~~ (resolved in the audit pass):** `mlp.py`'s unused
+`activation` constructor param was removed (forward hardcodes the
+flax-matching `F.gelu(approximate="tanh")`; nothing ever passed the param).
 
 ### 2. FourierFeatures
 
@@ -619,16 +619,82 @@ locating/deriving their own physical action-range constants the same way.
   correct name all along, needed to avoid colliding with qc's own `agents/`
   package name in `sys.modules`. The plural `agents/` package (config.py,
   qcfql_agent.py) was moved into it.
+- Since the audit pass, all port-internal imports are package-qualified
+  (`g3a_bench.scripts.qc_fql.*` — `g3a_bench` is installed editable), so the
+  old `PYTHONPATH` hack is gone and a top-level name collision with qc's
+  `agents/` is structurally impossible. The `agent/` (singular) name is kept
+  anyway; renaming back would only reintroduce confusion.
+
+## Independent audit (Fable pass)
+
+A separate session re-verified this port per `FABLE_TASK.md`, without
+trusting the account above. What it did:
+
+- **Regenerated all gold data from scratch** from the real `qc/` source and
+  re-ran the suite against it — everything reproduced, including the agent
+  loss reference values bit-for-bit.
+- **Break-tested the tests**: GELU tanh→erf swap, LayerNorm eps 1e-6→1e-5,
+  and dropping the `discount**H` exponent were each deliberately introduced
+  and confirmed caught; the gradient-isolation test was confirmed to fail
+  when the `requires_grad_` toggle in `actor_loss` is removed (and that no
+  loss-value test can catch that removal — forward values are identical).
+- **Fixed `gen_gold_mlp.py`** to import the real `qc` MLP instead of a
+  hand-retyped lookalike, and added a `layer_norm=True` gold case with
+  randomized norm params (the eps bug class had previously escaped the MLP
+  test because only `layer_norm=False` was covered; default norm params
+  can't detect a loader that skips them).
+- **Removed one vacuous test** (`test_online_steps_without_env_raises` —
+  despite its name it never tested that anything raises; the raising
+  behavior is covered by `test_main_raises_for_online_without_env`).
+- **Removed dead code** (`MLP.activation` param), **rewrote every comment/
+  docstring** from re-derived understanding, and **converted all imports to
+  package-qualified form** (killing the PYTHONPATH hack).
+- **Wired up `g3a-train-qcfql`** as a console script and verified it
+  end-to-end (synthetic dataset → offline training with decreasing losses →
+  checkpoint saved).
+
+Evidence tiers, honestly: `critic_loss`/`actor_loss` and all network/data
+modules are verified against freshly regenerated reference outputs with
+break-tested sensitivity. `update`/`batch_update`/`sample_actions`/
+`compute_flow_actions` have no extractable reference trace (stateful/fresh
+noise) and are covered behaviorally (shapes, bounds, finiteness, Polyak
+target actually moves, gradient isolation). The mjlab adapter is new code
+tested against the real env, not against any reference.
+
+## Usage (analogous to the PPO workflow)
+
+```bash
+# Offline pretraining on a recorded demo dataset (the PPO equivalent is
+# `uv run g3a-train <task_id>`):
+uv run g3a-train-qcfql --dataset-path path/to/demos.npz \
+    --offline-steps 1000000 --horizon-length 5 --alpha 100 \
+    --checkpoint-path qcfql_agent.pt
+
+# All knobs: uv run g3a-train-qcfql --help
+```
+
+The dataset `.npz` must come from `live_bridge/lerobot_to_qc.py` (its
+default `physical` action normalization matches what the mjlab adapter
+un-normalizes with — do not use `--action-norm data` for datasets meant for
+this pipeline). **As of the audit pass, no recorded demo dataset exists yet
+for `G3a-Cube-Stack3-Dk1_uni`** — recording demos and converting them is
+the remaining manual prerequisite before a real training run.
+
+Not supported (by design, not omission): online fine-tuning via the CLI
+(raises until a real dataset exists; `train_online()` itself works — call it
+directly with a `MjlabSingleEnv`), and multi-env vectorized training (this
+is a single-env algorithm, matching the reference).
 
 ## Running tests
 
 ```bash
-# from g3a-bench repo root
-PYTHONPATH="g3a_bench/scripts/qc_fql:$PYTHONPATH" uv run python -m pytest g3a_bench/scripts/qc_fql/tests/ -v
+# from the g3a-bench repo root (no PYTHONPATH needed since the audit pass)
+uv run python -m pytest g3a_bench/scripts/qc_fql/tests/ -v
 
-# regenerate gold data for a module (needs jax+flax+distrax, installed via
-# `uv pip install`, NOT added to pyproject.toml/uv.lock — dev-only, for
-# gold-data generation. distrax is only needed because `qc/utils/networks.py`
-# imports it at module level for other classes we don't use.)
-uv run python g3a_bench/scripts/qc_fql/tests/gen_gold_mlp.py
+# regenerate gold data (dev-only deps: jax, flax, distrax, ml_collections —
+# installed via `uv pip install ...`, deliberately NOT in pyproject.toml.
+# GOTCHA: any `uv sync` prunes them from the venv; just reinstall after.)
+for gen in mlp fourier_features actor_vector_field value dataset replay_buffer agent; do
+  uv run python g3a_bench/scripts/qc_fql/tests/gen_gold_$gen.py
+done
 ```

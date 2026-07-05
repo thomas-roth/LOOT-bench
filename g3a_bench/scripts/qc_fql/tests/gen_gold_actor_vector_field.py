@@ -1,7 +1,14 @@
 # pyright: reportMissingImports=false
-"""Generate JAX reference outputs for the ActorVectorField module.
+"""Dump reference outputs from the REAL qc ActorVectorField for test_actor_vector_field.
 
-Run from the repo root with:
+Three cases, matching the three ways the agent exercises the class: with a
+raw scalar time (actor_bc_flow, default config), with Fourier-embedded time
+(actor_bc_flow, use_fourier_features=True), and with no time at all
+(actor_onestep_flow). flax builds a differently-shaped inner MLP for each,
+which is exactly the lazy-shape behavior the torch port pins down with its
+`use_time` constructor flag -- so each case needs its own gold file.
+
+Run from the repo root:
     uv run python g3a_bench/scripts/qc_fql/tests/gen_gold_actor_vector_field.py
 """
 

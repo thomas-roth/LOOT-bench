@@ -1,20 +1,21 @@
 # pyright: reportMissingImports=false
-"""Generate JAX reference outputs for ACFQLAgent.critic_loss / actor_loss.
+"""Dump reference losses + the exact noise draws from the REAL qc ACFQLAgent.
 
-`critic_loss`/`actor_loss` draw their own randomness internally via
-`jax.random.split`/`normal`/`uniform`. JAX's PRNG is a pure, deterministic
-function of its key, so replicating the exact split/sample sequence used
-inside `total_loss` -> `critic_loss`/`actor_loss` (see `agents/acfql.py`)
-with the SAME top-level rng key reproduces the identical noise arrays as
-plain numpy -- which we save for injection into the PyTorch port -- while
-calling the real `agent.critic_loss`/`agent.actor_loss` with that same key
-gives the matching reference loss. No source modification needed.
+The hard part of gold-testing the agent: its losses draw randomness
+internally (flow-matching x_0 and t, distillation noise, next-action noise),
+and jax.random can never agree with torch.randn. But jax's PRNG is a pure
+function of its key, so this script (a) replays the reference's exact
+key-split sequence OUTSIDE the agent to extract the very arrays its losses
+will draw, saving them as plain numpy, and (b) calls the real
+`agent.critic_loss`/`actor_loss` with the same keys for the matching loss
+values. The torch test then injects the saved arrays through the port's
+noise-override arguments -- both sides compute on identical randomness with
+zero modification to the reference source.
 
-Only `actor_type="distill-ddpg"` is covered (the config default and the
-scope of the original plan for this step); `best-of-n`'s sample_actions path
-is ported but not gold-tested here.
+Only `actor_type="distill-ddpg"` (the config default) is captured;
+best-of-n has no gold trace and is covered by shape/bounds tests only.
 
-Run from the repo root with:
+Run from the repo root:
     uv run python g3a_bench/scripts/qc_fql/tests/gen_gold_agent.py
 """
 
@@ -65,11 +66,11 @@ def main():
     config["value_hidden_dims"] = VALUE_HIDDEN_DIMS
 
     rng = np.random.default_rng(0)
-    # Unbatched single example, matching what `Dataset.sample(())` actually
-    # produces in `main.py` (an empty-tuple size draws one scalar index, so
-    # `ex_observations.shape == (obs_dim,)` with NO leading batch dim -- this
-    # is what makes `sample_actions`'s `len(config['ob_dims'])` batch-shape
-    # inference work: `ob_dims` must have length 1, not 2).
+    # Example arrays must be UNBATCHED -- shape (obs_dim,), no leading 1.
+    # The reference's `main.py` gets them from `Dataset.sample(())` (empty-
+    # tuple size = scalar index = no batch dim), and its `sample_actions`
+    # infers batch shape from `len(config['ob_dims'])`; a (1, obs_dim)
+    # example silently corrupts that and dies in a shape error far away.
     ex_obs = rng.standard_normal(OBS_DIM).astype(np.float32)
     ex_act = rng.standard_normal(ACTION_DIM).astype(np.float32)
 
@@ -90,25 +91,29 @@ def main():
     }
     jax_batch = {k: jnp.array(v) for k, v in batch.items()}
 
-    # --- Replicate total_loss's rng-splitting sequence exactly ---
+    # Mirror the reference's key-split tree line by line (total_loss splits
+    # top -> (actor_rng, critic_rng); each loss splits further before each
+    # draw -- see agents/acfql.py). Any drift here from the reference's
+    # actual split order silently desynchronizes the extracted arrays from
+    # the draws inside the loss calls below.
     top_rng = jax.random.PRNGKey(UPDATE_RNG_SEED)
     _rng, actor_rng, critic_rng = jax.random.split(top_rng, 3)
 
-    # critic_loss: `rng, sample_rng = jax.random.split(rng)`, then
-    # `sample_actions` (distill-ddpg) draws `jax.random.normal(rng, (B, full_action_dim))`
+    # critic_loss internals: split once, then sample_actions (distill-ddpg)
+    # draws the next-action noise.
     _c_rng, sample_rng = jax.random.split(critic_rng)
     next_action_noise = jax.random.normal(sample_rng, (BATCH_SIZE, full_action_dim))
 
-    # actor_loss: `rng, x_rng, t_rng = jax.random.split(rng, 3)`, then (distill-ddpg)
-    # `rng, noise_rng = jax.random.split(rng)`
+    # actor_loss internals: 3-way split for (x_0, t), then one more split
+    # for the distillation noise.
     a_rng, x_rng, t_rng = jax.random.split(actor_rng, 3)
     x_0 = jax.random.normal(x_rng, (BATCH_SIZE, full_action_dim))
     t = jax.random.uniform(t_rng, (BATCH_SIZE, 1))
     _a_rng2, noise_rng = jax.random.split(a_rng)
     distill_noise = jax.random.normal(noise_rng, (BATCH_SIZE, full_action_dim))
 
-    # --- Real JAX loss values, using the SAME keys (deterministically reproduces
-    # the same internal draws as the manual replication above) ---
+    # The real reference losses, with the same keys: their internal draws
+    # are exactly the arrays extracted above (PRNG purity).
     critic_loss, critic_info = agent.critic_loss(
         jax_batch, agent.network.params, critic_rng
     )

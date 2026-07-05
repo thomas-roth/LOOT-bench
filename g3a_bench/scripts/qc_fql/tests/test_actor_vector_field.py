@@ -1,7 +1,16 @@
+"""Gold tests: torch ActorVectorField == real qc ActorVectorField, per case.
+
+One test per gold case (plain time / fourier time / no time) because flax
+builds a differently-shaped inner MLP for each -- see
+gen_gold_actor_vector_field.py. Weights load via the shared MLP loader with
+prefix "mlp/", mirroring the flax submodule path.
+"""
+
 import numpy as np
 import torch
-from networks.actor_vector_field import ActorVectorField
-from tests.conftest import load_jax_mlp_weights
+
+from g3a_bench.scripts.qc_fql.networks.actor_vector_field import ActorVectorField
+from g3a_bench.scripts.qc_fql.tests.conftest import load_jax_mlp_weights
 
 
 def _load_case(name):

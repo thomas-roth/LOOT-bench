@@ -1,7 +1,15 @@
+"""Gold tests: torch Value ensemble == real qc Value, both structural paths.
+
+"ensemble" covers the vmap path (num_ensembles=2, layer_norm=True -- the
+critic's real configuration); "single" covers the reference's no-vmap
+num_ensembles=1 fork with its unstacked (B,) output.
+"""
+
 import numpy as np
 import torch
-from networks.value import Value
-from tests.conftest import load_jax_value_weights
+
+from g3a_bench.scripts.qc_fql.networks.value import Value
+from g3a_bench.scripts.qc_fql.tests.conftest import load_jax_value_weights
 
 
 def _run_and_compare(name):

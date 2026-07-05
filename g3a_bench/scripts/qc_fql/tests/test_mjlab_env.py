@@ -1,14 +1,25 @@
+"""Tests for the mjlab adapter, run against the REAL G3a cube task.
+
+This is the one test file with no reference to compare against (the adapter
+is new code, not a port) -- so instead of gold data it constructs the actual
+mjlab env (module-scoped fixture; construction is the slow part) and checks
+the adapter's contract: obs shape/dtype, gym-style step returns, action
+denormalization hitting exactly the DK1 physical limits, and the cached
+auto-reset observation short-circuiting the next reset() call.
+"""
+
 import numpy as np
 import pytest
-from scripts.mjlab_env import MjlabSingleEnv
+
+from g3a_bench.scripts.qc_fql.scripts.mjlab_env import MjlabSingleEnv
 
 TASK_ID = "G3a-Cube-Stack3-Dk1_uni"
 
 
 def test_denormalize_action_maps_to_physical_limits():
-    """No env needed -- pure function, but the constants it uses (PHYSICAL_RAW_
-    ACTION_MIN/MAX) were confirmed live to match the real action term's
-    scale/offset exactly (see module docstring)."""
+    """Pure function, no env: [-1,1] endpoints must land exactly on the DK1
+    physical bounds, midpoint on their mean, and out-of-range input must
+    saturate at the bound rather than extrapolate past it."""
     from g3a_bench.scripts.live_bridge.mapper import (
         PHYSICAL_RAW_ACTION_MAX,
         PHYSICAL_RAW_ACTION_MIN,
@@ -69,12 +80,13 @@ def test_real_env_action_denorm_clips_out_of_range_policy_output(real_env):
 
 
 def test_pending_reset_avoids_redundant_env_reset(real_env, monkeypatch):
-    """Simulates the auto-reset caching path directly (reaching a real
-    termination via zero actions isn't practical in a fast test -- the
-    underlying mjlab auto_reset mechanics were already confirmed live, see
-    module docstring). This isolates and verifies the adapter's own
-    caching logic: when `_pending_reset_obs` is set, `.reset()` must return
-    it without calling into the real `env.reset()`."""
+    """Verifies the adapter's auto-reset cache in isolation: with
+    `_pending_reset_obs` set, `.reset()` must return the cached observation
+    and NOT call the underlying `env.reset()` (spy counts calls). Driving a
+    real termination is impractically slow here (thousands of steps to the
+    time limit), so only the cache mechanics are tested against the live env
+    -- the fact that mjlab's `step()` returns the post-reset observation on
+    done steps is documented and relied on in `mjlab_env.py` itself."""
     sentinel = np.arange(53, dtype=np.float32)
     real_env._pending_reset_obs = sentinel
 

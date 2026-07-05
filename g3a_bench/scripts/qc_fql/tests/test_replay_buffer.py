@@ -1,6 +1,15 @@
+"""Gold tests: port's ReplayBuffer state == real qc ReplayBuffer state.
+
+Replays the generator's saved transition stream and demands exact array/
+counter equality -- including the reference's wraparound off-by-one (size
+caps at max_size-1), which the port must reproduce rather than fix. Also
+covers dataset preloading, inherited sequence sampling, and clear().
+"""
+
 import numpy as np
-from data.replay_buffer import ReplayBuffer
-from tests.gen_gold_replay_buffer import (
+
+from g3a_bench.scripts.qc_fql.data.replay_buffer import ReplayBuffer
+from g3a_bench.scripts.qc_fql.tests.gen_gold_replay_buffer import (
     BUFFER_SIZE,
     KEYS,
     N_ADD,

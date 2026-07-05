@@ -1,55 +1,52 @@
+"""All QC-FQL hyperparameters, one dataclass, defaults copied from the reference.
+
+Port of `qc/agents/acfql.py::get_config()`. The reference uses
+`ml_collections.ConfigDict` because it plugs into absl's CLI-flag system and
+survives jax pytree boundaries; neither applies here, so a plain dataclass
+gives the same attribute access with none of the machinery. Every default
+below is the reference's default verbatim -- change them per-run (CLI flags
+in `scripts/train_qcfql.py`), not here, or gold-data agreement stops meaning
+anything.
+
+Fields the reference declares but this port drops (each verified by grepping
+all of `acfql.py`, not just `get_config()`): `agent_name` (only used by the
+reference's multi-agent registry), `normalize_q_loss` (declared, never read
+anywhere), `encoder` (always None for state-only tasks; the network-side
+plumbing was dropped with it).
+"""
+
 from dataclasses import dataclass, field
 
 
+# kw_only lets the one required field sit above the defaulted ones without
+# tripping dataclass's no-default-after-default rule.
 @dataclass(kw_only=True)
 class QCFQLConfig:
-    """Port of `qc/agents/acfql.py::get_config()`.
-
-    `ml_collections.ConfigDict` (absl-flags CLI integration + JAX-pytree-safe
-    placeholders) is replaced by a plain dataclass -- our code doesn't use
-    absl or jax pytrees, so a dataclass gives identical attribute access and
-    defaults with none of that machinery.
-
-    Dropped fields (confirmed by grepping the whole of `acfql.py`, not just
-    `get_config()`): `agent_name` (only used by `main.py`'s multi-agent
-    registry lookup -- we build exactly one agent), `normalize_q_loss`
-    (defined but never read anywhere), `encoder` (real logic in JAX, but
-    always `None` for state-based tasks, and the encoder plumbing itself was
-    already dropped from `ActorVectorField`/`Value`).
-
-    `ob_dims`/`action_dim` are left `None` here and set by `QCFQLAgent.create()`,
-    matching how JAX's `create()` sets `config['ob_dims']`/`config['action_dim']`
-    on the fly. `horizon_length` is also a JAX placeholder ("will be set"),
-    but unlike `ob_dims`/`action_dim` it's never auto-computed -- `main.py`
-    sets it from a CLI flag *before* calling `create()` -- so it's a required
-    (non-Optional) field here instead: it's always known at config-construction
-    time, and keeping it `Optional` would just push `None`-checks into every
-    method that uses it (`kw_only=True` lets it sit after defaulted fields
-    without reordering, since dataclass's "no-default-after-default" rule
-    only applies to positional fields).
-    """
-
+    # Chunk length. A reference "will be set" placeholder, but never
+    # auto-computed -- the caller always knows it -- so it's required here
+    # rather than Optional (Optional would push None-checks into every use).
     horizon_length: int
 
     lr: float = 3e-4
     batch_size: int = 256
     actor_hidden_dims: tuple[int, ...] = (512, 512, 512, 512)
     value_hidden_dims: tuple[int, ...] = (512, 512, 512, 512)
-    layer_norm: bool = True
-    actor_layer_norm: bool = False
+    layer_norm: bool = True  # critic MLPs
+    actor_layer_norm: bool = False  # both actor MLPs
     discount: float = 0.99
-    tau: float = 0.005
-    q_agg: str = "mean"
-    alpha: float = 100.0
-    num_qs: int = 2
-    flow_steps: int = 10
-    action_chunking: bool = True
-    actor_type: str = "distill-ddpg"
-    actor_num_samples: int = 32
+    tau: float = 0.005  # Polyak rate for the target critic
+    q_agg: str = "mean"  # "mean" | "min", ensemble aggregation
+    alpha: float = 100.0  # distillation (BC) coefficient; env-specific tuning knob
+    num_qs: int = 2  # critic ensemble size
+    flow_steps: int = 10  # Euler steps when integrating the BC flow
+    action_chunking: bool = True  # False = plain n-step returns, no chunk actions
+    actor_type: str = "distill-ddpg"  # "distill-ddpg" | "best-of-n"
+    actor_num_samples: int = 32  # best-of-n only
     use_fourier_features: bool = False
     fourier_feature_dim: int = 64
-    weight_decay: float = 0.0
+    weight_decay: float = 0.0  # >0 switches Adam -> AdamW, as in the reference
 
-    # Set by QCFQLAgent.create(), not by the caller.
+    # Inferred from example data by QCFQLAgent.create(), never by the caller
+    # (mirrors the reference's create() writing into its config dict).
     ob_dims: tuple[int, ...] | None = field(default=None, init=False)
     action_dim: int | None = field(default=None, init=False)
