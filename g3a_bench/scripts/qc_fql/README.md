@@ -68,7 +68,9 @@ caught real bugs during planning (see the step list below).
 qc_fql/
 ├── networks/        MLP, FourierFeatures, ActorVectorField, Value
 ├── data/             Dataset (offline, n-step/chunked sampling), ReplayBuffer (online)
-├── agents/           QCFQLConfig, QCFQLAgent (losses, update, sample_actions)
+├── agent/            QCFQLConfig, QCFQLAgent (losses, update, sample_actions) --
+│                     singular, NOT `agents/`: qc's own `agents/` package
+│                     would collide on the top-level import name otherwise
 ├── scripts/          evaluate.py, train_qcfql.py
 └── tests/            conftest.py (weight loaders) + gen_gold_*.py + test_*.py + gold_data/*.npz
 ```
@@ -89,7 +91,7 @@ touch a working, verified stack).
 | 5 | Dataset | ✅ done |
 | 6 | ReplayBuffer | ✅ done |
 | 7 | Config | ✅ done |
-| 8 | Agent (QCFQLAgent) | not started |
+| 8 | Agent (QCFQLAgent) | ✅ done |
 | 9 | Evaluate loop | not started |
 | 10 | Training script | not started |
 | 11 | g3a-bench / mjlab integration | not started |
@@ -325,67 +327,119 @@ numerical computation to verify against JAX; instantiation/defaults were
 smoke-tested directly instead (matches the original plan, which also had no
 dedicated test for the Config task, only for the Agent).
 
-### 8. Agent — the one with a real structural correction
+### 8. Agent — done
 
 **Copied:** all loss math verbatim — TD target `reward + discount^H · mask ·
 next_q`, flow-matching interpolation `x_t=(1-t)x_0+t·x_1`, target velocity
 `x_1-x_0`, distillation loss, `q_loss = -mean(Q(obs, actor_actions))`, Euler
 integration in `compute_flow_actions`, both `sample_actions` branches
-(`distill-ddpg`, `best-of-n`).
+(`distill-ddpg`, `best-of-n`). Polyak update `target = tau·current +
+(1-tau)·target`.
 
 **Changed — mechanical, low-risk:**
 - `flax.struct.PyTreeNode` immutable agent + `agent.replace(...)` functional
   update → ordinary mutable `nn.Module`, `optimizer.step()` mutates
-  parameters in place. *Why valid:* JAX's immutability exists because
-  `jit`/`grad` require pure functions with explicit state in/out; PyTorch's
-  autograd is imperative by design — in-place mutation via an optimizer is
-  the standard, semantically identical way to express the same update rule.
-- Explicit `rng` key-splitting at every stochastic call → PyTorch global RNG
-  (or an explicit `torch.Generator`). *Why valid:* key-splitting exists for
-  reproducibility under JAX's functional/parallel execution model; not
-  required outside JAX, so implicit global RNG state is the idiomatic
-  equivalent (same *distribution* of behavior — bit-identical only matters
-  for the gold test, see below, not for real training).
+  parameters in place. `update()` returns only the info dict, not a new agent.
+- Explicit `rng` key-splitting at every stochastic call → PyTorch global RNG.
 - `jax.lax.scan` over `utd_ratio` in `batch_update` → plain Python `for` loop
-  calling `update()` repeatedly. *Why valid:* `scan` and a for-loop compute
-  the identical sequence of updates; `scan` only exists for XLA compilation
-  speed, which PyTorch's eager mode doesn't need.
+  calling `update()` repeatedly.
 - `copy.deepcopy(critic_def)` for the target critic → same call, same
   meaning, in PyTorch.
+- (All four: same reasoning as prior steps — JAX's version exists for
+  jit/pytree/XLA-compilation requirements our eager PyTorch code doesn't have.)
 
-**Changed — this one is NOT just idiom, it's a real design correction to
-make *before* writing code:**
-JAX's `total_loss = critic_loss + actor_loss` is optimized as **one combined
-scalar through one shared optimizer** (`network_tx`, a single `optax.adam`
-over the entire `ModuleDict` of critic + actor_bc_flow + actor_onestep_flow),
-via a single `jax.grad(loss_fn)(self.params)` call — confirmed directly in
-`utils/flax_utils.py`'s `apply_loss_fn`. This means the actor's `q_loss` term
-(`-mean(critic(obs, actor_actions))`) **also contributes gradient into the
-critic's own parameters**, computed against the *same pre-update* params as
-`critic_loss`, in the same step.
+**A previous draft of this README claimed "the actor's `q_loss` term also
+contributes gradient into the critic's own parameters, requiring one shared
+optimizer." That claim was wrong — corrected here after re-reading
+`utils/flax_utils.py::TrainState.__call__`'s own docstring:**
+> "the default behavior is to stop the gradients, and you need to explicitly
+> provide the parameters to flow the gradients."
 
-An earlier draft used **two separate optimizers** (critic-only, actor-only)
-with two sequential `.backward()+.step()` calls. That is *not* equivalent:
-(a) the actor's `q_loss` gradient into critic params gets silently dropped
-since critic isn't in the actor optimizer's param list, and (b) if critic is
-stepped first, the actor loss ends up evaluated against post-update critic
-params instead of the pre-update ones JAX uses.
+`critic_loss`'s critic call passes `params=grad_params` (gradient flows in —
+this is critic_loss's own regression target). `actor_loss`'s critic call
+(`qs = self.network.select('critic')(obs, actions=actor_actions)`) does
+**not** pass `params=grad_params` — it uses the closed-over frozen snapshot,
+so `jax.grad` (which only differentiates w.r.t. the actual `grad_params`
+*argument*) contributes **zero** gradient to the critic's own weights from
+that call. Gradient only flows backward through `actor_actions` into
+`actor_onestep_flow`. This is the standard actor-critic pattern — e.g.
+OpenAI SpinningUp's DDPG does the exact same thing, explicitly:
+```python
+# Freeze Q-network so you don't waste computational effort
+# computing gradients for it during the policy learning step.
+for p in ac.q.parameters():
+    p.requires_grad = False
+...
+loss_pi.backward()
+pi_optimizer.step()
+for p in ac.q.parameters():
+    p.requires_grad = True
+```
 
-**Correct port:** build **one optimizer** over
-`list(critic.parameters()) + list(actor_bc_flow.parameters()) +
-list(actor_onestep_flow.parameters())`, compute `total_loss = critic_loss +
-actor_loss` once, single `zero_grad()`/`backward()`/`step()`. This is a case
-where the JAX structure must be copied, not simplified.
+**The actual (corrected) requirement:** PyTorch's autograd has no per-call
+"use this frozen snapshot instead" switch like JAX's `params=None` default —
+gradient flows through every differentiable op unless explicitly blocked.
+So `actor_loss` explicitly toggles `requires_grad_(False)` on the critic's
+parameters around that one call, then restores it — otherwise a single
+shared optimizer *would* incorrectly apply the actor's gradient signal to
+the critic's own weights (verified directly: `test_critic_only_gets_gradient_
+from_its_own_loss` confirms zero critic gradient, nonzero
+`actor_onestep_flow` gradient, after `actor_loss.backward()`). One optimizer
+over all params (critic + actor_bc_flow + actor_onestep_flow), one combined
+`total_loss = critic_loss + actor_loss`, single `backward()`/`step()` —
+matching JAX's single joint `apply_loss_fn` call structurally, now for the
+right reason.
 
 **Required addition (testing-only, doesn't change real behavior):**
 `critic_loss`/`actor_loss`/`sample_actions` draw their own randomness
-internally (`x_0`, `t`, distillation noise). JAX's `jax.random` and
-PyTorch's `torch.randn` will never produce the same numbers, so comparing
-loss scalars directly will fail for reasons unrelated to correctness. Add
-optional injected-noise arguments to these methods so the gold test can feed
-identical draws to both sides. When omitted at real training time, the
-methods sample their own noise exactly as JAX does — the addition is inert
-in production.
+internally (`x_0`, `t`, distillation noise, next-action noise). JAX's
+`jax.random` and PyTorch's `torch.randn` never produce the same numbers, so
+comparing loss scalars directly would fail for reasons unrelated to
+correctness. Added optional injected-noise arguments to these methods —
+inert in production (omitted, each samples its own noise exactly as JAX
+does). The gold generator replicates JAX's exact `rng`-splitting sequence
+from `total_loss`/`critic_loss`/`actor_loss` *outside* the agent (JAX's PRNG
+is a pure function of its key, so this reproduces the identical arrays as
+plain NumPy) and calls the real `agent.critic_loss`/`actor_loss` with the
+same keys for the reference values — no source modification needed.
+
+**Bugs/gotchas found while writing the gold generator, not the port itself:**
+- `ex_observations`/`ex_actions` passed to `create()` must be genuinely
+  *unbatched* — shape `(obs_dim,)`, no leading `1`. This matches what
+  `main.py`'s `Dataset.sample(())` actually produces (an empty-tuple size
+  draws one scalar index — the step-5 finding). Passing `(1, obs_dim)`
+  instead breaks `sample_actions`'s `len(config['ob_dims'])` batch-shape
+  inference in a way that only surfaces as a cryptic JAX concatenate error.
+- Critic loss's `q` is `(num_ensembles, batch)`, `target_q` is `(batch,)` —
+  JAX's `jnp.square(q - target_q)` broadcasts this intentionally (each
+  critic head regresses toward the same target). `F.mse_loss` produces the
+  same numeric result but emits a broadcasting `UserWarning`; switched to
+  the literal `(q - target_q) ** 2` to match the source exactly and silence
+  the warning.
+- **Package name collision, unrelated to any of the above:** this repo's own
+  `agents/` package and `qc/agents/` (real ACFQL source) share the same
+  top-level name. Since Python caches imports by top-level name in
+  `sys.modules`, whichever gets imported first within a pytest session wins
+  — `test_dataset.py` (collected alphabetically before `test_qcfql_agent.py`)
+  imports `gen_gold_dataset`, which inserts `qc/` at the front of `sys.path`,
+  so `agents.config` resolves to `qc/agents/` (no `config` submodule there)
+  instead of ours. **Fixed by renaming our package to `agent/` (singular)** —
+  which, it turns out, was the originally-planned name all along (the
+  Housekeeping note below about a stray empty `agent/` dir was this same
+  collision, just not yet understood).
+- `q_agg` fallback direction is inconsistent in the *source itself*:
+  `critic_loss` checks `if q_agg == 'min': ... else: mean`, `sample_actions`'s
+  `best-of-n` branch checks `if q_agg == 'mean': ... else: min` — opposite
+  defaults, functionally identical only because the actual config default is
+  `'mean'`. Ported both literally rather than unifying them.
+
+**Coverage:** `critic_loss`/`actor_loss` are gold-tested bit-for-bit against
+the real JAX agent (`actor_type="distill-ddpg"`, the config default — matches
+the scope of the original plan for this step). `update`/`batch_update`/
+`sample_actions` (both `distill-ddpg` and `best-of-n`)/`compute_flow_actions`
+are smoke-tested (run end-to-end, checked shapes/bounds/finiteness/that the
+Polyak update actually moves the target) — no reference trace exists for
+these to compare against numerically.
 
 ### 9. Evaluate loop
 
@@ -447,8 +501,10 @@ and watching return go up, not by any offline test.
 
 ## Housekeeping
 
-- There's a stray empty `agent/` directory (singular) alongside the real
-  `agents/` package — leftover, safe to delete once noticed.
+- ~~Stray empty `agent/` directory~~ — resolved in step 8: this was the
+  correct name all along, needed to avoid colliding with qc's own `agents/`
+  package name in `sys.modules`. The plural `agents/` package (config.py,
+  qcfql_agent.py) was moved into it.
 
 ## Running tests
 
