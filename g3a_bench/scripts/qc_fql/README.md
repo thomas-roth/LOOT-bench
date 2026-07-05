@@ -92,7 +92,7 @@ touch a working, verified stack).
 | 6 | ReplayBuffer | ✅ done |
 | 7 | Config | ✅ done |
 | 8 | Agent (QCFQLAgent) | ✅ done |
-| 9 | Evaluate loop | not started |
+| 9 | Evaluate loop | ✅ done |
 | 10 | Training script | not started |
 | 11 | g3a-bench / mjlab integration | not started |
 
@@ -441,14 +441,42 @@ are smoke-tested (run end-to-end, checked shapes/bounds/finiteness/that the
 Polyak update actually moves the target) — no reference trace exists for
 these to compare against numerically.
 
-### 9. Evaluate loop
+### 9. Evaluate loop — done
 
-**Copied:** almost directly from `qc/evaluation.py` — action-chunk queue
-(sample once per `horizon_length` steps, execute the whole chunk),
-`env.reset()`/`env.step()` gym-style loop, success/return/length stats.
+**Copied:** the action-chunk queue logic exactly — sample once per
+`horizon_length` steps (`len(action_queue)==0`), execute one action at a
+time, `np.clip(action, -1, 1)` before stepping; the generic `flatten(info)`-
+based stat aggregation (averages whatever keys the env's terminal `info`
+dict happens to contain, without hard-coding any key name); final mean over
+episodes. Assumes the same gym-style single env as the source
+(`env.reset()`/`env.step()`), not mjlab's vectorized API — that gap is
+step 11's, not this one's.
 
-**Changed:** essentially nothing algorithmic — matched the draft closely
-when checked. Real changes come from swapping the env interface in step 11.
+**Dropped** (confirmed unused by every real caller of `evaluate()`, or dead
+in the source itself — checked both `main.py` call sites and
+`main_online.py`'s, which all do `eval_info, _, _ = evaluate(...)`):
+`supply_rng`/explicit `rng` threading (same reasoning as every prior step —
+PyTorch's implicit global RNG removes the need); `trajs`/`renders`/video
+recording (always discarded via `_, _`); `eval_temperature` (never
+referenced in the source's own function body — dead there too);
+`eval_gaussian`/`action_shape`/`observation_shape` (real code paths, but
+never passed a non-default value by any caller); gripper-contact-length
+tracking (tied to the original paper's specific robot/sensor conventions,
+not applicable to mjlab).
+
+**Added, not from source:** `return`/`length` tracking (sum of reward, step
+count). The source relies *entirely* on the env's terminal `info` dict for
+stats and never computes these itself — a real gap for a general eval loop,
+trivial to add, called out explicitly as an addition rather than blended in
+silently.
+
+**Testing approach:** this is orchestration/control-flow, not numerical
+computation — no JAX gold data to compare bit-for-bit. Tested against a
+small synthetic gym-style env (fixed episode length, fixed reward, reports
+`success` in terminal info) using the real, already-tested `QCFQLAgent`:
+confirms the action queue samples exactly `ceil(episode_length /
+horizon_length)` times per episode (not once per step), and that
+return/length/`success` all aggregate correctly across episodes.
 
 ### 10. Training script
 
