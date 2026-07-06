@@ -247,6 +247,7 @@ _CHECKS: list[tuple[str, str]] = [
     # (label, task_id or special key)
     ("Cube  Stack3        ", "G3a-Cube-Stack3-Dk1_uni"),
     ("Cube  Domino5       ", "G3a-Cube-Domino5-Dk1_uni"),
+    ("Cube  Push3         ", "G3a-Cube-Push3-Dk1_uni"),
     ("Ins   PegCylinder   ", "G3a-Insertion-PegCylinder-Dk1_uni"),
     ("Ins   PegCylinderH  ", "G3a-Insertion-PegCylinderH-Dk1_uni"),
     ("Ins   Sorter4       ", "G3a-Insertion-Sorter4-Dk1_uni"),

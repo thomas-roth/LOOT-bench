@@ -26,7 +26,7 @@ uv run python tests/tasks/build_sim_registered_tasks.py --no-render
 
 ## Success-metric check (`check_success_reward.py`)
 
-Teleports objects to their goals for one representative task per category, plus structurally unusual variants (Domino5, Sorter4, TwoSheet, GolfHole, PushHole, PegCylinderH), and checks that the command term's success metric fires.
+Teleports objects to their goals for one representative task per category, plus structurally unusual variants (Domino5, Push3, Sorter4, TwoSheet, GolfHole, PushHole, PegCylinderH), and checks that the command term's success metric fires.
 This confirms the metric *can* fire when objects are placed correctly; it does not verify that reward shaping guides a policy there.
 Run it after touching a category's `mdp/commands.py` or success-metric logic.
 

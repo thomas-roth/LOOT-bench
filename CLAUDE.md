@@ -13,8 +13,9 @@ is mjlab's.
 
 Three task categories, each with variants, currently registered for one robot
 (`-Dk1_uni`) → task ids look like `G3a-<Category>-<Variant>-<Robot>`:
-`tasks/cube` (piece stacking / dominoes), `tasks/insertion` (peg insertion +
-shape sorter), `tasks/ball` (golf / push / throw a ball to a target).
+`tasks/cube` (piece stacking / dominoes / maze push), `tasks/insertion` (peg
+insertion + shape sorter), `tasks/ball` (golf / push / throw a ball to a
+target).
 
 ## Commands
 

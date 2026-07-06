@@ -4,8 +4,10 @@ A variant fixes the piece set and the goal arrangement:
 
 - forms: cube, cylinder, rect (flat cuboid), domino (tall thin cuboid)
 - colors: single color per stack, or a specific color order per stack
-- arrangement: "stack" (pieces on top of each other) or "domino" (pieces
-  standing upright in a row, close enough for the domino effect)
+- arrangement: "stack" (pieces on top of each other), "domino" (pieces
+  standing upright in a row, close enough for the domino effect), or "push"
+  (each piece shoved through a gate in a fixed barrier wall to its own
+  color-matched goal zone on the far side, D3IL-Inserting style)
 - available pieces: exactly the needed ones, or extra distractor pieces with
   other colors/forms
 """
@@ -39,10 +41,11 @@ class PieceCfg:
 class CubeVariantCfg:
     name: str
     """Variant identifier used in the task id (e.g. "Stack3")."""
-    arrangement: Literal["stack", "domino"]
+    arrangement: Literal["stack", "domino", "push"]
     stacks: tuple[tuple[PieceCfg, ...], ...]
     """Goal pieces per stack, ordered bottom to top. For "domino" there is a
-    single 'stack' holding the row pieces in row order."""
+    single 'stack' holding the row pieces in row order; for "push" every
+    'stack' is a single piece with its own goal zone."""
     distractors: tuple[PieceCfg, ...] = ()
     """Extra pieces present in the scene without a goal slot."""
     interchangeable: bool = True
@@ -52,6 +55,9 @@ class CubeVariantCfg:
     domino_spacing: float = 0.05
     """Center distance of neighboring dominos; must be smaller than the domino
     height (0.07 m) so toppling one knocks over the next."""
+    maze_gates: int = 2
+    """Number of gate openings in the "push" barrier wall (unused otherwise).
+    Gate geometry is derived in ``assets.py`` from this count."""
 
     @property
     def goal_pieces(self) -> tuple[PieceCfg, ...]:
@@ -74,6 +80,9 @@ class CubeVariantCfg:
             assert len(self.stacks) == 1, "domino uses a single row"
             assert all(p.form == "domino" for p in self.stacks[0])
             assert self.domino_spacing < form_height("domino")
+        if self.arrangement == "push":
+            assert all(len(s) == 1 for s in self.stacks), "push: one piece per zone"
+            assert self.maze_gates >= 1
 
 
 def _mono(form: Form, color: str, n: int) -> tuple[PieceCfg, ...]:
@@ -155,6 +164,24 @@ CUBE_VARIANTS: dict[str, CubeVariantCfg] = {
                 PieceCfg(form="domino", color="cyan"),
                 PieceCfg(form="cube", color="red"),
             ),
+        ),
+        # Maze pushes (D3IL-Inserting style): boxes spawn on the robot side of
+        # a gated barrier wall and must reach their color zone on the far side.
+        CubeVariantCfg(
+            name="Push1",
+            arrangement="push",
+            stacks=((PieceCfg(color="red"),),),
+            maze_gates=1,
+        ),
+        CubeVariantCfg(
+            name="Push3",
+            arrangement="push",
+            stacks=(
+                (PieceCfg(color="red"),),
+                (PieceCfg(color="green"),),
+                (PieceCfg(color="blue"),),
+            ),
+            maze_gates=2,
         ),
     )
 }

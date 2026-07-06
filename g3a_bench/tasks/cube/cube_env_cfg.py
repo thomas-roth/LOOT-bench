@@ -21,7 +21,7 @@ from mjlab.viewer import ViewerConfig
 
 from g3a_bench.tasks.common.table import TABLE_POS, get_table_spec
 from g3a_bench.tasks.cube import mdp as cube_mdp
-from g3a_bench.tasks.cube.assets import get_piece_spec
+from g3a_bench.tasks.cube.assets import get_maze_spec, get_piece_spec
 from g3a_bench.tasks.cube.variants import CubeVariantCfg
 
 COMMAND_NAME = "arrangement"
@@ -53,6 +53,9 @@ def make_cube_env_cfg(
             init_state=EntityCfg.InitialStateCfg(pos=TABLE_POS),
         ),
     }  # Robot added by wire_manipulator_into_env.
+    if variant.arrangement == "push":
+        # Fixed-base barrier wall the pieces must be pushed through.
+        entities["maze"] = EntityCfg(spec_fn=lambda v=variant: get_maze_spec(v))
     for name, piece in zip(piece_names, variant.pieces, strict=True):
         entities[name] = EntityCfg(spec_fn=lambda p=piece, n=name: get_piece_spec(p, n))
 
@@ -135,6 +138,22 @@ def make_cube_env_cfg(
                 "asset_cfg": SceneEntityCfg("table"),
             },
         ),
+        **(
+            {
+                # Pin the fixed-base maze to env_origins + init_state.pos.
+                "reset_maze": EventTermCfg(
+                    func=mdp.reset_root_state_uniform,
+                    mode="reset",
+                    params={
+                        "pose_range": {},
+                        "velocity_range": {},
+                        "asset_cfg": SceneEntityCfg("maze"),
+                    },
+                )
+            }
+            if variant.arrangement == "push"
+            else {}
+        ),
         "fingertip_friction_slide": EventTermCfg(
             mode="startup",
             func=dr.geom_friction,
@@ -198,6 +217,8 @@ def make_cube_env_cfg(
     }
 
     num_pieces = len(variant.pieces)
+    # Extra contact/constraint headroom for the maze wall segments ("push").
+    maze_ncon = 60 if variant.arrangement == "push" else 0
     cfg = ManagerBasedRlEnvCfg(
         scene=SceneCfg(
             terrain=TerrainEntityCfg(terrain_type="plane"),
@@ -221,8 +242,8 @@ def make_cube_env_cfg(
             azimuth=150.0,
         ),
         sim=SimulationCfg(
-            nconmax=55 + 80 * num_pieces,
-            njmax=600 + 60 * num_pieces,
+            nconmax=55 + 80 * num_pieces + maze_ncon,
+            njmax=600 + 60 * num_pieces + 2 * maze_ncon,
             mujoco=MujocoCfg(
                 timestep=0.005,
                 iterations=10,

@@ -2,9 +2,11 @@
 
 At every resample the command:
 
-1. samples goal poses for the arrangement (stack bases / domino row),
-2. scatters all pieces (goal pieces + distractors) over the workspace on a
-   jittered grid (collision-free by construction),
+1. samples goal poses for the arrangement (stack bases / domino row / push
+   zones behind the maze wall),
+2. scatters all pieces (goal pieces + distractors) on a jittered grid
+   (collision-free by construction) over the workspace — restricted to the
+   near side of the maze wall for the "push" arrangement,
 3. randomly re-assigns goal slots among interchangeable pieces (same form and
    color), and
 4. exposes the slot goal positions as the policy command.
@@ -30,7 +32,13 @@ from mjlab.utils.lab_api.math import quat_from_euler_xyz
 from mjlab.viewer.debug_visualizer import DebugVisualizer
 
 from g3a_bench.tasks.common.debug_markers import MARKER_INFLATE, marker_color
-from g3a_bench.tasks.cube.assets import PALETTE
+from g3a_bench.tasks.cube.assets import (
+    PALETTE,
+    PUSH_BAND_HALF_Y,
+    PUSH_GOAL_LANE_SPACING,
+    PUSH_GOAL_X,
+    PUSH_SPAWN_X,
+)
 from g3a_bench.tasks.cube.variants import (
     FORM_HALF_EXTENTS,
     CubeVariantCfg,
@@ -120,10 +128,20 @@ class PieceArrangementCommand(CommandTerm):
             [form_height(p.form) / 2 for p in variant.pieces], device=dev
         )
 
-        # Scatter grid (jittered cells) covering the workspace.
-        x0, x1 = cfg.workspace_x
-        y0, y1 = cfg.workspace_y
-        nx, ny = 3, 6
+        # Goal-zone y lanes for the "push" arrangement (one zone per stack).
+        lanes = [(i - (G - 1) / 2) * PUSH_GOAL_LANE_SPACING for i in range(G)]
+        self._push_lanes = torch.tensor(lanes, device=dev)
+
+        # Scatter grid (jittered cells) covering the spawn region: the whole
+        # workspace, or only the near side of the maze wall for "push".
+        if variant.arrangement == "push":
+            x0, x1 = PUSH_SPAWN_X
+            y0, y1 = -PUSH_BAND_HALF_Y, PUSH_BAND_HALF_Y
+            nx, ny = 1, 4  # single column: the near band is too shallow for two
+        else:
+            x0, x1 = cfg.workspace_x
+            y0, y1 = cfg.workspace_y
+            nx, ny = 3, 6
         cx = torch.linspace(x0, x1, nx + 1, device=dev)
         cy = torch.linspace(y0, y1, ny + 1, device=dev)
         centers = torch.cartesian_prod((cx[:-1] + cx[1:]) / 2, (cy[:-1] + cy[1:]) / 2)
@@ -253,6 +271,15 @@ class PieceArrangementCommand(CommandTerm):
             bases = base_cells[pick]  # (n, num_stacks, 2)
             bases = bases + (torch.rand_like(bases) - 0.5) * 0.03
             slot_xy = bases[:, self._slot_to_stack, :]  # (n, G, 2)
+        elif self.variant.arrangement == "push":
+            # One goal zone per piece in the band behind the maze wall: the
+            # fixed y lanes are shuffled among the zones and jittered, x is
+            # sampled freely within the band.
+            gx0, gx1 = PUSH_GOAL_X
+            perm = torch.argsort(torch.rand(n, G, device=dev), dim=1)
+            gy = self._push_lanes[perm] + (torch.rand(n, G, device=dev) - 0.5) * 0.03
+            gx = gx0 + 0.02 + torch.rand(n, G, device=dev) * (gx1 - gx0 - 0.04)
+            slot_xy = torch.stack([gx, gy], dim=-1)
         else:
             # Domino row: mostly lateral so the row always fits in x.
             spacing = self.variant.domino_spacing
