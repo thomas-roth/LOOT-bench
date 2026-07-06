@@ -13,11 +13,10 @@ if TYPE_CHECKING:
 
 
 def inserted_count_reward(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
-    """Fraction of pegs correctly inserted."""
-    command = _command(env, command_name)
-    return command.inserted.sum(dim=1) / command.num_sockets
+    """Scored fraction: pegs inserted, or (sorter) the target piece latched."""
+    return _command(env, command_name).scored_fraction()
 
 
 def success_reward(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
-    """Sparse bonus while all pegs are inserted, at rest, and released."""
+    """Sparse bonus while the task is complete, pieces at rest and released."""
     return _command(env, command_name).success

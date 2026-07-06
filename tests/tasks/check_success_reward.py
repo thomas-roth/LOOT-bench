@@ -22,7 +22,7 @@ import g3a_bench  # noqa: F401  (registers all tasks)
 from g3a_bench.tasks.ball.mdp.commands import BallCommand
 from g3a_bench.tasks.ball.variants import BALL_RADIUS
 from g3a_bench.tasks.cube.mdp.commands import PieceArrangementCommand
-from g3a_bench.tasks.insertion.assets import SHEET_HALF_Z
+from g3a_bench.tasks.insertion.assets import BOARD_POS, SHEET_HALF_Z
 from g3a_bench.tasks.insertion.mdp.commands import InsertionCommand
 
 _NUM_ENVS = 8
@@ -127,6 +127,71 @@ def _teleport_pegs(
         )
 
 
+def _vec_to_up_quat(ax: np.ndarray, device: str) -> torch.Tensor:
+    """(4,) wxyz quaternion that rotates local vector *ax* onto world +z."""
+    up = np.array([0.0, 0.0, 1.0])
+    d = float(np.clip(np.dot(ax, up), -1.0, 1.0))
+    if d > 0.9999:
+        rot_axis, angle = np.array([1.0, 0.0, 0.0]), 0.0
+    elif d < -0.9999:
+        rot_axis, angle = np.array([1.0, 0.0, 0.0]), math.pi
+    else:
+        rot_axis = np.cross(ax, up)
+        rot_axis /= np.linalg.norm(rot_axis)
+        angle = math.acos(d)
+    ca2, sa2 = math.cos(angle / 2), math.sin(angle / 2)
+    return torch.tensor(
+        [ca2, sa2 * rot_axis[0], sa2 * rot_axis[1], sa2 * rot_axis[2]],
+        device=device,
+        dtype=torch.float32,
+    )
+
+
+def _teleport_sorter_cube(
+    cmd: InsertionCommand, env: ManagerBasedRlEnv, device: str
+) -> None:
+    """Reorient the free sorter cube so each env's target hole faces up."""
+    assert cmd.board is not None
+    origins = env.scene.env_origins
+    board_pos = torch.tensor(BOARD_POS, device=device, dtype=torch.float32)
+    for e in range(cmd.num_envs):
+        tgt = int(cmd.target_idx[e].item())
+        quat = _vec_to_up_quat(cmd._axis_local[tgt].cpu().numpy(), device)
+        pos = origins[e] + board_pos
+        pos[2] += cmd._cube_half + 0.001
+        env_id = torch.tensor([e], device=device)
+        cmd.board.write_root_link_pose_to_sim(
+            torch.cat([pos, quat]).unsqueeze(0), env_ids=env_id
+        )
+        cmd.board.write_root_link_velocity_to_sim(
+            torch.zeros(1, 6, device=device), env_ids=env_id
+        )
+
+
+def _teleport_sorter_piece(
+    cmd: InsertionCommand, device: str, axial: torch.Tensor
+) -> None:
+    """Place each env's target piece at signed offset *axial* along its hole axis.
+
+    Positive *axial* is outside the mouth. The piece is aligned with the hole
+    axis (world +z after ``_teleport_sorter_cube``); yaw is irrelevant to the
+    latch metric and both stations used by the check are penetration-free.
+    """
+    idx = torch.arange(cmd.num_envs, device=device)
+    mouth = cmd.socket_mouth_w[idx, cmd.target_idx]
+    axis = cmd.socket_axis_w[idx, cmd.target_idx]
+    pos = mouth + axis * axial.unsqueeze(-1)
+    pose = torch.cat([pos, _upright_quat(cmd.num_envs, device)], dim=-1)
+    for s in range(cmd.num_sockets):
+        env_ids = (cmd.target_idx == s).nonzero(as_tuple=False).squeeze(-1)
+        if env_ids.numel() == 0:
+            continue
+        cmd.pegs[s].write_root_link_pose_to_sim(pose[env_ids], env_ids=env_ids)
+        cmd.pegs[s].write_root_link_velocity_to_sim(
+            torch.zeros(env_ids.numel(), 6, device=device), env_ids=env_ids
+        )
+
+
 def _teleport_sheet(cmd: InsertionCommand, env: ManagerBasedRlEnv, device: str) -> None:
     """Snap the movable sheet to the bottom-bore XY."""
     assert cmd.sheet is not None
@@ -201,6 +266,29 @@ def _check_insertion_single(
     return None if frac > 0.9 else f"inserted_fraction={frac:.3f} (expected >0.9)"
 
 
+def _check_insertion_sorter(
+    device: str, task_id: str, *, render: bool = False
+) -> str | None:
+    from typing import cast
+
+    env = _make_env(task_id, device, play=True)
+    cmd = cast(InsertionCommand, env.command_manager.get_term("insertion"))
+    zeros = _zeros(env, device)
+    env.step(zeros)
+    _teleport_sorter_cube(cmd, env, device)
+    env.step(zeros)  # refresh the live mouth/axis buffers from the new pose
+    tgt = cmd.target_idx
+    _teleport_sorter_piece(cmd, device, cmd._piece_half[tgt] + 0.005)
+    env.step(zeros)
+    _teleport_sorter_piece(cmd, device, cmd._s_cross[tgt] - 0.005)
+    for _ in range(_STEPS):
+        env.step(zeros)  # piece tumbles inside the cube; the latch must hold
+    frac = cmd.scored_fraction().mean().item()
+    _render_goal(env, task_id, render)
+    env.close()
+    return None if frac > 0.9 else f"latched_fraction={frac:.3f} (expected >0.9)"
+
+
 def _check_insertion_twosheet(device: str, *, render: bool = False) -> str | None:
     from typing import cast
 
@@ -250,7 +338,8 @@ _CHECKS: list[tuple[str, str]] = [
     ("Cube  Push3         ", "G3a-Cube-Push3-Dk1_uni"),
     ("Ins   PegCylinder   ", "G3a-Insertion-PegCylinder-Dk1_uni"),
     ("Ins   PegCylinderH  ", "G3a-Insertion-PegCylinderH-Dk1_uni"),
-    ("Ins   Sorter4       ", "G3a-Insertion-Sorter4-Dk1_uni"),
+    ("Ins   Sorter3       ", "G3a-Insertion-Sorter3-Dk1_uni"),
+    ("Ins   Sorter6       ", "G3a-Insertion-Sorter6-Dk1_uni"),
     ("Ins   TwoSheet      ", "G3a-Insertion-TwoSheet-Dk1_uni"),
     ("Ball  PushMarked    ", "G3a-Ball-PushMarked-Dk1_uni"),
     ("Ball  GolfHole      ", "G3a-Ball-GolfHole-Dk1_uni"),
@@ -267,6 +356,8 @@ def _dispatch(task_id: str, device: str, *, render: bool = False) -> str | None:
     if cat == "Insertion":
         if "TwoSheet" in task_id:
             return _check_insertion_twosheet(device, render=render)
+        if "Sorter" in task_id:
+            return _check_insertion_sorter(device, task_id, render=render)
         return _check_insertion_single(device, task_id, render=render)
     if cat == "Ball":
         return _check_ball(device, task_id, render=render)
