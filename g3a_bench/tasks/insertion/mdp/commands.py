@@ -22,9 +22,14 @@ from typing import TYPE_CHECKING, cast
 import numpy as np
 import torch
 from mjlab.entity import Entity
-from mjlab.managers.command_manager import CommandTerm, CommandTermCfg
+from mjlab.managers.command_manager import CommandTerm
 from mjlab.utils.lab_api.math import quat_from_euler_xyz
 
+from g3a_bench.tasks.common.commands import (
+    GripperGateCommandCfg,
+    GripperOpenGate,
+    JitteredCellGrid,
+)
 from g3a_bench.tasks.common.debug_markers import MARKER_INFLATE, marker_color
 from g3a_bench.tasks.insertion.assets import (
     BOARD_POS,
@@ -48,7 +53,7 @@ if TYPE_CHECKING:
 
 
 @dataclass(kw_only=True)
-class InsertionCommandCfg(CommandTermCfg):
+class InsertionCommandCfg(GripperGateCommandCfg):
     board_name: str
     peg_names: tuple[str, ...]
     """All peg entities; the first ``num_sockets`` are assigned to sockets."""
@@ -59,8 +64,6 @@ class InsertionCommandCfg(CommandTermCfg):
     """Max top-sheet/bottom-hole offset to count as aligned."""
     peg_vel_threshold: float = 0.05
     """Max linear speed (m/s) of any assigned peg to count success."""
-    gripper_open_threshold: float = -0.015
-    """Min gripper_left joint position (m) to count success (> -0.015 = ≥2/3 open)."""
 
     def build(self, env: ManagerBasedRlEnv) -> InsertionCommand:
         return InsertionCommand(self, env)
@@ -116,26 +119,17 @@ class InsertionCommand(CommandTerm):
         self.episode_success = torch.zeros(E, device=dev)
         self._half_len = PEG_HALF_LEN
 
-        # Resolved lazily: joint data isn't available at __init__ time.
-        self._gripper_joint_idx: int = -1
+        self._gripper_gate = GripperOpenGate(cfg)
 
         # Pegs are spawned upright into the parts tray ("Werkbox"): a jittered
         # grid over the tray's spawn region (env-local; env origins are added at
         # spawn time). Same for every variant.
         tx, ty, _ = TRAY_POS
         hx, hy = TRAY_SPAWN_HALF
-        x0, x1 = tx - hx, tx + hx
-        y0, y1 = ty - hy, ty + hy
-        nx, ny = 2, 4
-        cx = torch.linspace(x0, x1, nx + 1, device=dev)
-        cy = torch.linspace(y0, y1, ny + 1, device=dev)
-        self._cells = torch.cartesian_prod(
-            (cx[:-1] + cx[1:]) / 2, (cy[:-1] + cy[1:]) / 2
+        self._spawn_grid = JitteredCellGrid(
+            (tx - hx, tx + hx), (ty - hy, ty + hy), nx=2, ny=4, device=dev
         )
-        self._cell_jitter = 0.4 * torch.tensor(
-            [(x1 - x0) / nx / 2, (y1 - y0) / ny / 2], device=dev
-        )
-        assert self._cells.shape[0] >= N
+        assert self._spawn_grid.num_cells >= N
 
         self.metrics["lateral_error"] = torch.zeros(E, device=dev)
         self.metrics["num_inserted"] = torch.zeros(E, device=dev)
@@ -194,10 +188,6 @@ class InsertionCommand(CommandTerm):
         self.inserted = inserted.float()
         all_in = inserted.all(dim=1)
 
-        if self._gripper_joint_idx < 0:
-            robot = self._env.scene["robot"]
-            self._gripper_joint_idx = list(robot.joint_names).index("gripper_left")
-
         # Velocity gate: every assigned peg moving slowly.
         peg_lin_vel_w = torch.stack(
             [p.data.root_link_lin_vel_w for p in self.pegs], dim=1
@@ -207,10 +197,7 @@ class InsertionCommand(CommandTerm):
             assigned_vel.norm(dim=-1).max(dim=-1).values <= self.cfg.peg_vel_threshold
         )
 
-        # Gripper-open gate.
-        robot = self._env.scene["robot"]
-        gripper_q = robot.data.joint_pos[:, self._gripper_joint_idx]
-        gripper_open = gripper_q > self.cfg.gripper_open_threshold
+        gripper_open = self._gripper_gate(self._env.scene["robot"])
 
         all_conditions = all_in & pegs_still & gripper_open
         self.success = all_conditions.float()
@@ -234,12 +221,7 @@ class InsertionCommand(CommandTerm):
         self.inserted[env_ids] = 0.0
 
         # Scatter pegs upright on distinct jittered cells inside the parts tray.
-        pick = torch.argsort(torch.rand(n, self._cells.shape[0], device=dev), dim=1)[
-            :, :N
-        ]
-        xy = self._cells[pick] + (torch.rand(n, N, 2, device=dev) - 0.5) * 2.0 * (
-            self._cell_jitter
-        )
+        xy = self._spawn_grid.sample(n, N)
         spawn_yaw = torch.rand(n, N, device=dev) * 2 * math.pi
         zeros = torch.zeros(n, device=dev)
         for i, peg in enumerate(self.pegs):
@@ -262,7 +244,7 @@ class InsertionCommand(CommandTerm):
             sy = bottom[:, 1] + off * torch.sin(ang)
             sz = origins[:, 2] + SHEET_TOP_ROOT_Z
             pos = torch.stack([sx, sy, sz], dim=-1)
-            quat = quat_from_euler_xyz(zeros, zeros, torch.zeros(n, device=dev))
+            quat = quat_from_euler_xyz(zeros, zeros, zeros)
             self.sheet.write_root_link_pose_to_sim(
                 torch.cat([pos, quat], dim=-1), env_ids=env_ids
             )

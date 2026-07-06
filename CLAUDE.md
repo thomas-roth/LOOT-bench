@@ -61,22 +61,33 @@ adding/editing a category means mirroring an existing one:
 - `<cat>_env_cfg.py` — `make_<cat>_env_cfg(variant, robot, play)` assembles the
   full `ManagerBasedRlEnvCfg` (entities, observation/action/reward/event/
   termination/curriculum managers).
-- `rl_cfg.py` — the PPO `RslRlOnPolicyRunnerCfg`.
-- `config/__init__.py` — loops over robots × variants and calls
-  `register_mjlab_task(...)`.
-- `__init__.py` — just `import_packages(__name__, ["utils", ".mdp"])`.
+- `rl_cfg.py` — thin wrapper around `tasks/common/rl_cfg.py` setting the
+  category's `max_iterations`.
+- `config/__init__.py` — loops over robots × variants, wires the robot in via
+  `tasks/common/manipulator_wiring.py`, and calls `register_mjlab_task(...)`.
+- `__init__.py` — empty (discovery happens one level up).
 
-**Registration is automatic via discovery**: `tasks/__init__.py` and each
-`tasks/<cat>/__init__.py` call mjlab's `import_packages`, which imports the
-`config` subpackage and triggers `register_mjlab_task`. The `.mdp` blacklist
-prevents the MDP modules from being scanned as task configs. Top-level
-`g3a_bench/__init__.py` imports `g3a_bench.tasks`, so a single `import g3a_bench`
-registers everything.
+**Shared building blocks live in `tasks/common/`**: `manipulator_wiring.py`
+(the one robot↔task seam), `env_cfg.py` (reset events, regularization rewards,
+curriculum, play overrides), `rl_cfg.py` (the PPO runner factory),
+`commands.py` (`GripperGateCommandCfg`/`GripperOpenGate` success gate,
+`JitteredCellGrid` scatter), plus `table.py` and `debug_markers.py`. Only
+byte-identical boilerplate is shared; per-category values stay in the
+category.
+
+**Registration is automatic via discovery**: `tasks/__init__.py` calls mjlab's
+`import_packages` once (blacklist `["utils", ".mdp", "common"]`), which walks
+the category packages, imports each `config` subpackage and triggers
+`register_mjlab_task`. The `.mdp`/`common` blacklist entries keep the MDP and
+shared-helper modules from being scanned as task configs. Top-level
+`g3a_bench/__init__.py` imports `g3a_bench.tasks`, so a single
+`import g3a_bench` registers everything.
 
 ### Robot-agnostic design
 Tasks never hardcode robot details. `robots/interface.py` defines
 `ManipulatorInterface` (name, entity-cfg factory, action scale, grasp site,
-end-effector subtree, finger-pad geom regex, viewer body). Each robot package
+gripper joints + open threshold for the success gate, end-effector subtree,
+finger-pad geom regex, viewer body). Each robot package
 exposes its own `get_<robot>_interface()` factory —
 `robots/trlc_dk1/__init__.py` has `get_unimanual_dk1_interface()` and
 `get_bimanual_dk1_interface()`, `robots/yam/__init__.py` has

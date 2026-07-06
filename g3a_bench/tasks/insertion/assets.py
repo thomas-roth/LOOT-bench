@@ -46,7 +46,6 @@ BOARD_POS = (0.34, 0.0, 0.0)
 # (see decor/). It is purely visual (no collisions), so its body sits at the
 # env origin and its geom poses are already env-local.
 DECOR_XML = Path(__file__).resolve().parent / "decor" / "workstation_decor.xml"
-DECOR_POS = (0.0, 0.0, 0.0)
 
 # Parts tray ("Werkbox"): centre (env-local) and the half-extents of the region
 # pegs are spawned into on every reset, inset from the tray walls so upright
@@ -58,6 +57,8 @@ TRAY_SPAWN_HALF = (0.05, 0.12)
 # Bore wall thickness and base-plate thickness.
 WALL_T = 0.006
 PLATE_HALF_Z = 0.011
+# Wall boxes forming a circle bore (the polygonal shapes use their own nsides).
+CIRCLE_BORE_SEGMENTS = 16
 # Horizontal bore: centre height above the table and how far its mouth
 # protrudes toward the robot from the board origin (-x).
 H_BORE_CENTER_Z = 0.075
@@ -148,7 +149,7 @@ def _wall_boxes(
             )
         return out
 
-    n = 16 if shape == "circle" else geom.nsides
+    n = CIRCLE_BORE_SEGMENTS if shape == "circle" else geom.nsides
     apo = bore_apothem(shape)
     edge_half = apo * math.tan(math.pi / n) + WALL_T
     for k in range(n):

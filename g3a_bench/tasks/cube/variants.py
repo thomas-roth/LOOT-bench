@@ -54,7 +54,7 @@ class CubeVariantCfg:
     color order, every slot color is unique so this has no effect."""
     domino_spacing: float = 0.05
     """Center distance of neighboring dominos; must be smaller than the domino
-    height (0.07 m) so toppling one knocks over the next."""
+    height so toppling one knocks over the next (enforced in __post_init__)."""
     maze_gates: int = 2
     """Number of gate openings in the "push" barrier wall (unused otherwise).
     Gate geometry is derived in ``assets.py`` from this count."""

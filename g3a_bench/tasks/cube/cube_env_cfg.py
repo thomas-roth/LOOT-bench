@@ -2,23 +2,27 @@
 
 from mjlab.entity import EntityCfg
 from mjlab.envs import ManagerBasedRlEnvCfg, mdp
-from mjlab.envs.mdp import dr
 from mjlab.envs.mdp.actions import JointPositionActionCfg
 from mjlab.managers.action_manager import ActionTermCfg
 from mjlab.managers.command_manager import CommandTermCfg
-from mjlab.managers.curriculum_manager import CurriculumTermCfg
-from mjlab.managers.event_manager import EventTermCfg
 from mjlab.managers.observation_manager import ObservationGroupCfg, ObservationTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.managers.termination_manager import TerminationTermCfg
 from mjlab.scene import SceneCfg
 from mjlab.sim import MujocoCfg, SimulationCfg
-from mjlab.tasks.manipulation import mdp as manipulation_mdp
 from mjlab.terrains import TerrainEntityCfg
 from mjlab.utils.noise import UniformNoiseCfg as Unoise
 from mjlab.viewer import ViewerConfig
 
+from g3a_bench.tasks.common.env_cfg import (
+    apply_play_overrides,
+    fingertip_friction_event,
+    fixed_prop_reset_event,
+    joint_vel_hinge_curriculum,
+    regularization_rewards,
+    robot_reset_events,
+)
 from g3a_bench.tasks.common.table import TABLE_POS, get_table_spec
 from g3a_bench.tasks.cube import mdp as cube_mdp
 from g3a_bench.tasks.cube.assets import get_maze_spec, get_piece_spec
@@ -39,10 +43,9 @@ def make_cube_env_cfg(
     """Build the robot-agnostic cube cfg.
 
     Robot-specific knobs are left as placeholders (empty grasp site, action
-    scale 0.5, empty friction geoms, empty ee subtree, empty viewer body, no
-    ``"robot"`` scene entity). Fill them by calling
-    ``wire_manipulator_into_env`` with a concrete ``ManipulatorInterface``
-    before registering the task.
+    scale 0.5, empty friction geoms, empty viewer body, no ``"robot"`` scene
+    entity). Fill them by calling ``wire_manipulator_into_env`` with a
+    concrete ``ManipulatorInterface`` before registering the task.
     """
     piece_names = tuple(f"piece_{i}" for i in range(len(variant.pieces)))
 
@@ -59,8 +62,6 @@ def make_cube_env_cfg(
     for name, piece in zip(piece_names, variant.pieces, strict=True):
         entities[name] = EntityCfg(spec_fn=lambda p=piece, n=name: get_piece_spec(p, n))
 
-    grasp_cfg = SceneEntityCfg("robot", site_names=())  # Set per-robot.
-
     actor_terms = {
         "joint_pos": ObservationTermCfg(
             func=mdp.joint_pos_rel,
@@ -72,7 +73,11 @@ def make_cube_env_cfg(
         ),
         "pieces_rel_grasp": ObservationTermCfg(
             func=cube_mdp.pieces_rel_grasp,
-            params={"command_name": COMMAND_NAME, "asset_cfg": grasp_cfg},
+            params={
+                "command_name": COMMAND_NAME,
+                # site_names set per-robot by manipulator wiring.
+                "asset_cfg": SceneEntityCfg("robot", site_names=()),
+            },
             noise=Unoise(n_min=-0.01, n_max=0.01),
         ),
         "slot_goal_deltas": ObservationTermCfg(
@@ -107,7 +112,7 @@ def make_cube_env_cfg(
 
     commands: dict[str, CommandTermCfg] = {
         COMMAND_NAME: cube_mdp.PieceArrangementCommandCfg(
-            entity_names=piece_names,
+            piece_names=piece_names,
             variant=variant,
             resampling_time_range=(1.0e9, 1.0e9),
             debug_vis=True,
@@ -115,57 +120,12 @@ def make_cube_env_cfg(
     }
 
     events = {
-        "reset_base": EventTermCfg(
-            func=mdp.reset_root_state_uniform,
-            mode="reset",
-            params={"pose_range": {}, "velocity_range": {}},
-        ),
-        "reset_robot_joints": EventTermCfg(
-            func=mdp.reset_joints_by_offset,
-            mode="reset",
-            params={
-                "position_range": (0.0, 0.0),
-                "velocity_range": (0.0, 0.0),
-                "asset_cfg": SceneEntityCfg("robot", joint_names=(".*",)),
-            },
-        ),
-        "reset_table": EventTermCfg(
-            func=mdp.reset_root_state_uniform,
-            mode="reset",
-            params={
-                "pose_range": {},
-                "velocity_range": {},
-                "asset_cfg": SceneEntityCfg("table"),
-            },
-        ),
-        **(
-            {
-                # Pin the fixed-base maze to env_origins + init_state.pos.
-                "reset_maze": EventTermCfg(
-                    func=mdp.reset_root_state_uniform,
-                    mode="reset",
-                    params={
-                        "pose_range": {},
-                        "velocity_range": {},
-                        "asset_cfg": SceneEntityCfg("maze"),
-                    },
-                )
-            }
-            if variant.arrangement == "push"
-            else {}
-        ),
-        "fingertip_friction_slide": EventTermCfg(
-            mode="startup",
-            func=dr.geom_friction,
-            params={
-                "asset_cfg": SceneEntityCfg("robot", geom_names=()),  # Set per-robot.
-                "operation": "abs",
-                "distribution": "uniform",
-                "axes": [0],
-                "ranges": (0.6, 1.5),
-            },
-        ),
+        **robot_reset_events(),
+        "reset_table": fixed_prop_reset_event("table"),
+        "fingertip_friction_slide": fingertip_friction_event(),
     }
+    if variant.arrangement == "push":
+        events["reset_maze"] = fixed_prop_reset_event("maze")
 
     rewards = {
         "placed_slots": RewardTermCfg(
@@ -178,20 +138,7 @@ def make_cube_env_cfg(
             weight=2.0,
             params={"command_name": COMMAND_NAME},
         ),
-        "action_rate_l2": RewardTermCfg(func=mdp.action_rate_l2, weight=-0.01),
-        "joint_pos_limits": RewardTermCfg(
-            func=mdp.joint_pos_limits,
-            weight=-10.0,
-            params={"asset_cfg": SceneEntityCfg("robot", joint_names=(".*",))},
-        ),
-        "joint_vel_hinge": RewardTermCfg(
-            func=manipulation_mdp.joint_velocity_hinge_penalty,
-            weight=-0.01,
-            params={
-                "max_vel": 0.5,
-                "asset_cfg": SceneEntityCfg("robot", joint_names=(".*",)),
-            },
-        ),
+        **regularization_rewards(),
     }
 
     terminations = {
@@ -199,20 +146,6 @@ def make_cube_env_cfg(
         "success": TerminationTermCfg(
             func=cube_mdp.arrangement_complete,
             params={"command_name": COMMAND_NAME},
-        ),
-    }
-
-    curriculum = {
-        "joint_vel_hinge_weight": CurriculumTermCfg(
-            func=manipulation_mdp.reward_curriculum,
-            params={
-                "reward_name": "joint_vel_hinge",
-                "stages": [
-                    {"step": 0, "weight": -0.01},
-                    {"step": 500 * 24, "weight": -0.1},
-                    {"step": 1000 * 24, "weight": -1.0},
-                ],
-            },
         ),
     }
 
@@ -232,7 +165,7 @@ def make_cube_env_cfg(
         events=events,
         rewards=rewards,
         terminations=terminations,
-        curriculum=curriculum,
+        curriculum=joint_vel_hinge_curriculum(),
         viewer=ViewerConfig(
             origin_type=ViewerConfig.OriginType.ASSET_BODY,
             entity_name="robot",
@@ -257,9 +190,6 @@ def make_cube_env_cfg(
     )
 
     if play:
-        cfg.episode_length_s = int(1e9)
-        cfg.observations["actor"].enable_corruption = False
-        cfg.curriculum = {}
-        cfg.terminations.pop("success")
+        apply_play_overrides(cfg)
 
     return cfg

@@ -21,16 +21,19 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 import torch
 from mjlab.entity import Entity
-from mjlab.envs.manager_based_rl_env import ManagerBasedRlEnv
-from mjlab.managers.command_manager import CommandTerm, CommandTermCfg
+from mjlab.managers.command_manager import CommandTerm
 from mjlab.utils.lab_api.math import quat_from_euler_xyz
-from mjlab.viewer.debug_visualizer import DebugVisualizer
 
+from g3a_bench.tasks.common.commands import (
+    GripperGateCommandCfg,
+    GripperOpenGate,
+    JitteredCellGrid,
+)
 from g3a_bench.tasks.common.debug_markers import MARKER_INFLATE, marker_color
 from g3a_bench.tasks.cube.assets import (
     PALETTE,
@@ -45,14 +48,18 @@ from g3a_bench.tasks.cube.variants import (
     form_height,
 )
 
+if TYPE_CHECKING:
+    from mjlab.envs.manager_based_rl_env import ManagerBasedRlEnv
+    from mjlab.viewer.debug_visualizer import DebugVisualizer
 
-def get_cube_command(env: ManagerBasedRlEnv, name: str) -> PieceArrangementCommand:
+
+def get_command(env: ManagerBasedRlEnv, name: str) -> PieceArrangementCommand:
     return cast(PieceArrangementCommand, env.command_manager.get_term(name))
 
 
 @dataclass(kw_only=True)
-class PieceArrangementCommandCfg(CommandTermCfg):
-    entity_names: tuple[str, ...]
+class PieceArrangementCommandCfg(GripperGateCommandCfg):
+    piece_names: tuple[str, ...]
     """All piece entities; the first `variant.num_goal_pieces` are the goal
     pieces in slot order, the rest are distractors."""
     variant: CubeVariantCfg
@@ -64,8 +71,6 @@ class PieceArrangementCommandCfg(CommandTermCfg):
     """Max tilt (and yaw misalignment for dominos) to count as placed."""
     piece_vel_threshold: float = 0.05
     """Max linear speed (m/s) of any goal piece to count success."""
-    gripper_open_threshold: float = -0.015
-    """Min gripper_left joint position (m) to count success (> -0.015 = ≥2/3 open)."""
 
     def build(self, env: ManagerBasedRlEnv) -> PieceArrangementCommand:
         return PieceArrangementCommand(self, env)
@@ -78,7 +83,7 @@ class PieceArrangementCommand(CommandTerm):
         super().__init__(cfg, env)
         variant = cfg.variant
         self.variant = variant
-        self.pieces: list[Entity] = [env.scene[n] for n in cfg.entity_names]
+        self.pieces: list[Entity] = [env.scene[n] for n in cfg.piece_names]
         self.num_pieces = len(self.pieces)
         self.num_slots = variant.num_goal_pieces
         assert self.num_pieces >= self.num_slots
@@ -128,31 +133,23 @@ class PieceArrangementCommand(CommandTerm):
             [form_height(p.form) / 2 for p in variant.pieces], device=dev
         )
 
-        # Goal-zone y lanes for the "push" arrangement (one zone per stack).
-        lanes = [(i - (G - 1) / 2) * PUSH_GOAL_LANE_SPACING for i in range(G)]
-        self._push_lanes = torch.tensor(lanes, device=dev)
-
         # Scatter grid (jittered cells) covering the spawn region: the whole
         # workspace, or only the near side of the maze wall for "push".
         if variant.arrangement == "push":
-            x0, x1 = PUSH_SPAWN_X
-            y0, y1 = -PUSH_BAND_HALF_Y, PUSH_BAND_HALF_Y
-            nx, ny = 1, 4  # single column: the near band is too shallow for two
+            self._spawn_grid = JitteredCellGrid(
+                PUSH_SPAWN_X,
+                (-PUSH_BAND_HALF_Y, PUSH_BAND_HALF_Y),
+                nx=1,  # single column: the near band is too shallow for two
+                ny=4,
+                device=dev,
+            )
         else:
-            x0, x1 = cfg.workspace_x
-            y0, y1 = cfg.workspace_y
-            nx, ny = 3, 6
-        cx = torch.linspace(x0, x1, nx + 1, device=dev)
-        cy = torch.linspace(y0, y1, ny + 1, device=dev)
-        centers = torch.cartesian_prod((cx[:-1] + cx[1:]) / 2, (cy[:-1] + cy[1:]) / 2)
-        self._cells = centers  # (nx*ny, 2)
-        self._cell_jitter = 0.4 * torch.tensor(
-            [(x1 - x0) / nx / 2, (y1 - y0) / ny / 2], device=dev
-        )
-        assert self._cells.shape[0] >= N
+            self._spawn_grid = JitteredCellGrid(
+                cfg.workspace_x, cfg.workspace_y, nx=3, ny=6, device=dev
+            )
+        assert self._spawn_grid.num_cells >= N
 
-        # Resolved lazily: joint data isn't available at __init__ time.
-        self._gripper_joint_idx: int = -1
+        self._gripper_gate = GripperOpenGate(cfg)
 
         self.metrics["position_error"] = torch.zeros(E, device=dev)
         self.metrics["num_placed"] = torch.zeros(E, device=dev)
@@ -213,11 +210,7 @@ class PieceArrangementCommand(CommandTerm):
             at_goal = at_goal & (up_cos > cos_tol) & (align > cos_tol)
 
         self.slot_at_goal = at_goal.float()
-        all_placed_bool = at_goal.all(dim=1)
-
-        if self._gripper_joint_idx < 0:
-            robot = self._env.scene["robot"]
-            self._gripper_joint_idx = list(robot.joint_names).index("gripper_left")
+        all_placed = at_goal.all(dim=1)
 
         # Velocity gate: every goal piece moving slowly.
         piece_lin_vel_w = torch.stack(
@@ -228,19 +221,14 @@ class PieceArrangementCommand(CommandTerm):
             goal_vel.norm(dim=-1).max(dim=-1).values <= self.cfg.piece_vel_threshold
         )
 
-        # Gripper-open gate.
-        robot = self._env.scene["robot"]
-        gripper_q = robot.data.joint_pos[:, self._gripper_joint_idx]
-        gripper_open = gripper_q > self.cfg.gripper_open_threshold
+        gripper_open = self._gripper_gate(self._env.scene["robot"])
 
-        all_conditions = all_placed_bool & pieces_still & gripper_open
-        all_placed = all_placed_bool.float()
-        self.success = all_conditions.float()
+        self.success = (all_placed & pieces_still & gripper_open).float()
         self.episode_success = torch.maximum(self.episode_success, self.success)
 
         self.metrics["position_error"] = error.mean(dim=1)
         self.metrics["num_placed"] = self.slot_at_goal.sum(dim=1)
-        self.metrics["all_placed"] = all_placed
+        self.metrics["all_placed"] = all_placed.float()
         self.metrics["episode_success"] = self.episode_success
 
     def _resample_command(self, env_ids: torch.Tensor) -> None:
@@ -272,12 +260,15 @@ class PieceArrangementCommand(CommandTerm):
             bases = bases + (torch.rand_like(bases) - 0.5) * 0.03
             slot_xy = bases[:, self._slot_to_stack, :]  # (n, G, 2)
         elif self.variant.arrangement == "push":
-            # One goal zone per piece in the band behind the maze wall: the
-            # fixed y lanes are shuffled among the zones and jittered, x is
-            # sampled freely within the band.
+            # One goal zone per piece in the band behind the maze wall: fixed
+            # y lanes are shuffled among the zones and jittered, x is sampled
+            # freely within the band.
             gx0, gx1 = PUSH_GOAL_X
+            lanes = (
+                torch.arange(G, device=dev, dtype=torch.float32) - (G - 1) / 2
+            ) * PUSH_GOAL_LANE_SPACING
             perm = torch.argsort(torch.rand(n, G, device=dev), dim=1)
-            gy = self._push_lanes[perm] + (torch.rand(n, G, device=dev) - 0.5) * 0.03
+            gy = lanes[perm] + (torch.rand(n, G, device=dev) - 0.5) * 0.03
             gx = gx0 + 0.02 + torch.rand(n, G, device=dev) * (gx1 - gx0 - 0.04)
             slot_xy = torch.stack([gx, gy], dim=-1)
         else:
@@ -309,11 +300,7 @@ class PieceArrangementCommand(CommandTerm):
         self.piece_for_slot[env_ids] = assign
 
         # --- Scatter all pieces on distinct jittered grid cells. ---
-        pick = torch.argsort(torch.rand(n, self._cells.shape[0], device=dev), dim=1)[
-            :, :N
-        ]
-        xy = self._cells[pick]  # (n, N, 2)
-        xy = xy + (torch.rand_like(xy) - 0.5) * 2.0 * self._cell_jitter
+        xy = self._spawn_grid.sample(n, N)
         spawn_yaw = torch.rand(n, N, device=dev) * 2 * math.pi
 
         zeros = torch.zeros(n, device=dev)

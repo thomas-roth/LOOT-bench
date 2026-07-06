@@ -40,7 +40,9 @@ class ShapeGeom:
     """Cross-section description shared by a peg and its matching bore."""
 
     nsides: int
-    """Number of polygon sides; ``circle`` uses a smooth bore (>=16)."""
+    """Number of polygon sides. A ``circle`` peg is a true cylinder; its
+    nsides only sets how closely the bore apothem approximates the radius
+    (the bore wall count is ``assets.CIRCLE_BORE_SEGMENTS``)."""
     circumradius: float
     """Distance from the cross-section centre to a corner."""
     rect_half: tuple[float, float] | None = None

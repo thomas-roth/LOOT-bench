@@ -2,12 +2,9 @@
 
 from mjlab.entity import EntityCfg
 from mjlab.envs import ManagerBasedRlEnvCfg, mdp
-from mjlab.envs.mdp import dr
 from mjlab.envs.mdp.actions import JointPositionActionCfg
 from mjlab.managers.action_manager import ActionTermCfg
 from mjlab.managers.command_manager import CommandTermCfg
-from mjlab.managers.curriculum_manager import CurriculumTermCfg
-from mjlab.managers.event_manager import EventTermCfg
 from mjlab.managers.observation_manager import ObservationGroupCfg, ObservationTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
@@ -20,11 +17,18 @@ from mjlab.terrains import TerrainEntityCfg
 from mjlab.utils.noise import UniformNoiseCfg as Unoise
 from mjlab.viewer import ViewerConfig
 
+from g3a_bench.tasks.common.env_cfg import (
+    apply_play_overrides,
+    fingertip_friction_event,
+    fixed_prop_reset_event,
+    joint_vel_hinge_curriculum,
+    regularization_rewards,
+    robot_reset_events,
+)
 from g3a_bench.tasks.common.table import TABLE_POS, get_table_spec
 from g3a_bench.tasks.insertion import mdp as ins_mdp
 from g3a_bench.tasks.insertion.assets import (
     BOARD_POS,
-    DECOR_POS,
     get_board_spec,
     get_decor_spec,
     get_peg_spec,
@@ -58,11 +62,9 @@ def make_insertion_env_cfg(
 
     board_init = EntityCfg.InitialStateCfg(pos=BOARD_POS)
     entities: dict[str, EntityCfg] = {
-        # Shared visual-only workstation dressing (same for every variant).
-        "decor": EntityCfg(
-            spec_fn=get_decor_spec,
-            init_state=EntityCfg.InitialStateCfg(pos=DECOR_POS),
-        ),
+        # Shared visual-only workstation dressing (same for every variant);
+        # its geom poses are already env-local, so it sits at the env origin.
+        "decor": EntityCfg(spec_fn=get_decor_spec),
         # Shared visual-only table, same asset reused by every task category.
         "table": EntityCfg(
             spec_fn=get_table_spec,
@@ -85,8 +87,6 @@ def make_insertion_env_cfg(
             spec_fn=lambda s=shape, c=color, n=name: get_peg_spec(s, c, n)
         )
 
-    grasp_cfg = SceneEntityCfg("robot", site_names=())  # Set per-robot.
-
     actor_terms = {
         "joint_pos": ObservationTermCfg(
             func=mdp.joint_pos_rel, noise=Unoise(n_min=-0.01, n_max=0.01)
@@ -96,7 +96,11 @@ def make_insertion_env_cfg(
         ),
         "pegs_rel_grasp": ObservationTermCfg(
             func=ins_mdp.pegs_rel_grasp,
-            params={"command_name": COMMAND_NAME, "asset_cfg": grasp_cfg},
+            params={
+                "command_name": COMMAND_NAME,
+                # site_names set per-robot by manipulator wiring.
+                "asset_cfg": SceneEntityCfg("robot", site_names=()),
+            },
             noise=Unoise(n_min=-0.01, n_max=0.01),
         ),
         "socket_deltas": ObservationTermCfg(
@@ -108,15 +112,19 @@ def make_insertion_env_cfg(
             func=ins_mdp.socket_inserted_flags,
             params={"command_name": COMMAND_NAME},
         ),
-        "command": ObservationTermCfg(
-            func=mdp.generated_commands, params={"command_name": COMMAND_NAME}
-        ),
+        # No generated_commands term: the board is pinned to the env origin,
+        # so InsertionCommand.command is constant per variant; the actual
+        # signal is socket_deltas above.
         "actions": ObservationTermCfg(func=mdp.last_action),
     }
     if two_sheet:
         actor_terms["sheet_rel_grasp"] = ObservationTermCfg(
             func=ins_mdp.sheet_rel_grasp,
-            params={"command_name": COMMAND_NAME, "asset_cfg": grasp_cfg},
+            params={
+                "command_name": COMMAND_NAME,
+                # site_names set per-robot by manipulator wiring.
+                "asset_cfg": SceneEntityCfg("robot", site_names=()),
+            },
             noise=Unoise(n_min=-0.01, n_max=0.01),
         )
 
@@ -146,58 +154,11 @@ def make_insertion_env_cfg(
     }
 
     events = {
-        "reset_base": EventTermCfg(
-            func=mdp.reset_root_state_uniform,
-            mode="reset",
-            params={"pose_range": {}, "velocity_range": {}},
-        ),
-        "reset_board": EventTermCfg(
-            func=mdp.reset_root_state_uniform,
-            mode="reset",
-            params={
-                "pose_range": {},
-                "velocity_range": {},
-                "asset_cfg": SceneEntityCfg("board"),
-            },
-        ),
-        "reset_decor": EventTermCfg(
-            func=mdp.reset_root_state_uniform,
-            mode="reset",
-            params={
-                "pose_range": {},
-                "velocity_range": {},
-                "asset_cfg": SceneEntityCfg("decor"),
-            },
-        ),
-        "reset_table": EventTermCfg(
-            func=mdp.reset_root_state_uniform,
-            mode="reset",
-            params={
-                "pose_range": {},
-                "velocity_range": {},
-                "asset_cfg": SceneEntityCfg("table"),
-            },
-        ),
-        "reset_robot_joints": EventTermCfg(
-            func=mdp.reset_joints_by_offset,
-            mode="reset",
-            params={
-                "position_range": (0.0, 0.0),
-                "velocity_range": (0.0, 0.0),
-                "asset_cfg": SceneEntityCfg("robot", joint_names=(".*",)),
-            },
-        ),
-        "fingertip_friction_slide": EventTermCfg(
-            mode="startup",
-            func=dr.geom_friction,
-            params={
-                "asset_cfg": SceneEntityCfg("robot", geom_names=()),  # Set per-robot.
-                "operation": "abs",
-                "distribution": "uniform",
-                "axes": [0],
-                "ranges": (0.6, 1.5),
-            },
-        ),
+        **robot_reset_events(),
+        "reset_board": fixed_prop_reset_event("board"),
+        "reset_decor": fixed_prop_reset_event("decor"),
+        "reset_table": fixed_prop_reset_event("table"),
+        "fingertip_friction_slide": fingertip_friction_event(),
     }
 
     # Robot end-effector colliding with the parts tray ("Werkbox"). The tray is
@@ -231,20 +192,7 @@ def make_insertion_env_cfg(
             weight=5.0,
             params={"command_name": COMMAND_NAME},
         ),
-        "action_rate_l2": RewardTermCfg(func=mdp.action_rate_l2, weight=-0.01),
-        "joint_pos_limits": RewardTermCfg(
-            func=mdp.joint_pos_limits,
-            weight=-10.0,
-            params={"asset_cfg": SceneEntityCfg("robot", joint_names=(".*",))},
-        ),
-        "joint_vel_hinge": RewardTermCfg(
-            func=manipulation_mdp.joint_velocity_hinge_penalty,
-            weight=-0.01,
-            params={
-                "max_vel": 0.5,
-                "asset_cfg": SceneEntityCfg("robot", joint_names=(".*",)),
-            },
-        ),
+        **regularization_rewards(),
     }
 
     terminations = {
@@ -256,20 +204,6 @@ def make_insertion_env_cfg(
         "success": TerminationTermCfg(
             func=ins_mdp.insertion_complete,
             params={"command_name": COMMAND_NAME},
-        ),
-    }
-
-    curriculum = {
-        "joint_vel_hinge_weight": CurriculumTermCfg(
-            func=manipulation_mdp.reward_curriculum,
-            params={
-                "reward_name": "joint_vel_hinge",
-                "stages": [
-                    {"step": 0, "weight": -0.01},
-                    {"step": 500 * 24, "weight": -0.1},
-                    {"step": 1000 * 24, "weight": -1.0},
-                ],
-            },
         ),
     }
 
@@ -288,7 +222,7 @@ def make_insertion_env_cfg(
         events=events,
         rewards=rewards,
         terminations=terminations,
-        curriculum=curriculum,
+        curriculum=joint_vel_hinge_curriculum(),
         viewer=ViewerConfig(
             origin_type=ViewerConfig.OriginType.ASSET_BODY,
             entity_name="robot",
@@ -315,9 +249,6 @@ def make_insertion_env_cfg(
     )
 
     if play:
-        cfg.episode_length_s = int(1e9)
-        cfg.observations["actor"].enable_corruption = False
-        cfg.curriculum = {}
-        cfg.terminations.pop("success")
+        apply_play_overrides(cfg)
 
     return cfg
