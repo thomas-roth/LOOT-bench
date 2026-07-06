@@ -65,17 +65,10 @@ class ShapeGeom:
         return self.circumradius * math.cos(math.pi / self.nsides)
 
 
-# Distinct cross sections, each a tight fit in its own matching bore. Shape
-# matching for scoring is enforced by index (peg i is only ever checked
-# against socket i, see InsertionCommand), not by physical exclusion -- these
-# sizes do NOT guarantee a peg can't physically slide into a neighbouring,
-# differently-shaped hole (e.g. the hexagon peg is small enough to enter the
-# circle bore). Making that physically impossible for every shape pair needs
-# a coordinated resize of all shapes plus the board/tray layout, verified in
-# sim; out of scope here.
-# Distinct, tightly-sized cross sections for the peg/two_sheet kinds. Sizes
-# are chosen so a peg does not drop into a neighbouring hole (different
-# circum/inradius signatures).
+# Cross sections for the peg/two_sheet kinds, each a tight fit in its own
+# matching bore. Every board built from these has exactly one hole (multi-hole
+# boards only exist as the STL sorter, which ignores SHAPE_GEOMS), so shape
+# pairs need no physical-exclusion sizing.
 SHAPE_GEOMS: dict[Shape, ShapeGeom] = {
     "circle": ShapeGeom(nsides=24, circumradius=0.0140),
     "square": ShapeGeom(nsides=4, circumradius=0.0130 * math.sqrt(2.0)),
@@ -107,8 +100,6 @@ class InsertionVariantCfg:
     kind: Kind
     sockets: tuple[SocketCfg, ...]
     """One per peg; peg ``i`` must go into socket ``i``."""
-    distractors: tuple[Shape, ...] = ()
-    """Extra pegs (no matching socket) scattered as clutter."""
     bore_depth: float = 0.045
     insert_depth: float = 0.026
     """Required insertion depth (along the bore axis) to count as inserted."""
@@ -123,14 +114,11 @@ class InsertionVariantCfg:
 
     @property
     def peg_shapes(self) -> tuple[Shape, ...]:
-        socket_shapes = cast("tuple[Shape, ...]", tuple(s.shape for s in self.sockets))
-        return socket_shapes + self.distractors
+        return cast("tuple[Shape, ...]", tuple(s.shape for s in self.sockets))
 
     @property
     def peg_colors(self) -> tuple[str, ...]:
-        return tuple(s.color for s in self.sockets) + tuple(
-            "gray" for _ in self.distractors
-        )
+        return tuple(s.color for s in self.sockets)
 
     @property
     def orientation(self) -> Orientation:

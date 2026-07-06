@@ -16,9 +16,9 @@ sorter). It owns:
   the cube, stays scored while it tumbles around inside, and no shape piece fits
   into a foreign hole.
 
-Peg ``i`` is assigned to socket ``i``; extra pegs are distractors. Socket order
-is the variant's socket order. For the sorter, success means the single
-commanded target piece is latched in; the other pieces are clutter.
+Peg ``i`` is assigned to socket ``i``, in the variant's socket order. For the
+sorter, success means the single commanded target piece is latched in; the
+other pieces are clutter.
 """
 
 from __future__ import annotations
@@ -72,7 +72,7 @@ if TYPE_CHECKING:
 class InsertionCommandCfg(GripperGateCommandCfg):
     board_name: str
     peg_names: tuple[str, ...]
-    """All peg entities; the first ``num_sockets`` are assigned to sockets."""
+    """One peg entity per socket, in socket order."""
     variant: InsertionVariantCfg
     sheet_name: str | None = None
     """Movable top sheet entity (two-sheet variant only)."""
@@ -98,7 +98,7 @@ class InsertionCommand(CommandTerm):
         )
         self.num_pegs = len(self.pegs)
         self.num_sockets = variant.num_sockets
-        assert self.num_pegs >= self.num_sockets
+        assert self.num_pegs == self.num_sockets
 
         E, S, N = self.num_envs, self.num_sockets, self.num_pegs
         dev = self.device
@@ -130,15 +130,20 @@ class InsertionCommand(CommandTerm):
                 self._axis_local.unsqueeze(0).expand(E, S, 3).contiguous()
             )
 
-        # Per-socket marker data for debug vis: peg shape/color and the bore
-        # cross-section basis (columns c0, c1, axis_out), matching the walls.
-        self._socket_shapes: tuple[Shape, ...] = tuple(f.shape for f in frames)
-        self._socket_colors = tuple(PALETTE[f.color] for f in frames)
-        self._socket_mats = [np.stack(frame_axes(f.axis_out), axis=1) for f in frames]
-
-        self.insert_depth = variant.insert_depth
-        self.lateral_tol = variant.lateral_tol
-        self.tilt_cos = math.cos(math.radians(variant.tilt_tol_deg))
+        if not self._is_sorter:
+            # Fixed-board insertion test tolerances and per-socket ghost-peg
+            # marker data for debug vis: peg shape/color and the bore
+            # cross-section basis (columns c0, c1, axis_out), matching the
+            # walls. The sorter uses its own crossing gates and sphere-only
+            # vis (see _update_metrics / _debug_vis_impl).
+            self.insert_depth = variant.insert_depth
+            self.lateral_tol = variant.lateral_tol
+            self.tilt_cos = math.cos(math.radians(variant.tilt_tol_deg))
+            self._socket_shapes: tuple[Shape, ...] = tuple(f.shape for f in frames)
+            self._socket_colors = tuple(PALETTE[f.color] for f in frames)
+            self._socket_mats = [
+                np.stack(frame_axes(f.axis_out), axis=1) for f in frames
+            ]
 
         self.peg_pos_w = torch.zeros(E, N, 3, device=dev)
         self.inserted = torch.zeros(E, S, device=dev)
@@ -147,7 +152,6 @@ class InsertionCommand(CommandTerm):
         self._half_len = PEG_HALF_LEN
 
         if self._is_sorter:
-            assert N == S, "sorter pieces map 1:1 onto holes (no distractor pegs)"
             layout = load_sorter_layout()
             self._cube_half = layout.half_size
             self._piece_half = torch.tensor(

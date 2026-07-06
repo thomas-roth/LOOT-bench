@@ -323,7 +323,7 @@ def extrude(poly: np.ndarray, frame: np.ndarray, d0: float, d1: float) -> list[T
 
 
 def face_frame(axis_out: np.ndarray) -> np.ndarray:
-    """Same (c0, c1, axis_out) convention as ``insertion.assets._frame_axes``."""
+    """Same (c0, c1, axis_out) convention as ``insertion.assets.frame_axes``."""
     a = axis_out / np.linalg.norm(axis_out)
     t = np.array([0.0, 0.0, 1.0]) if abs(a[2]) < 0.9 else np.array([1.0, 0.0, 0.0])
     c0 = np.cross(t, a)

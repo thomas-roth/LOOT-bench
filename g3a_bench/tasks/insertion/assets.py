@@ -58,9 +58,10 @@ DECOR_XML = Path(__file__).resolve().parent / "decor" / "workstation_decor.xml"
 TRAY_POS = (0.16, 0.0, 0.0)
 TRAY_SPAWN_HALF = (0.05, 0.12)
 
-# Bore wall thickness and base-plate thickness.
+# Bore wall thickness, base-plate half thickness and half x/y extents.
 WALL_T = 0.006
 PLATE_HALF_Z = 0.011
+PLATE_HALF_XY = (0.055, 0.05)
 # Wall boxes forming a circle bore (the polygonal shapes use their own nsides).
 CIRCLE_BORE_SEGMENTS = 16
 # Horizontal bore: centre height above the table and how far its mouth
@@ -278,10 +279,6 @@ def socket_layout(variant: InsertionVariantCfg) -> list[SocketFrame]:
     return frames
 
 
-def _plate_half_xy(variant: InsertionVariantCfg) -> tuple[float, float]:
-    return 0.055, 0.05
-
-
 # --- Specs. ---------------------------------------------------------------
 
 
@@ -341,11 +338,8 @@ def _add_walls(body, frame: SocketFrame, bore_depth: float, rgba) -> None:
     for j, (pos, quat, size) in enumerate(
         _wall_boxes(frame.mouth, frame.axis_out, frame.shape, bore_depth)
     ):
-        # Mouth y in the geom name is a leftover disambiguator from the old
-        # multi-socket boards; walls are now only built for single-socket
-        # boards and the two-sheet rings (the STL sorter builds no walls).
         body.add_geom(
-            name=f"{body.name}_wall_{int(frame.mouth[1] * 1e4)}_{j}",
+            name=f"{body.name}_wall_{j}",
             type=mujoco.mjtGeom.mjGEOM_BOX,
             pos=pos,
             quat=quat,
@@ -377,7 +371,7 @@ def get_board_spec(variant: InsertionVariantCfg, name: str = "board") -> mujoco.
             rgba=BOARD_RGBA,
         )
     else:
-        hx, hy = _plate_half_xy(variant)
+        hx, hy = PLATE_HALF_XY
         board.add_geom(
             name=f"{name}_plate",
             type=mujoco.mjtGeom.mjGEOM_BOX,
