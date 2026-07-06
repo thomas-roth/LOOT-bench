@@ -66,6 +66,15 @@ H_MOUTH_X = 0.06
 SORTER_SPACING = 0.072
 # Thickness of each sheet in the two-sheet variant.
 SHEET_HALF_Z = 0.008
+# Vertical clearance between the fixed bottom sheet and the movable top
+# sheet resting on it.
+SHEET_GAP = 0.001
+# Root (body-origin) height of the movable top sheet once it rests on the
+# fixed bottom sheet, and the height of the resulting through-hole's mouth
+# (its top surface) -- shared by socket_layout() and the reset placement in
+# InsertionCommand._resample_command so they can't drift apart.
+SHEET_TOP_ROOT_Z = 3 * SHEET_HALF_Z + SHEET_GAP
+SHEET_MOUTH_Z = SHEET_TOP_ROOT_Z + SHEET_HALF_Z
 
 
 @dataclass(frozen=True)
@@ -162,6 +171,15 @@ def socket_layout(variant: InsertionVariantCfg) -> list[SocketFrame]:
         s = variant.sockets[0]
         mouth = np.array([-H_MOUTH_X, 0.0, H_BORE_CENTER_Z])
         frames.append(SocketFrame(mouth, np.array([-1.0, 0.0, 0.0]), s.shape, s.color))
+        return frames
+
+    if variant.kind == "two_sheet":
+        # The through-hole's mouth is the top surface of the movable sheet
+        # once it rests on the fixed bottom sheet -- see get_sheet_board_spec
+        # / get_sheet_spec and the SHEET_MOUTH_Z derivation above.
+        s = variant.sockets[0]
+        mouth = np.array([0.0, 0.0, SHEET_MOUTH_Z])
+        frames.append(SocketFrame(mouth, np.array([0.0, 0.0, 1.0]), s.shape, s.color))
         return frames
 
     plate_top = 2 * PLATE_HALF_Z

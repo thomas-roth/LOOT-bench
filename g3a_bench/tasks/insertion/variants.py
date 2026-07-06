@@ -54,8 +54,14 @@ class ShapeGeom:
         return self.circumradius * math.cos(math.pi / self.nsides)
 
 
-# Distinct, tightly-sized cross sections. Sizes are chosen so a peg does not
-# drop into a neighbouring hole (different circum/ inradius signatures).
+# Distinct cross sections, each a tight fit in its own matching bore. Shape
+# matching for scoring is enforced by index (peg i is only ever checked
+# against socket i, see InsertionCommand), not by physical exclusion -- these
+# sizes do NOT guarantee a peg can't physically slide into a neighbouring,
+# differently-shaped hole (e.g. the hexagon peg is small enough to enter the
+# circle bore). Making that physically impossible for every shape pair needs
+# a coordinated resize of all shapes plus the board/tray layout, verified in
+# sim; out of scope here.
 SHAPE_GEOMS: dict[Shape, ShapeGeom] = {
     "circle": ShapeGeom(nsides=24, circumradius=0.0140),
     "square": ShapeGeom(nsides=4, circumradius=0.0130 * math.sqrt(2.0)),

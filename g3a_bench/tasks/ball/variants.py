@@ -33,9 +33,13 @@ BALL_MASS = 0.03
 TARGET_X = {"golf": 0.85, "push": 0.68, "throw": 0.85}
 # Ball spawn centre.
 BALL_SPAWN_X = 0.27
-# Throw wall (between ball and target).
+# Throw wall (between ball and target). Half-extents shared by the wall's geom
+# (assets.py) and its collision-box termination check (mdp/terminations.py) so
+# they can't drift apart.
 WALL_X = 0.42
 WALL_HEIGHT = 0.20
+WALL_HALF_X = 0.02
+WALL_HALF_Y = 0.25
 # Raised platform top for hole variants (the pit drops to the floor below).
 PLATFORM_Z = 0.03
 HOLE_RADIUS = 0.045

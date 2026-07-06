@@ -18,6 +18,7 @@ from mjlab.managers.scene_entity_config import SceneEntityCfg
 
 from g3a_bench.tasks.ball.variants import (
     BALL_RADIUS,
+    BALL_SPAWN_X,
     HOLE_RADIUS,
     BallVariantCfg,
 )
@@ -31,7 +32,7 @@ if TYPE_CHECKING:
 class BallCommandCfg(CommandTermCfg):
     ball_name: str
     variant: BallVariantCfg
-    spawn_x_range: tuple[float, float] = (0.24, 0.30)
+    spawn_x_range: tuple[float, float] = (BALL_SPAWN_X - 0.03, BALL_SPAWN_X + 0.03)
     spawn_y_range: tuple[float, float] = (-0.08, 0.08)
     grasp_cfg: SceneEntityCfg | None = None
 

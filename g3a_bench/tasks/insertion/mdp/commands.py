@@ -27,7 +27,7 @@ from mjlab.utils.lab_api.math import quat_from_euler_xyz
 
 from g3a_bench.tasks.insertion.assets import (
     BOARD_POS,
-    SHEET_HALF_Z,
+    SHEET_TOP_ROOT_Z,
     TRAY_POS,
     TRAY_SPAWN_HALF,
     socket_layout,
@@ -246,7 +246,7 @@ class InsertionCommand(CommandTerm):
             off = 0.03 + torch.rand(n, device=dev) * 0.02
             sx = bottom[:, 0] + off * torch.cos(ang)
             sy = bottom[:, 1] + off * torch.sin(ang)
-            sz = origins[:, 2] + 2 * SHEET_HALF_Z + SHEET_HALF_Z + 0.001
+            sz = origins[:, 2] + SHEET_TOP_ROOT_Z
             pos = torch.stack([sx, sy, sz], dim=-1)
             quat = quat_from_euler_xyz(zeros, zeros, torch.zeros(n, device=dev))
             self.sheet.write_root_link_pose_to_sim(
