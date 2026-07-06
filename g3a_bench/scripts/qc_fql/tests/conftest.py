@@ -1,29 +1,35 @@
-"""Shared weight-loading helpers for JAX->PyTorch gold-data tests."""
+"""Weight loaders shared by the gold-data tests.
 
-import os
-import sys
+The whole verification method of this port is: initialize the torch network,
+overwrite its parameters with the flax reference's saved parameters, feed
+the reference's saved inputs, and demand matching outputs. These helpers do
+the overwrite. Layout facts they encode (all observable in the gen_gold
+.npz files):
+
+- flax Dense kernels are (in, out); torch Linear weights are (out, in) --
+  hence the transpose on every kernel copy.
+- flax names submodules positionally (Dense_0, LayerNorm_0, ...) in
+  creation order, which matches our MLP's `layers`/`norms` list order.
+- flax only creates LayerNorm params for layers that apply one (all but the
+  last, unless activate_final); our MLP allocates a norm slot per layer for
+  zip-ability, so the loaders stop at the flax count -- the extra slot has
+  no gold data and is never applied in forward anyway.
+- flax's nn.vmap ensemble (Value with num_ensembles > 1) stores every param
+  with a leading ensemble axis; sliced per head here. With num_ensembles ==
+  1 the reference skips vmap and the axis disappears.
+"""
+
 from typing import cast
 
 import numpy as np
 import torch
 import torch.nn as nn
 
-# Make the qc_fql package importable from tests/
-_qc_fql_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if _qc_fql_dir not in sys.path:
-    sys.path.insert(0, _qc_fql_dir)
-
-from networks.mlp import MLP  # noqa: E402
-from networks.value import Value  # noqa: E402
+from g3a_bench.scripts.qc_fql.networks.mlp import MLP
+from g3a_bench.scripts.qc_fql.networks.value import Value
 
 
 def load_jax_mlp_weights(mlp: MLP, gold: np.lib.npyio.NpzFile, prefix: str = ""):
-    """Copy JAX Dense weights into an MLP's Linear layers in order.
-
-    JAX stores Dense kernels as ``(in_features, out_features)``.
-    PyTorch ``nn.Linear`` stores weights as ``(out_features, in_features)``.
-    So we transpose the kernel on load.
-    """
     for i, module in enumerate(mlp.layers):
         layer = cast(nn.Linear, module)
         jax_kernel = gold[f"{prefix}Dense_{i}/kernel"]
@@ -31,17 +37,18 @@ def load_jax_mlp_weights(mlp: MLP, gold: np.lib.npyio.NpzFile, prefix: str = "")
         layer.weight.data.copy_(torch.from_numpy(jax_kernel.T))
         layer.bias.data.copy_(torch.from_numpy(jax_bias))
 
+    num_applied_norms = len(mlp.layers) - 1 + int(mlp.activate_final)
+    for i, module in enumerate(mlp.norms[:num_applied_norms]):
+        if not isinstance(module, nn.LayerNorm):
+            continue
+        # flax calls them scale/bias; torch calls them weight/bias.
+        module.weight.data.copy_(torch.from_numpy(gold[f"{prefix}LayerNorm_{i}/scale"]))
+        module.bias.data.copy_(torch.from_numpy(gold[f"{prefix}LayerNorm_{i}/bias"]))
+
 
 def load_jax_value_weights(
     value: Value, gold: np.lib.npyio.NpzFile, prefix: str = "value_net/"
 ):
-    """Copy JAX ensemble `Value` weights into a PyTorch `Value`'s heads.
-
-    JAX's `nn.vmap` ensemble stacks an extra leading axis of size
-    `num_ensembles` on every param (`Dense_i/kernel`: `(num_ensembles, in,
-    out)`) -- sliced per head below. With `num_ensembles == 1`, vmap isn't
-    applied at all, so params look like a plain (unstacked) MLP's.
-    """
     num_ensembles = len(value.heads)
     for i, head_module in enumerate(value.heads):
         head = cast(MLP, head_module)
@@ -50,15 +57,12 @@ def load_jax_value_weights(
             jax_kernel = gold[f"{prefix}Dense_{j}/kernel"]
             jax_bias = gold[f"{prefix}Dense_{j}/bias"]
             if num_ensembles > 1:
+                # Slice head i off the vmap ensemble axis.
                 jax_kernel = jax_kernel[i]
                 jax_bias = jax_bias[i]
             layer.weight.data.copy_(torch.from_numpy(jax_kernel.T))
             layer.bias.data.copy_(torch.from_numpy(jax_bias))
 
-        # JAX only creates a LayerNorm for layers that actually apply one
-        # (all but the last, unless `activate_final`); our MLP always
-        # allocates one per layer for simplicity, but leaves the last
-        # unused, so only the JAX-matching prefix has gold data to load.
         num_applied_norms = len(head.layers) - 1 + int(head.activate_final)
         for j, module in enumerate(head.norms[:num_applied_norms]):
             if not isinstance(module, nn.LayerNorm):

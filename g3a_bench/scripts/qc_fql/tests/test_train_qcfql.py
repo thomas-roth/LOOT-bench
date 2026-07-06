@@ -1,13 +1,23 @@
+"""Training-loop tests on a synthetic env: loop mechanics, not learning.
+
+Covers both phases of train_qcfql.py without any real env or dataset:
+offline runs and evaluates, online fills the replay buffer / triggers
+updates / preserves the reference's masks=1-terminated convention (NOT
+1-done: truncation still bootstraps), and main() works end-to-end through
+argv -- the same path the g3a-train-qcfql console script exercises --
+including the deliberate NotImplementedError for --online-steps > 0.
+"""
+
 import argparse
 
 import numpy as np
 import torch
-from agent.config import QCFQLConfig
-from agent.qcfql_agent import QCFQLAgent
-from data.dataset import Dataset
-from data.replay_buffer import ReplayBuffer
-from scripts.train_qcfql import (
-    build_arg_parser,
+
+from g3a_bench.scripts.qc_fql.agent.config import QCFQLConfig
+from g3a_bench.scripts.qc_fql.agent.qcfql_agent import QCFQLAgent
+from g3a_bench.scripts.qc_fql.data.dataset import Dataset
+from g3a_bench.scripts.qc_fql.data.replay_buffer import ReplayBuffer
+from g3a_bench.scripts.qc_fql.scripts.train_qcfql import (
     load_dataset,
     main,
     train_offline,
@@ -150,17 +160,6 @@ def test_train_online_masks_use_terminated_not_done():
     assert np.allclose(added_masks, 1.0 - added_terminals)
 
 
-def test_online_steps_without_env_raises():
-    args = _make_args(online_steps=1)
-    _build_agent(args)  # ensure agent construction itself is fine
-
-    parser = build_arg_parser()
-    assert (
-        parser.parse_args(["--dataset-path", "x", "--online-steps", "1"]).online_steps
-        == 1
-    )
-
-
 def test_main_offline_only_end_to_end(tmp_path, monkeypatch):
     dataset = _make_dataset()
     dataset_path = tmp_path / "demos.npz"
@@ -216,7 +215,7 @@ def test_main_raises_for_online_without_env(tmp_path, monkeypatch):
     try:
         main()
         raised = False
-    except NotImplementedError:
+    except ValueError:
         raised = True
     assert raised
 

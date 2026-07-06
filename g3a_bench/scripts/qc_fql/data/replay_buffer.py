@@ -69,6 +69,8 @@ class ReplayBuffer(Dataset):
         for k in self.data:
             self.data[k][self.pointer] = transition[k]
         self.pointer = (self.pointer + 1) % self.max_size
+        # TODO: this caps size at max_size-1 (off-by-one in the original qc).
+        # Try fixing: self.size = min(self.max_size, max(self.pointer, self.size))
         self.size = max(self.pointer, self.size)
 
     def clear(self):
