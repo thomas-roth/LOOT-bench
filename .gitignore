@@ -1,4 +1,6 @@
-# Output files (e.g., videos)
+# Output files (e.g., videos, test renders)
+logs/
+wandb/
 out/
 
 # Python-generated files
@@ -14,3 +16,6 @@ wheels/
 
 # IDE
 .idea/
+
+# Cache
+.ruff_cache/

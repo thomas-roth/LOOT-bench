@@ -16,7 +16,7 @@
    ```powershell
    ./install.ps1
    ```
-   These scripts automatically install the appropriate PyTorch build based on the `nvidia-smi` CUDA version. Supported options are: `cu129`, `cu130`, or `cpu`.
+   These scripts automatically install the appropriate PyTorch build based on the `nvidia-smi` CUDA version. Supported options are: `cu128` or `cpu`.
 
 ## Code Quality Checks
 The project uses [Ruff](https://www.astral.sh/ruff) for linting and formatting and [Pyright](https://microsoft.github.io/pyright) for type checking.
@@ -31,7 +31,7 @@ To run the formatter on the current working directory (recursively):
 uv run ruff format
 ```
 
-To run the type checker on the `src` directory:
+To run the type checker on the `g3a_bench` directory:
 ```bash
 uv run pyright
 ```
@@ -46,4 +46,30 @@ uv run pre-commit
 To manually run the pre-commit hooks on all files:
 ```bash
 uv run pre-commit run --all-files
+```
+
+## Example G3a-Cube-Stack3-Dk1_uni
+View:
+```shell
+uv run g3a-play G3a-Cube-Stack3-Dk1_uni --agent zero --viewer native --num-envs 1 --no-terminations True
+```
+
+Train:
+```shell
+uv run g3a-train G3a-Cube-Stack3-Dk1_uni --env.scene.num-envs 1024
+```
+
+Play:
+```shell
+uv run g3a-play G3a-Cube-Stack3-Dk1_uni --checkpoint-file "logs/rsl_rl/cube_stack3_dk1_uni/2026-06-13_13-39-28/model_500.pt"
+```
+
+Continue training:
+```shell
+uv run g3a-train G3a-Cube-Stack3-Dk1_uni --env.scene.num-envs 1024 --agent.resume True --agent.load-run 2026-06-13_13-39-28
+```
+
+Play while training (can't use `uv run` as it is blocked by trainging process):
+```shell
+& ".venv\Scripts\python.exe" g3a_bench/scripts/play.py G3a-Cube-Stack3-Dk1_uni --checkpoint-file "logs/rsl_rl/cube_stack3_dk1_uni/2026-06-13_13-39-28/model_500.pt"
 ```

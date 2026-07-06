@@ -1,6 +1,6 @@
 line-length = 88
 target-version = "py310"
-exclude = ["ext"]
+exclude = ["examples"]
 
 [lint]
 select = [
@@ -16,7 +16,8 @@ select = [
 ]
 ignore = [
 	"E501", # line length handled by formatter
-	"SIM102" # nested/collapsible if statements
+	"SIM102", # nested/collapsible if statements
+	"W293", # blank line contains whitespace
 ]
 fixable = ["ALL"]
 
