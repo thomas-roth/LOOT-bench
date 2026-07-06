@@ -25,14 +25,22 @@ from mjlab.entity import Entity
 from mjlab.managers.command_manager import CommandTerm, CommandTermCfg
 from mjlab.utils.lab_api.math import quat_from_euler_xyz
 
+from g3a_bench.tasks.common.debug_markers import MARKER_INFLATE, marker_color
 from g3a_bench.tasks.insertion.assets import (
     BOARD_POS,
+    PALETTE,
     SHEET_TOP_ROOT_Z,
     TRAY_POS,
     TRAY_SPAWN_HALF,
+    frame_axes,
     socket_layout,
 )
-from g3a_bench.tasks.insertion.variants import PEG_HALF_LEN, InsertionVariantCfg
+from g3a_bench.tasks.insertion.variants import (
+    PEG_HALF_LEN,
+    SHAPE_GEOMS,
+    InsertionVariantCfg,
+    Shape,
+)
 
 if TYPE_CHECKING:
     from mjlab.envs.manager_based_rl_env import ManagerBasedRlEnv
@@ -91,6 +99,12 @@ class InsertionCommand(CommandTerm):
             origins.unsqueeze(1) + board_pos + mouth_local.unsqueeze(0)
         )  # (E, S, 3)
         self.socket_axis_w = axis_local.unsqueeze(0).expand(E, S, 3).contiguous()
+
+        # Per-socket marker data for debug vis: peg shape/color and the bore
+        # cross-section basis (columns c0, c1, axis_out), matching the walls.
+        self._socket_shapes: tuple[Shape, ...] = tuple(f.shape for f in frames)
+        self._socket_colors = tuple(PALETTE[f.color] for f in frames)
+        self._socket_mats = [np.stack(frame_axes(f.axis_out), axis=1) for f in frames]
 
         self.insert_depth = variant.insert_depth
         self.lateral_tol = variant.lateral_tol
@@ -264,13 +278,39 @@ class InsertionCommand(CommandTerm):
         if not env_indices:
             return
         for batch in env_indices:
+            success = bool(self.success[batch] > 0.5)
             for s in range(self.num_sockets):
                 mouth = self.socket_mouth_w[batch, s].cpu().numpy()
+                axis = self.socket_axis_w[batch, s].cpu().numpy()
                 done = bool(self.inserted[batch, s] > 0.5)
-                color = (0.2, 0.8, 0.2, 0.5) if done else (0.9, 0.9, 0.2, 0.4)
-                visualizer.add_sphere(
-                    center=mouth, radius=0.015, color=color, label=f"bore_{batch}_{s}"
-                )
+                color = marker_color(self._socket_colors[s], done, success)
+                # Ghost peg at the minimum successful insertion: tip at
+                # insert_depth below the mouth, extending one peg length out.
+                tip = mouth - axis * self.insert_depth
+                top = tip + axis * (2.0 * self._half_len)
+                shape = self._socket_shapes[s]
+                geom = SHAPE_GEOMS[shape]
+                label = f"bore_{batch}_{s}"
+                if shape in ("square", "rect"):
+                    half_xy = geom.rect_half or (geom.inradius, geom.inradius)
+                    visualizer.add_box(
+                        center=(tip + top) / 2.0,
+                        size=np.array([half_xy[0], half_xy[1], self._half_len])
+                        + MARKER_INFLATE,
+                        mat=self._socket_mats[s],
+                        color=color,
+                        label=label,
+                    )
+                else:
+                    # Triangle/hexagon have no polygon-prism primitive; a
+                    # cylinder of the circumradius is the closest hull.
+                    visualizer.add_cylinder(
+                        start=tip,
+                        end=top,
+                        radius=geom.circumradius + MARKER_INFLATE,
+                        color=color,
+                        label=label,
+                    )
 
 
 def get_command(env: ManagerBasedRlEnv, name: str) -> InsertionCommand:

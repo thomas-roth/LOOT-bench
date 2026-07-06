@@ -22,6 +22,7 @@ from g3a_bench.tasks.ball.variants import (
     HOLE_RADIUS,
     BallVariantCfg,
 )
+from g3a_bench.tasks.common.debug_markers import marker_color
 
 if TYPE_CHECKING:
     from mjlab.envs.manager_based_rl_env import ManagerBasedRlEnv
@@ -145,9 +146,18 @@ class BallCommand(CommandTerm):
         for batch in env_indices:
             center = self.target_pos_w[batch].cpu().numpy()
             done = bool(self.at_target[batch] > 0.5)
-            color = (0.2, 0.8, 0.2, 0.5) if done else (0.9, 0.9, 0.2, 0.4)
-            visualizer.add_sphere(
-                center=center,
+            success = bool(self.success[batch] > 0.5)
+            color = marker_color((0.9, 0.9, 0.2, 1.0), done, success)
+            # Success is an xy-radius test on the surface: draw a flat disk of
+            # the success radius sitting on it (lifted slightly to avoid
+            # z-fighting), not a half-buried sphere.
+            start = center.copy()
+            start[2] += 0.0005
+            end = center.copy()
+            end[2] += 0.003
+            visualizer.add_cylinder(
+                start=start,
+                end=end,
                 radius=self.target_radius,
                 color=color,
                 label=f"target_{batch}",

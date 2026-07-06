@@ -91,8 +91,12 @@ def _normalize(v: np.ndarray) -> np.ndarray:
     return v / np.linalg.norm(v)
 
 
-def _frame_axes(axis_out: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Right-handed basis (c0, c1, axis_out) spanning the bore cross section."""
+def frame_axes(axis_out: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Right-handed basis (c0, c1, axis_out) spanning the bore cross section.
+
+    Public because the command's debug visualization orients its box markers
+    with the same basis as the bore walls built here.
+    """
     a = _normalize(axis_out)
     t = np.array([0.0, 0.0, 1.0]) if abs(a[2]) < 0.9 else np.array([1.0, 0.0, 0.0])
     c0 = _normalize(np.cross(t, a))
@@ -121,7 +125,7 @@ def _wall_boxes(
     bore_depth: float,
 ) -> list[tuple[np.ndarray, np.ndarray, tuple[float, float, float]]]:
     """Boxes forming a polygonal bore. Returns (pos, quat_wxyz, half_size)."""
-    c0, c1, a = _frame_axes(axis_out)
+    c0, c1, a = frame_axes(axis_out)
     center = mouth - a * (bore_depth / 2.0)  # chimney centre along the bore
     geom = SHAPE_GEOMS[shape]
     out: list[tuple[np.ndarray, np.ndarray, tuple[float, float, float]]] = []

@@ -21,6 +21,7 @@ import math
 from dataclasses import dataclass
 from typing import cast
 
+import numpy as np
 import torch
 from mjlab.entity import Entity
 from mjlab.envs.manager_based_rl_env import ManagerBasedRlEnv
@@ -28,7 +29,10 @@ from mjlab.managers.command_manager import CommandTerm, CommandTermCfg
 from mjlab.utils.lab_api.math import quat_from_euler_xyz
 from mjlab.viewer.debug_visualizer import DebugVisualizer
 
+from g3a_bench.tasks.common.debug_markers import MARKER_INFLATE, marker_color
+from g3a_bench.tasks.cube.assets import PALETTE
 from g3a_bench.tasks.cube.variants import (
+    FORM_HALF_EXTENTS,
     CubeVariantCfg,
     form_height,
 )
@@ -304,13 +308,36 @@ class PieceArrangementCommand(CommandTerm):
         if not env_indices:
             return
         for batch in env_indices:
-            for i in range(self.num_slots):
+            success = bool(self.success[batch] > 0.5)
+            if self.variant.arrangement == "domino":
+                # Dominos must align their thin side with the row direction.
+                yaw = float(self.row_yaw[batch])
+                c, s = math.cos(yaw), math.sin(yaw)
+                mat = np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]])
+            else:
+                # Stack success is yaw-free.
+                mat = np.eye(3)
+            for i, piece in enumerate(self.variant.goal_pieces):
                 goal = self.slot_goal_pos[batch, i].cpu().numpy()
                 placed = bool(self.slot_at_goal[batch, i] > 0.5)
-                color = (0.2, 0.8, 0.2, 0.4) if placed else (0.9, 0.9, 0.2, 0.3)
-                visualizer.add_sphere(
-                    center=goal,
-                    radius=0.02,
-                    color=color,
-                    label=f"slot_goal_{batch}_{i}",
-                )
+                color = marker_color(PALETTE[piece.color], placed, success)
+                half = FORM_HALF_EXTENTS[piece.form]
+                label = f"slot_goal_{batch}_{i}"
+                if piece.form == "cylinder":
+                    radius, hz = half
+                    axis = np.array([0.0, 0.0, hz + MARKER_INFLATE])
+                    visualizer.add_cylinder(
+                        start=goal - axis,
+                        end=goal + axis,
+                        radius=radius + MARKER_INFLATE,
+                        color=color,
+                        label=label,
+                    )
+                else:
+                    visualizer.add_box(
+                        center=goal,
+                        size=np.array(half) + MARKER_INFLATE,
+                        mat=mat,
+                        color=color,
+                        label=label,
+                    )
