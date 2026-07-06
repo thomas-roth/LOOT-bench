@@ -9,20 +9,33 @@ families:
     robot, on a cantilevered tube)
 - **two-sheet alignment**: the bore only lines up after a movable top sheet is
   slid over the fixed bottom sheet, then the peg goes through both
-- **shape sorter**: a board with several differently shaped bores where every
-  peg only fits (and only scores in) its matching bore
+- **shape sorter**: a free-standing hollow cube with one shaped hole per face
+  plus one piece per shape. The cube spawns at a random flat orientation. The
+  commanded hole may face the table, so the robot may first have to reorient
+  the cube. A single commanded piece must be pushed through its matching hole;
+  the other pieces are distractors.
 
 ## Geometry
 
-Pegs and bores share one cross-section description (`SHAPE_GEOMS` in
-`variants.py`). A peg is a convex prism — `circle` is a cylinder, `square`/
-`rect` are boxes, `triangle`/`hexagon` are convex-hull meshes of their corner
-vertices. The matching bore is a ring of wall boxes with apothem
-`peg_inradius + clearance` (1.5 mm), so the peg is a tight fit and a wrong peg
-does not drop in. Boards are *fixed-base* entities (mjlab auto-wraps them as
-mocap props pinned to the env origin); pegs and the movable sheet are free
-bodies. `socket_layout` (`assets.py`) produces both the wall geometry and the
-goal poses used by the command, so they can never drift apart.
+For `peg`/`two_sheet`, pegs and bores share one cross-section description
+(`SHAPE_GEOMS` in `variants.py`). A peg is a convex prism — `circle` is a
+cylinder, `square`/`rect` are boxes, `triangle`/`hexagon` are convex-hull
+meshes of their corner vertices. The matching bore is a ring of wall boxes
+with apothem `peg_inradius + clearance` (1.5 mm), so the peg is a tight fit
+and a wrong peg does not drop in. Boards are *fixed-base* entities (mjlab
+auto-wraps them as mocap props pinned to the env origin); pegs and the
+movable sheet are free bodies. `socket_layout` (`assets.py`) produces both
+the wall geometry and the goal poses used by the command, so they can never
+drift apart.
+
+The sorter is built from STL/XML assets in `xmls/` (generated once from the
+CAD STLs by `xmls/make_sorter_assets.py`). MuJoCo collides mesh geoms as their
+convex hull, so the holed cube and the star piece are decomposed into exact
+convex parts. The pipeline also emits `xmls/sorter_layout.json`: hole mouths/axes,
+wall thickness, and piece dimensions, which is the single source for both the
+collision geometry and the success metric. The cube and all pieces are free
+bodies; the command term drops them at reset and recomputes the hole frames from
+the cube's live pose every step.
 
 ## Insertion success
 
@@ -39,14 +52,25 @@ gripper open. The episode terminates successfully on the first step all of
 that holds; the `success` reward and `episode_success` metric use the same
 condition.
 
+The sorter instead uses a **latched mouth-plane crossing**: the commanded
+piece counts as inserted the first step it moves (roughly axis-aligned,
+laterally inside the hole channel) from outside the mouth to past the inner
+wall plane of *its own* hole. The latch survives the piece tumbling around
+inside the hollow cube afterwards. Success = target piece latched + at rest
++ gripper open; the other pieces are ignored.
+
 ## Observations (state-based)
 
 - joint positions/velocities, last action
 - all peg positions relative to the grasp site
 - bore-mouth deltas per socket (mouth minus assigned peg position)
 - per-socket inserted flags
-- the command: bore mouth positions (env-origin relative) and bore axes
+- the command: bore mouth positions (env-origin relative) and bore axes;
+  sorter only: plus a one-hot selector of the commanded target piece
 - two-sheet only: top-sheet position relative to grasp and to the bore
+
+For the sorter, mouth positions and axes track the cube's live pose, so the
+policy sees where the holes currently are while it reorients the cube.
 
 ## Rewards
 
@@ -54,7 +78,8 @@ Sparse by design, to pair with a demonstration pipeline (GELLO teleop →
 offline-to-online RL) that supplies the exploration dense shaping would
 otherwise provide:
 
-- `inserted_count`: fraction of pegs correctly inserted (position only)
+- `inserted_count`: fraction of pegs correctly inserted (position only);
+  sorter: 1.0 once the commanded target piece is latched in
 - `success`: bonus while every peg is inserted, at rest, and released
 - penalties: action rate, joint position limits, joint velocity hinge
   (with the standard curriculum)
@@ -68,11 +93,16 @@ otherwise provide:
 | `G3a-Insertion-PegHex`         | hexagonal peg into a vertical hex bore            |
 | `G3a-Insertion-PegCylinderH`   | cylinder peg into a horizontal bore facing robot  |
 | `G3a-Insertion-TwoSheet`       | align the top sheet, then insert through both     |
-| `G3a-Insertion-Sorter3`        | shape sorter: circle, square, triangle            |
-| `G3a-Insertion-Sorter4`        | shape sorter: circle, square, triangle, hexagon   |
+| `G3a-Insertion-Sorter3`        | shape sorter: 3 pieces (circle, square, triangle) |
+| `G3a-Insertion-Sorter6`        | shape sorter: all 6 pieces (+ rect, hexagon, star)|
+
+Both sorter variants command a single target piece per episode (the cube
+interior is too small for sequential inserts); the difficulty differences are
+the clutter count, the shape diversity one policy must master, and the target
+being sampled from 3 vs 6 shapes.
 
 Train e.g. with:
 
 ```bash
-uv run g3a-train G3a-Insertion-Sorter4-Dk1_uni --env.scene.num-envs 2048
+uv run g3a-train G3a-Insertion-Sorter6-Dk1_uni --env.scene.num-envs 2048
 ```

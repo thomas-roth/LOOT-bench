@@ -34,6 +34,8 @@ from g3a_bench.tasks.insertion.assets import (
     get_peg_spec,
     get_sheet_board_spec,
     get_sheet_spec,
+    get_sorter_piece_spec,
+    get_sorter_spec,
 )
 from g3a_bench.tasks.insertion.variants import InsertionVariantCfg
 
@@ -57,6 +59,7 @@ def make_insertion_env_cfg(
     concrete ``ManipulatorInterface`` before registering the task.
     """
     two_sheet = variant.kind == "two_sheet"
+    sorter = variant.kind == "sorter"
     peg_names = tuple(f"peg_{i}" for i in range(len(variant.peg_shapes)))
     sheet_name = "sheet" if two_sheet else None
 
@@ -76,6 +79,9 @@ def make_insertion_env_cfg(
             spec_fn=lambda v=variant: get_sheet_board_spec(v), init_state=board_init
         )
         entities["sheet"] = EntityCfg(spec_fn=lambda v=variant: get_sheet_spec(v))
+    elif sorter:
+        # Free body; the command term places it on every reset.
+        entities["board"] = EntityCfg(spec_fn=get_sorter_spec)
     else:
         entities["board"] = EntityCfg(
             spec_fn=lambda v=variant: get_board_spec(v), init_state=board_init
@@ -83,9 +89,14 @@ def make_insertion_env_cfg(
     for name, shape, color in zip(
         peg_names, variant.peg_shapes, variant.peg_colors, strict=True
     ):
-        entities[name] = EntityCfg(
-            spec_fn=lambda s=shape, c=color, n=name: get_peg_spec(s, c, n)
-        )
+        if sorter:
+            entities[name] = EntityCfg(
+                spec_fn=lambda s=shape, c=color: get_sorter_piece_spec(s, c)
+            )
+        else:
+            entities[name] = EntityCfg(
+                spec_fn=lambda s=shape, c=color, n=name: get_peg_spec(s, c, n)
+            )
 
     actor_terms = {
         "joint_pos": ObservationTermCfg(
@@ -112,11 +123,15 @@ def make_insertion_env_cfg(
             func=ins_mdp.socket_inserted_flags,
             params={"command_name": COMMAND_NAME},
         ),
-        # No generated_commands term: the board is pinned to the env origin,
-        # so InsertionCommand.command is constant per variant; the actual
-        # signal is socket_deltas above.
+        # Fixed boards get no generated_commands term (their command tensor is
+        # constant per variant); the sorter command is live -- cube mouths/axes
+        # move with the free cube and it carries the commanded-target one-hot.
         "actions": ObservationTermCfg(func=mdp.last_action),
     }
+    if sorter:
+        actor_terms["command"] = ObservationTermCfg(
+            func=mdp.generated_commands, params={"command_name": COMMAND_NAME}
+        )
     if two_sheet:
         actor_terms["sheet_rel_grasp"] = ObservationTermCfg(
             func=ins_mdp.sheet_rel_grasp,
@@ -155,11 +170,14 @@ def make_insertion_env_cfg(
 
     events = {
         **robot_reset_events(),
-        "reset_board": fixed_prop_reset_event("board"),
         "reset_decor": fixed_prop_reset_event("decor"),
         "reset_table": fixed_prop_reset_event("table"),
         "fingertip_friction_slide": fingertip_friction_event(),
     }
+    if not sorter:
+        # The sorter cube is a free body placed by the command term; every
+        # other board is a fixed prop pinned to env_origins + init_state.pos.
+        events["reset_board"] = fixed_prop_reset_event("board")
 
     # Robot end-effector colliding with the parts tray ("Werkbox"). The tray is
     # a child body of the decor entity with real collision geometry (see
@@ -233,9 +251,12 @@ def make_insertion_env_cfg(
         ),
         sim=SimulationCfg(
             # Two-sheet: two 16-box rings stacked on top of each other need
-            # extra contact/constraint headroom.
-            nconmax=120 + 120 * num_pegs + (200 if two_sheet else 0),
-            njmax=900 + 90 * num_pegs + (400 if two_sheet else 0),
+            # extra contact/constraint headroom. Sorter: ~90 convex mesh parts
+            # on the cube colliding with pieces, table and gripper.
+            nconmax=2000
+            if sorter
+            else 120 + 120 * num_pegs + (200 if two_sheet else 0),
+            njmax=8000 if sorter else 900 + 90 * num_pegs + (400 if two_sheet else 0),
             mujoco=MujocoCfg(
                 timestep=0.005,
                 iterations=15,
@@ -245,7 +266,8 @@ def make_insertion_env_cfg(
             ),
         ),
         decimation=4,
-        episode_length_s=10.0 + 8.0 * variant.num_sockets,
+        # Sorter: one commanded insert but the cube may need reorienting first.
+        episode_length_s=30.0 if sorter else 10.0 + 8.0 * variant.num_sockets,
     )
 
     if play:
