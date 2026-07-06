@@ -1,12 +1,16 @@
-"""Termination terms for the ball task category."""
+"""Termination terms for the ball task category.
+
+``ball_hits_wall`` / ``ball_off_platform`` are only registered for the
+variants where they can occur (throw / hole); see ``make_ball_env_cfg``.
+"""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 import torch
 
-from g3a_bench.tasks.ball.mdp.commands import BallCommand
+from g3a_bench.tasks.ball.mdp.commands import get_command as _command
 from g3a_bench.tasks.ball.variants import (
     BALL_RADIUS,
     WALL_HALF_X,
@@ -24,8 +28,7 @@ def ball_at_target(
     command_name: str,
 ) -> torch.Tensor:
     """Ball in target, at rest, and released."""
-    command = cast(BallCommand, env.command_manager.get_term(command_name))
-    return command.success.bool()
+    return _command(env, command_name).success.bool()
 
 
 def ball_out_of_bounds(
@@ -34,35 +37,43 @@ def ball_out_of_bounds(
     max_radius: float = 1.2,
 ) -> torch.Tensor:
     """Ball strayed far from the env origin (e.g. knocked off the table)."""
-    command = cast(BallCommand, env.command_manager.get_term(command_name))
+    command = _command(env, command_name)
     rel = command.ball_pos_w - env.scene.env_origins
     return torch.norm(rel[:, :2], dim=-1) > max_radius
 
 
-def ball_hits_ground(
+def ball_off_platform(
     env: ManagerBasedRlEnv,
     command_name: str,
 ) -> torch.Tensor:
-    """Ball collides with ground (below surface level)."""
-    command = cast(BallCommand, env.command_manager.get_term(command_name))
-    return command.ball_pos_w[:, 2] < command.surface_z - 0.05
+    """Ball dropped below the platform top outside the pit (fell off an edge).
+
+    The pit is a square of half-width ``target_radius``, so the "outside"
+    test uses the Chebyshev distance: a ball dropping into the pit near a
+    corner stays inside it, while a ball on the floor around the platform
+    is beyond it.
+    """
+    command = _command(env, command_name)
+    below = command.ball_pos_w[:, 2] < command.surface_z
+    d_cheb = (
+        (command.ball_pos_w[:, :2] - command.target_pos_w[:, :2])
+        .abs()
+        .max(dim=-1)
+        .values
+    )
+    return below & (d_cheb > command.target_radius)
 
 
 def ball_hits_wall(
     env: ManagerBasedRlEnv,
     command_name: str,
 ) -> torch.Tensor:
-    """Ball collides with throw wall."""
-    command = cast(BallCommand, env.command_manager.get_term(command_name))
-    if not command.variant.has_wall:
-        return torch.zeros(env.num_envs, device=env.device, dtype=torch.bool)
+    """Ball entered the throw wall's box (touched instead of cleared it)."""
+    command = _command(env, command_name)
     rel = command.ball_pos_w - env.scene.env_origins
-    wall_x_min = WALL_X - WALL_HALF_X
-    wall_x_max = WALL_X + WALL_HALF_X
-    wall_y_min = -WALL_HALF_Y
-    wall_y_max = WALL_HALF_Y
-    wall_z_max = WALL_HEIGHT
-    in_wall_x = (rel[:, 0] >= wall_x_min) & (rel[:, 0] <= wall_x_max)
-    in_wall_y = (rel[:, 1] >= wall_y_min) & (rel[:, 1] <= wall_y_max)
-    in_wall_z = (rel[:, 2] >= 0) & (rel[:, 2] <= wall_z_max + BALL_RADIUS)
+    in_wall_x = (rel[:, 0] >= WALL_X - WALL_HALF_X) & (
+        rel[:, 0] <= WALL_X + WALL_HALF_X
+    )
+    in_wall_y = (rel[:, 1] >= -WALL_HALF_Y) & (rel[:, 1] <= WALL_HALF_Y)
+    in_wall_z = (rel[:, 2] >= 0) & (rel[:, 2] <= WALL_HEIGHT + BALL_RADIUS)
     return in_wall_x & in_wall_y & in_wall_z

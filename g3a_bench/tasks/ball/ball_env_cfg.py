@@ -2,19 +2,15 @@
 
 from mjlab.entity import EntityCfg
 from mjlab.envs import ManagerBasedRlEnvCfg, mdp
-from mjlab.envs.mdp import dr
 from mjlab.envs.mdp.actions import JointPositionActionCfg
 from mjlab.managers.action_manager import ActionTermCfg
 from mjlab.managers.command_manager import CommandTermCfg
-from mjlab.managers.curriculum_manager import CurriculumTermCfg
-from mjlab.managers.event_manager import EventTermCfg
 from mjlab.managers.observation_manager import ObservationGroupCfg, ObservationTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.managers.termination_manager import TerminationTermCfg
 from mjlab.scene import SceneCfg
 from mjlab.sim import MujocoCfg, SimulationCfg
-from mjlab.tasks.manipulation import mdp as manipulation_mdp
 from mjlab.terrains import TerrainEntityCfg
 from mjlab.utils.noise import UniformNoiseCfg as Unoise
 from mjlab.viewer import ViewerConfig
@@ -22,10 +18,19 @@ from mjlab.viewer import ViewerConfig
 from g3a_bench.tasks.ball import mdp as ball_mdp
 from g3a_bench.tasks.ball.assets import get_ball_spec, get_field_spec
 from g3a_bench.tasks.ball.variants import BallVariantCfg
+from g3a_bench.tasks.common.env_cfg import (
+    apply_play_overrides,
+    fingertip_friction_event,
+    fixed_prop_reset_event,
+    joint_vel_hinge_curriculum,
+    regularization_rewards,
+    robot_reset_events,
+)
 from g3a_bench.tasks.common.table import TABLE_POS, get_table_spec
 
 COMMAND_NAME = "ball_target"
 
+# The ball task has no dense progress term; both reward modes are identical.
 REWARD_MODE_TERMS: dict[str, frozenset[str]] = {
     "success": frozenset(["success"]),
     "progress": frozenset(["success"]),
@@ -53,8 +58,6 @@ def make_ball_env_cfg(
         ),
     }
 
-    grasp_cfg = SceneEntityCfg("robot", site_names=())  # Set per-robot.
-
     actor_terms = {
         "joint_pos": ObservationTermCfg(
             func=mdp.joint_pos_rel, noise=Unoise(n_min=-0.01, n_max=0.01)
@@ -64,7 +67,11 @@ def make_ball_env_cfg(
         ),
         "ball_rel_grasp": ObservationTermCfg(
             func=ball_mdp.ball_rel_grasp,
-            params={"command_name": COMMAND_NAME, "asset_cfg": grasp_cfg},
+            params={
+                "command_name": COMMAND_NAME,
+                # site_names set per-robot by manipulator wiring.
+                "asset_cfg": SceneEntityCfg("robot", site_names=()),
+            },
             noise=Unoise(n_min=-0.01, n_max=0.01),
         ),
         "ball_to_target": ObservationTermCfg(
@@ -77,9 +84,8 @@ def make_ball_env_cfg(
             params={"command_name": COMMAND_NAME},
             noise=Unoise(n_min=-0.05, n_max=0.05),
         ),
-        "command": ObservationTermCfg(
-            func=mdp.generated_commands, params={"command_name": COMMAND_NAME}
-        ),
+        # No generated_commands term: BallCommand.command is the same
+        # target-minus-ball vector as ball_to_target above.
         "actions": ObservationTermCfg(func=mdp.last_action),
     }
 
@@ -103,54 +109,16 @@ def make_ball_env_cfg(
             variant=variant,
             resampling_time_range=(1.0e9, 1.0e9),
             debug_vis=True,
-            grasp_cfg=grasp_cfg,
+            # site_names set per-robot by manipulator wiring.
+            grasp_cfg=SceneEntityCfg("robot", site_names=()),
         )
     }
 
     events = {
-        "reset_base": EventTermCfg(
-            func=mdp.reset_root_state_uniform,
-            mode="reset",
-            params={"pose_range": {}, "velocity_range": {}},
-        ),
-        "reset_field": EventTermCfg(
-            func=mdp.reset_root_state_uniform,
-            mode="reset",
-            params={
-                "pose_range": {},
-                "velocity_range": {},
-                "asset_cfg": SceneEntityCfg("field"),
-            },
-        ),
-        "reset_robot_joints": EventTermCfg(
-            func=mdp.reset_joints_by_offset,
-            mode="reset",
-            params={
-                "position_range": (0.0, 0.0),
-                "velocity_range": (0.0, 0.0),
-                "asset_cfg": SceneEntityCfg("robot", joint_names=(".*",)),
-            },
-        ),
-        "reset_table": EventTermCfg(
-            func=mdp.reset_root_state_uniform,
-            mode="reset",
-            params={
-                "pose_range": {},
-                "velocity_range": {},
-                "asset_cfg": SceneEntityCfg("table"),
-            },
-        ),
-        "fingertip_friction_slide": EventTermCfg(
-            mode="startup",
-            func=dr.geom_friction,
-            params={
-                "asset_cfg": SceneEntityCfg("robot", geom_names=()),  # Set per-robot.
-                "operation": "abs",
-                "distribution": "uniform",
-                "axes": [0],
-                "ranges": (0.6, 1.5),
-            },
-        ),
+        **robot_reset_events(),
+        "reset_field": fixed_prop_reset_event("field"),
+        "reset_table": fixed_prop_reset_event("table"),
+        "fingertip_friction_slide": fingertip_friction_event(),
     }
 
     # Sparse reward design: the task signal is only the (near-)binary outcome of
@@ -165,21 +133,7 @@ def make_ball_env_cfg(
             weight=5.0,
             params={"command_name": COMMAND_NAME},
         ),
-        # Regularization (not task shaping): keep motions smooth and feasible.
-        "action_rate_l2": RewardTermCfg(func=mdp.action_rate_l2, weight=-0.01),
-        "joint_pos_limits": RewardTermCfg(
-            func=mdp.joint_pos_limits,
-            weight=-10.0,
-            params={"asset_cfg": SceneEntityCfg("robot", joint_names=(".*",))},
-        ),
-        "joint_vel_hinge": RewardTermCfg(
-            func=manipulation_mdp.joint_velocity_hinge_penalty,
-            weight=-0.01,
-            params={
-                "max_vel": 0.5,
-                "asset_cfg": SceneEntityCfg("robot", joint_names=(".*",)),
-            },
-        ),
+        **regularization_rewards(),
     }
 
     terminations = {
@@ -192,29 +146,17 @@ def make_ball_env_cfg(
             func=ball_mdp.ball_out_of_bounds,
             params={"command_name": COMMAND_NAME, "max_radius": 1.2},
         ),
-        "ground_collision": TerminationTermCfg(
-            func=ball_mdp.ball_hits_ground,
+    }
+    if variant.has_platform:
+        terminations["off_platform"] = TerminationTermCfg(
+            func=ball_mdp.ball_off_platform,
             params={"command_name": COMMAND_NAME},
-        ),
-        "wall_collision": TerminationTermCfg(
+        )
+    if variant.has_wall:
+        terminations["wall_collision"] = TerminationTermCfg(
             func=ball_mdp.ball_hits_wall,
             params={"command_name": COMMAND_NAME},
-        ),
-    }
-
-    curriculum = {
-        "joint_vel_hinge_weight": CurriculumTermCfg(
-            func=manipulation_mdp.reward_curriculum,
-            params={
-                "reward_name": "joint_vel_hinge",
-                "stages": [
-                    {"step": 0, "weight": -0.01},
-                    {"step": 500 * 24, "weight": -0.1},
-                    {"step": 1000 * 24, "weight": -1.0},
-                ],
-            },
-        ),
-    }
+        )
 
     cfg = ManagerBasedRlEnvCfg(
         scene=SceneCfg(
@@ -229,7 +171,7 @@ def make_ball_env_cfg(
         events=events,
         rewards=rewards,
         terminations=terminations,
-        curriculum=curriculum,
+        curriculum=joint_vel_hinge_curriculum(),
         viewer=ViewerConfig(
             origin_type=ViewerConfig.OriginType.ASSET_BODY,
             entity_name="robot",
@@ -254,9 +196,6 @@ def make_ball_env_cfg(
     )
 
     if play:
-        cfg.episode_length_s = int(1e9)
-        cfg.observations["actor"].enable_corruption = False
-        cfg.curriculum = {}
-        cfg.terminations.pop("success")
+        apply_play_overrides(cfg)
 
     return cfg

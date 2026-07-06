@@ -4,8 +4,10 @@ Finger-pad geom pattern (single source of truth) and collision sets for
 full-contact and gripper-only training modes.
 """
 
-# TODO?: fix small self-collision of dark part near joint2 end of link2-3 with joint4 end of link3-4
-# TODO?: fix too-large collision box of link2-3 (seen when trying to hit joint2 end of link2-3 with lower black part of joint5)
+# TODO: fix small self-collision of dark part near joint2 end of link2-3 with
+#   joint4 end of link3-4.
+# TODO: fix too-large collision box of link2-3 (seen when trying to hit joint2
+#   end of link2-3 with lower black part of joint5).
 
 from mjlab.utils.spec_config import CollisionCfg
 

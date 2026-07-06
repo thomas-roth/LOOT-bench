@@ -92,8 +92,12 @@ def _add_u_pocket(body, tcx, tcy, sz, r):
     _add_marker(body, "u_mark", tcx, tcy, sz + 0.0008, r, TARGET_RGBA)
 
 
-def _add_platform_with_hole(body, tcx, tcy):
-    """Raised platform spanning the workspace with a square pit at the target."""
+def _add_platform_with_hole(body, tcx):
+    """Raised platform spanning the workspace with a square pit at the target.
+
+    The pit is always centred on the board midline (y = 0); only its x
+    position follows the target.
+    """
     x0, x1 = PLAT_X
     y0, y1 = PLAT_Y
     g = HOLE_RADIUS
@@ -126,7 +130,7 @@ def _add_platform_with_hole(body, tcx, tcy):
     _add_box(body, "plat_f", tcx, (y0 - g) / 2, hz, g, (-g - y0) / 2, hz, PLATFORM_RGBA)
     _add_box(body, "plat_b", tcx, (y1 + g) / 2, hz, g, (y1 - g) / 2, hz, PLATFORM_RGBA)
     _add_marker(
-        body, "hole_rim", tcx, tcy, PLATFORM_Z + 0.001, g + 0.006, RIM_RGBA, 0.001
+        body, "hole_rim", tcx, 0.0, PLATFORM_Z + 0.001, g + 0.006, RIM_RGBA, 0.001
     )
 
 
@@ -141,7 +145,7 @@ def get_field_spec(variant: BallVariantCfg, name: str = "field") -> mujoco.MjSpe
     elif variant.target == "u_boundary":
         _add_u_pocket(field, tcx, tcy, sz, r)
     else:  # hole
-        _add_platform_with_hole(field, tcx, tcy)
+        _add_platform_with_hole(field, tcx)
 
     if variant.has_wall:
         _add_box(

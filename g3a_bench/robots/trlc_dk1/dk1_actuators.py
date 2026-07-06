@@ -9,8 +9,8 @@ import math
 from mjlab.actuator import BuiltinPositionActuatorCfg
 from mjlab.utils.actuator import ElectricActuator, reflect_rotary_to_linear
 
-# Effective inertias: diagonal of the joint-space mass matrix at the home
-# keyframe (see utils/convert_glb_meshes_to_obj.py provenance), plus motor armature.
+# Effective inertias: diagonal of the joint-space mass matrix, measured from
+# the compiled model at the home keyframe, plus motor armature.
 _ARMATURE_DM_4340 = 0.032
 _ARMATURE_DM_4310 = 0.0018
 

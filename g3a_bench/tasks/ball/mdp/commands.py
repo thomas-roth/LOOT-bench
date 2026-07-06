@@ -9,7 +9,7 @@ hole variants the ball must also have dropped below the platform surface).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import torch
 from mjlab.entity import Entity
@@ -28,14 +28,18 @@ if TYPE_CHECKING:
     from mjlab.envs.manager_based_rl_env import ManagerBasedRlEnv
     from mjlab.viewer.debug_visualizer import DebugVisualizer
 
+# Grasp-site distance beyond which the ball counts as released (not held).
+_RELEASE_DISTANCE = 0.08
+
 
 @dataclass(kw_only=True)
 class BallCommandCfg(CommandTermCfg):
     ball_name: str
     variant: BallVariantCfg
+    grasp_cfg: SceneEntityCfg
+    """Robot grasp site for the release check; site set by manipulator wiring."""
     spawn_x_range: tuple[float, float] = (BALL_SPAWN_X - 0.03, BALL_SPAWN_X + 0.03)
     spawn_y_range: tuple[float, float] = (-0.08, 0.08)
-    grasp_cfg: SceneEntityCfg | None = None
 
     def build(self, env: ManagerBasedRlEnv) -> BallCommand:
         return BallCommand(self, env)
@@ -48,7 +52,7 @@ class BallCommand(CommandTerm):
         super().__init__(cfg, env)
         self.variant = cfg.variant
         self.ball: Entity = env.scene[cfg.ball_name]
-        self.grasp_cfg = cfg.grasp_cfg or SceneEntityCfg("robot")
+        self.grasp_cfg = cfg.grasp_cfg
         # Resolve names -> indices against the scene. Unlike term ``asset_cfg``s
         # (which the managers resolve), this command-owned cfg is resolved here,
         # so ``grasp_cfg.site_ids`` picks out the single grasp site instead of
@@ -80,12 +84,11 @@ class BallCommand(CommandTerm):
     def command(self) -> torch.Tensor:
         return self.target_pos_w - self.ball_pos_w
 
-    def is_ball_released(self) -> torch.Tensor:
-        """Check if ball is released (not held by gripper)."""
+    def _is_ball_released(self) -> torch.Tensor:
         robot: Entity = self._env.scene[self.grasp_cfg.name]
         grasp_site_pos = robot.data.site_pos_w[:, self.grasp_cfg.site_ids].squeeze(1)
         gripper_distance = torch.norm(self.ball_pos_w - grasp_site_pos, dim=-1)
-        return gripper_distance > 0.08
+        return gripper_distance > _RELEASE_DISTANCE
 
     def _update_metrics(self) -> None:
         self.ball_pos_w = self.ball.data.root_link_pos_w
@@ -101,7 +104,7 @@ class BallCommand(CommandTerm):
             on_surface = self.ball_pos_w[:, 2] < self.surface_z + 3 * BALL_RADIUS
             at_target = within & on_surface
         at_rest = speed < self.variant.at_rest_speed
-        is_released = self.is_ball_released()
+        is_released = self._is_ball_released()
 
         self.at_target = at_target.float()
         self.success = (at_target & at_rest & is_released).float()
@@ -162,3 +165,7 @@ class BallCommand(CommandTerm):
                 color=color,
                 label=f"target_{batch}",
             )
+
+
+def get_command(env: ManagerBasedRlEnv, name: str) -> BallCommand:
+    return cast(BallCommand, env.command_manager.get_term(name))

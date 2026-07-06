@@ -13,6 +13,20 @@ from dataclasses import dataclass
 
 from mjlab.entity import EntityCfg
 
+GRIPPER_OPEN_FRACTION = 2 / 3
+"""Fraction of a gripper joint's stroke above which it counts as open.
+
+One benchmark-wide convention so "released" means the same thing on every
+robot; robots derive their ``gripper_open_threshold`` from their joint range
+via :func:`gripper_open_threshold`.
+"""
+
+
+def gripper_open_threshold(joint_range: tuple[float, float]) -> float:
+    """Threshold for a gripper joint that is open at its *upper* limit."""
+    lo, hi = joint_range
+    return lo + GRIPPER_OPEN_FRACTION * (hi - lo)
+
 
 @dataclass(frozen=True)
 class ManipulatorInterface:
@@ -24,6 +38,13 @@ class ManipulatorInterface:
     """Per-actuator (or scalar) scale for the joint-position action."""
     grasp_site: str
     """Site between the fingertips; used for reach rewards/observations."""
+    gripper_joints: tuple[str, ...]
+    """Gripper joint(s) gating task success: all must exceed
+    ``gripper_open_threshold`` for the object to count as released."""
+    gripper_open_threshold: float
+    """Joint position above which a gripper joint counts as open. Derive it
+    from the joint range with :func:`gripper_open_threshold` so a merely
+    loosened grip does not count."""
     ee_subtree: str
     """Body name whose subtree is monitored for illegal ground contact."""
     finger_pad_geoms: str

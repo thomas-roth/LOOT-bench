@@ -11,6 +11,7 @@ from pathlib import Path
 import mujoco
 from mjlab.entity import EntityArticulationInfoCfg, EntityCfg
 
+from g3a_bench.robots.interface import gripper_open_threshold
 from g3a_bench.robots.trlc_dk1.dk1_actuators import (
     get_arm_actuators,
     get_gripper_actuator,
@@ -29,6 +30,12 @@ DK1_BIMANUAL_NAME = "Dk1_bi"
 DK1_GRASP_SITE = "grasp_site"
 DK1_EE_SUBTREE = "link6-7"
 DK1_VIEWER_BODY = "base"
+# Gripper slide range, open at the upper limit; must match the "finger"
+# default class in xmls/dk1.xml.
+_GRIPPER_JOINT_RANGE = (-0.045, 0.001)
+DK1_GRIPPER_JOINTS = ("gripper_left",)
+DK1_BIMANUAL_GRIPPER_JOINTS = ("left_gripper_left", "right_gripper_left")
+DK1_GRIPPER_OPEN_THRESHOLD = gripper_open_threshold(_GRIPPER_JOINT_RANGE)
 
 ##
 # MJCF and assets.
