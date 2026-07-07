@@ -318,11 +318,13 @@ otherwise provide:
 `progress` (both task terms) and `success` (sparse outcome only).
 
 **Terminations** ([`mdp/terminations.py`](../g3a_bench/tasks/insertion/mdp/terminations.py)):
-`insertion_complete` fires on the gated success condition;
-`ee_werkbox_collision` ends the episode if the end-effector hits the parts
-tray with more than 10 N (a `ContactSensorCfg` whose robot-side pattern is
-filled in by the wiring). Also: `time_out`. In `play` mode the success
-termination is removed so sessions run indefinitely.
+`insertion_complete` fires on the gated success condition; also `time_out`.
+There is no EE-contact termination — the parts tray (`werkbox`) has real
+collision geometry so pegs rest inside it and the rim walls physically block
+the end effector, but contact itself isn't treated as a failure to guard
+against (matching cube/ball, which have no equivalent termination against
+the terrain plane they rest on). In `play` mode the success termination is
+removed so sessions run indefinitely.
 
 **Sim budget** (`make_insertion_env_cfg`): episode length is
 `10 s + 8 s × num_sockets`, except the sorter's flat 30 s (one commanded
@@ -340,9 +342,8 @@ single bore.
 `wire_manipulator_into_env` ([`tasks/common/manipulator_wiring.py`](../g3a_bench/tasks/common/manipulator_wiring.py))
 fills from a `ManipulatorInterface`
 ([`robots/interface.py`](../g3a_bench/robots/interface.py)) — grasp site,
-end-effector subtree, finger-pad geom regex, action scale, viewer body, and
-the robot-side pattern of the `ee_werkbox_collision` sensor. Nothing in the
-insertion code hardcodes the DK1. Currently only the unimanual DK1
+end-effector subtree, finger-pad geom regex, action scale, and viewer body.
+Nothing in the insertion code hardcodes the DK1. Currently only the unimanual DK1
 ([`robots/trlc_dk1/`](../g3a_bench/robots/trlc_dk1/)) is registered.
 
 ### Built on mjlab + tasks/common

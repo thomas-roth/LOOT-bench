@@ -41,7 +41,11 @@ def manipulation_ppo_runner_cfg(
             max_grad_norm=1.0,
         ),
         experiment_name=experiment_name,
-        save_interval=100,
+        # 10-15k iterations x ~26 registered tasks: keep checkpoint count and
+        # W&B storage bounded (save_interval=100 would give ~100-150 saves
+        # per task, each uploaded to W&B by default).
+        save_interval=500,
+        upload_model=False,
         num_steps_per_env=24,
         max_iterations=max_iterations,
     )

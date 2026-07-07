@@ -6,8 +6,6 @@ from mjlab.managers.observation_manager import ObservationTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.managers.termination_manager import TerminationTermCfg
-from mjlab.sensor import ContactMatch, ContactSensorCfg
-from mjlab.tasks.manipulation import mdp as manipulation_mdp
 from mjlab.utils.noise import UniformNoiseCfg as Unoise
 
 from g3a_bench.tasks.common.env_cfg import make_manipulation_env_cfg
@@ -105,20 +103,6 @@ def make_insertion_env_cfg(
         else None
     )
 
-    # Robot end-effector colliding with the parts tray ("Werkbox"). The tray is
-    # a child body of the decor entity with real collision geometry (see
-    # decor/workstation_decor.xml); the rest of the decor stays visual-only.
-    ee_werkbox_collision_cfg = ContactSensorCfg(
-        name="ee_werkbox_collision",
-        # pattern set per-robot.
-        primary=ContactMatch(mode="subtree", pattern="", entity="robot"),
-        secondary=ContactMatch(mode="body", pattern="werkbox", entity="decor"),
-        fields=("found", "force"),
-        reduce="none",
-        num_slots=1,
-        history_length=4,
-    )
-
     # Sparse reward design: the task signal is only the (near-)binary outcome of
     # actually inserting pegs -- no dense distance/depth shaping. This is meant to
     # be paired with a demonstration pipeline (GELLO teleop -> offline-to-online
@@ -137,10 +121,6 @@ def make_insertion_env_cfg(
     }
 
     task_terminations = {
-        "ee_werkbox_collision": TerminationTermCfg(
-            func=manipulation_mdp.illegal_contact,
-            params={"sensor_name": "ee_werkbox_collision", "force_threshold": 10.0},
-        ),
         "success": TerminationTermCfg(
             func=ins_mdp.insertion_complete,
             params={"command_name": COMMAND_NAME},
@@ -168,7 +148,6 @@ def make_insertion_env_cfg(
         trailing_obs_terms=trailing_obs_terms,
         task_rewards=task_rewards,
         task_terminations=task_terminations,
-        sensors=(ee_werkbox_collision_cfg,),
         env_spacing=2.0,
         # Sorter: one commanded insert but the cube may need reorienting first.
         episode_length_s=30.0 if sorter else 10.0 + 8.0 * variant.num_sockets,

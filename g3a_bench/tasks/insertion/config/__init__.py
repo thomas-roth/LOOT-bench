@@ -16,6 +16,5 @@ register_category(
     # The two_sheet variant adds "sheet_rel_grasp"; absent keys are skipped so
     # the same tuple fits every variant.
     grasp_obs_terms=("pegs_rel_grasp", "sheet_rel_grasp"),
-    ee_contact_sensors=("ee_werkbox_collision",),
     reward_mode_terms=REWARD_MODE_TERMS,
 )

@@ -1,10 +1,11 @@
-"""Collision-free-by-construction spawn sampling on a jittered cell grid.
+"""Grid-based spawn sampling with jittered, distinct cell centers.
 
-Objects spawned on *distinct* grid cells with a jitter smaller than the
-half-cell size can never overlap, so no rejection sampling is needed. The
-same primitive covers the workspace piece scatter (3x6 grid), the near-band
-push scatter (1x4), the parts-tray peg scatter (2x4), the sorter's fixed
-60 mm cells (zero jitter), and the cube stack-base grid — pass explicit
+Distinct cells guarantee sampled *centers* never coincide -- not that
+finite-sized objects can't overlap (jitter + object extent can still exceed
+the half-cell pitch). Callers must size jitter/objects accordingly. The same
+primitive covers the workspace piece scatter (3x6 grid), the near-band push
+scatter (1x4), the parts-tray peg scatter (2x4), the sorter's fixed 60 mm
+cells (zero jitter), and the cube stack-base grid — pass explicit
 ``cells``/``jitter`` for irregular layouts, or use :meth:`from_region`.
 """
 

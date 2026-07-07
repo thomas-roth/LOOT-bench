@@ -88,6 +88,14 @@ def make_ball_env_cfg(
             func=ball_mdp.ball_hits_wall,
             params={"command_name": COMMAND_NAME},
         )
+    # No EE-ground termination: the ball rests on the terrain plane (table
+    # is visual-only, see tasks/common/table.py), so near-terrain EE height
+    # is routine here, not a collision to guard against.
+
+    # push must guide the ball the full distance (target_x up to 0.68m, near
+    # the ~0.74m reach) and retreat -- longer than golf/throw's one strike.
+    # Estimate, not training-validated.
+    episode_length_s = 16.0 if variant.action == "push" else 12.0
 
     return make_manipulation_env_cfg(
         entities=entities,
@@ -106,7 +114,7 @@ def make_ball_env_cfg(
         task_rewards=task_rewards,
         task_terminations=task_terminations,
         env_spacing=2.5,
-        episode_length_s=12.0,
+        episode_length_s=episode_length_s,
         solver_iterations=12,
         solver_ls_iterations=20,
         nconmax=150,

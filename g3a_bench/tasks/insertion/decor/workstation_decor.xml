@@ -3,9 +3,9 @@
   Loaded as a single fixed-base entity (one root body -> mjlab mocap).
 
   The parts tray in the `werkbox` child body has real collision geometry so the
-  pegs rest inside it and a robot end-effector crashing into it can be detected
-  (ee_werkbox_collision). The `decor` (visual-only) default class is retained
-  for optional future dressing. Geom poses are expressed directly in env-local
+  pegs rest inside it and the rim walls physically block the end effector. The
+  `decor` (visual-only) default class is retained for optional future
+  dressing. Geom poses are expressed directly in env-local
   coordinates (robot base at origin, board near x = 0.34), so the bodies
   themselves stay at the env origin.
 
@@ -37,8 +37,8 @@
     <body name="decor">
       <!-- Parts tray ("Werkbox") in front of the board; the pegs are spawned
            into it each reset. Built from collidable boxes (floor + 4 rim walls)
-           so pegs rest inside and ee_werkbox_collision can fire. Footprint must
-           match insertion.assets.TRAY_* and make_decor_meshes.TRAY_*. -->
+           so pegs rest inside. Footprint must match insertion.assets.TRAY_*
+           and make_decor_meshes.TRAY_*. -->
       <body name="werkbox">
         <geom class="werkbox" type="box" pos="0.16 0.0 0.003"
               size="0.080 0.155 0.003" material="decor_steel"/>
