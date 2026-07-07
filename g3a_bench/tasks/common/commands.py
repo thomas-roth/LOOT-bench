@@ -1,9 +1,13 @@
 """Command-term helpers shared by the task categories.
 
 The success metrics of the object-arrangement categories (cube, insertion)
-share two mechanics: a "gripper released the object" gate on the robot's
-gripper joints, and a jittered-grid scatter that places free bodies without
-overlap on reset. Both live here so the categories cannot drift apart.
+share a "gripper released the object" gate on the robot's gripper joints. It
+lives here so the categories cannot drift apart; the robot-specific values
+come from the :class:`~g3a_bench.robots.interface.ManipulatorInterface` via
+``manipulator_wiring.wire_manipulator_into_env``. (The jittered-grid reset
+scatter they also share is :class:`~g3a_bench.tasks.common.scatter.
+ScatterGrid`; the shared success gating is in ``success.py``, the
+category-specific success criteria in each category's ``mdp/success.py``.)
 """
 
 from __future__ import annotations
@@ -49,43 +53,3 @@ class GripperOpenGate:
             self._joint_idx = [names.index(j) for j in self._joints]
         q = robot.data.joint_pos[:, self._joint_idx]
         return (q > self._threshold).all(dim=-1)
-
-
-class JitteredCellGrid:
-    """Scatter positions on a jittered grid, collision-free by construction.
-
-    The region is split into ``nx * ny`` cells; ``sample`` picks distinct
-    cells per row and jitters each pick by up to 40% of the cell half-extent,
-    so two picks can never land on top of each other.
-    """
-
-    def __init__(
-        self,
-        x_range: tuple[float, float],
-        y_range: tuple[float, float],
-        nx: int,
-        ny: int,
-        device: torch.device | str,
-    ):
-        x0, x1 = x_range
-        y0, y1 = y_range
-        cx = torch.linspace(x0, x1, nx + 1, device=device)
-        cy = torch.linspace(y0, y1, ny + 1, device=device)
-        self._cells = torch.cartesian_prod(
-            (cx[:-1] + cx[1:]) / 2, (cy[:-1] + cy[1:]) / 2
-        )
-        self._jitter = 0.4 * torch.tensor(
-            [(x1 - x0) / nx / 2, (y1 - y0) / ny / 2], device=device
-        )
-
-    @property
-    def num_cells(self) -> int:
-        return self._cells.shape[0]
-
-    def sample(self, n: int, count: int) -> torch.Tensor:
-        """xy positions on ``count`` distinct jittered cells per row, (n, count, 2)."""
-        assert count <= self.num_cells
-        rank = torch.rand(n, self.num_cells, device=self._cells.device)
-        pick = torch.argsort(rank, dim=1)[:, :count]
-        xy = self._cells[pick]
-        return xy + (torch.rand_like(xy) - 0.5) * 2.0 * self._jitter

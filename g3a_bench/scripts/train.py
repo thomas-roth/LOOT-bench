@@ -8,28 +8,31 @@ weights outside the chosen tier before forwarding to mjlab. Default is
 import argparse
 import sys
 
-_DOMAIN_MAP = {
-    "Cube": "g3a_bench.tasks.cube.cube_env_cfg",
-    "Ball": "g3a_bench.tasks.ball.ball_env_cfg",
-    "Insertion": "g3a_bench.tasks.insertion.insertion_env_cfg",
-}
-_REGULARIZATION = frozenset(["action_rate_l2", "joint_pos_limits", "joint_vel_hinge"])
 
+def _apply_reward_mode(task_id: str | None, mode: str) -> None:
+    """Zero reward weights not in the active set for *mode*.
 
-def _apply_reward_mode(task_id: str, mode: str) -> None:
-    """Zero reward weights not in the active set for *mode*."""
-    import importlib
+    Loud by design: an unknown task id or an unrecorded mode aborts instead of
+    silently training with untouched rewards.
+    """
+    from g3a_bench.tasks.common.registration import REGULARIZATION_TERMS, TASK_TABLE
 
-    from mjlab.tasks.registry import _REGISTRY  # type: ignore[attr-defined]
-
-    domain = next((d for d in _DOMAIN_MAP if f"-{d}-" in task_id), None)
-    if domain is None:
-        return  # Unknown domain — leave rewards unchanged.
-
-    module = importlib.import_module(_DOMAIN_MAP[domain])
-    active: frozenset[str] = module.REWARD_MODE_TERMS[mode] | _REGULARIZATION
-    env_cfg = _REGISTRY[task_id].env_cfg
-    for name, term in env_cfg.rewards.items():
+    if task_id is None:
+        raise SystemExit("--reward-mode given but no task id on the command line")
+    record = TASK_TABLE.get(task_id)
+    if record is None:
+        raise SystemExit(
+            f"--reward-mode: {task_id!r} is not a registered G3a task "
+            f"(known: {', '.join(sorted(TASK_TABLE))})"
+        )
+    terms = record.reward_mode_terms.get(mode)
+    if terms is None:
+        raise SystemExit(
+            f"--reward-mode: task {task_id!r} records no {mode!r} mode "
+            f"(available: {', '.join(sorted(record.reward_mode_terms))})"
+        )
+    active = terms | REGULARIZATION_TERMS
+    for name, term in record.env_cfg.rewards.items():
         if name not in active:
             term.weight = 0.0
 
@@ -49,8 +52,7 @@ def main() -> None:
 
     if args.reward_mode != "progress":
         task_id = next((a for a in remaining if not a.startswith("-")), None)
-        if task_id is not None:
-            _apply_reward_mode(task_id, args.reward_mode)
+        _apply_reward_mode(task_id, args.reward_mode)
 
     from mjlab.scripts.train import main as mjlab_main
 

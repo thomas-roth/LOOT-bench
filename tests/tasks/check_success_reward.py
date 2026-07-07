@@ -156,9 +156,9 @@ def _teleport_sorter_cube(
     board_pos = torch.tensor(BOARD_POS, device=device, dtype=torch.float32)
     for e in range(cmd.num_envs):
         tgt = int(cmd.target_idx[e].item())
-        quat = _vec_to_up_quat(cmd._axis_local[tgt].cpu().numpy(), device)
+        quat = _vec_to_up_quat(cmd.axis_local[tgt].cpu().numpy(), device)
         pos = origins[e] + board_pos
-        pos[2] += cmd._cube_half + 0.001
+        pos[2] += cmd.cube_half + 0.001
         env_id = torch.tensor([e], device=device)
         cmd.board.write_root_link_pose_to_sim(
             torch.cat([pos, quat]).unsqueeze(0), env_ids=env_id
@@ -278,9 +278,9 @@ def _check_insertion_sorter(
     _teleport_sorter_cube(cmd, env, device)
     env.step(zeros)  # refresh the live mouth/axis buffers from the new pose
     tgt = cmd.target_idx
-    _teleport_sorter_piece(cmd, device, cmd._piece_half[tgt] + 0.005)
+    _teleport_sorter_piece(cmd, device, cmd.piece_half[tgt] + 0.005)
     env.step(zeros)
-    _teleport_sorter_piece(cmd, device, cmd._s_cross[tgt] - 0.005)
+    _teleport_sorter_piece(cmd, device, cmd.s_cross[tgt] - 0.005)
     for _ in range(_STEPS):
         env.step(zeros)  # piece tumbles inside the cube; the latch must hold
     frac = cmd.scored_fraction().mean().item()

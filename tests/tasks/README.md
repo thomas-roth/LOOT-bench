@@ -1,8 +1,29 @@
 # Registered-task verification
 
-Two scripts verify changes to task code; run both from the **repo root**.
-Neither is a console script — invoke with `uv run python`.
-Both accept `--cpu` to force CPU-only execution and `--no-render` to skip image output.
+Two scripts and a pytest suite verify changes to task code; run everything from the **repo root**.
+
+---
+
+## Unit tests for the pure task logic (`test_success.py`, `test_scatter.py`)
+
+Pytest suites for the simulator-free task logic:
+
+- `test_success.py` — the per-category success criteria in each
+  `tasks/<cat>/mdp/success.py` (`domino_upright_aligned`, `peg_inserted`,
+  `peg_axial_lateral`, `ball_in_target_zone`, `SorterLatch`) plus the shared
+  gates: `SuccessGate` from `common/success.py` and `GripperOpenGate` from
+  `common/commands.py`.
+- `test_scatter.py` — the `ScatterGrid` spawn sampler and `random_yaw` in
+  `common/scatter.py` (cell layout, jitter bounds, distinct-cells-per-env property).
+
+Run them after touching a category's `mdp/success.py`, `tasks/common/success.py`,
+or `tasks/common/scatter.py`.
+
+```bash
+uv run pytest tests/tasks/ -v    # test all pytest suites inside
+uv run pytest tests/tasks/test_success.py -v
+uv run pytest tests/tasks/test_scatter.py -v
+```
 
 ---
 

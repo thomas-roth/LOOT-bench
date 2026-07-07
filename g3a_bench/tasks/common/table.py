@@ -19,6 +19,7 @@ mounted on the table rather than floating above bare floor.
 # (mujoco ships no type stubs for the compiled MjSpec module)
 
 import mujoco
+from mjlab.entity import EntityCfg
 
 TABLE_RGBA = (0.5, 0.5, 0.5, 1.0)  # flat neutral gray
 
@@ -37,6 +38,16 @@ TABLE_HALF_Y = 0.35
 # from there, so it's a solid cuboid, not a modeled table+legs.
 TABLE_TOP_Z = 0.002
 TABLE_HEIGHT = 0.35
+
+
+def table_entity_cfg() -> EntityCfg:
+    """The table as a fixed-base entity, positioned via ``init_state`` (mocap
+    prop convention); add a ``reset_table`` pin event via the workbench's
+    ``fixed_props``."""
+    return EntityCfg(
+        spec_fn=get_table_spec,
+        init_state=EntityCfg.InitialStateCfg(pos=TABLE_POS),
+    )
 
 
 def get_table_spec(name: str = "table") -> mujoco.MjSpec:

@@ -68,3 +68,9 @@ torchvision = [
 dev = [
     "pytest>=9.1.1",
 ]
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    # mjlab decorates its math helpers with torch.jit.script, which newer torch deprecates.
+    "ignore:.*torch\\.jit\\.script.* is deprecated.*:DeprecationWarning",
+]

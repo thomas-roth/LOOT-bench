@@ -41,8 +41,10 @@ uv run python tests/tasks/build_sim_registered_tasks.py
 uv run python tests/tasks/check_success_reward.py
 ```
 
-There is **no pytest suite**. See `tests/tasks/README.md` for what each verification
-script covers; both accept `--cpu` to force CPU-only execution.
+The pytest suite under `tests/tasks/` unit-tests the pure kernels in
+`tasks/common/` (`uv run pytest tests/tasks/`). See `tests/tasks/README.md` for
+what each verification script covers; both accept `--cpu` to force CPU-only
+execution.
 
 ## Architecture
 
@@ -54,26 +56,39 @@ adding/editing a category means mirroring an existing one:
   (forms, colors, targets…), collected in a `*_VARIANTS` dict keyed by name.
 - `assets.py` — procedural `mujoco.MjSpec` builders for the scene objects
   (`get_*_spec`). All objects are built in code, not from XML.
-- `mdp/` — the per-category MDP terms: `commands.py` (a `CommandTerm` subclass
-  that samples goals, scatters objects on reset, and computes the success
-  metric), `observations.py`, `rewards.py`, `terminations.py`. `mdp/__init__.py`
-  re-exports them.
-- `<cat>_env_cfg.py` — `make_<cat>_env_cfg(variant, robot, play)` assembles the
-  full `ManagerBasedRlEnvCfg` (entities, observation/action/reward/event/
-  termination/curriculum managers).
-- `rl_cfg.py` — thin wrapper around `tasks/common/rl_cfg.py` setting the
-  category's `max_iterations`.
-- `config/__init__.py` — loops over robots × variants, wires the robot in via
-  `tasks/common/manipulator_wiring.py`, and calls `register_mjlab_task(...)`.
-- `__init__.py` — empty (discovery happens one level up).
+- `mdp/` — the per-category MDP terms: `success.py` (the category's pure
+  success criteria — simulator-free placement tests like `peg_inserted`, plus
+  category-specific latches like the sorter's `SorterLatch`; unit-tested in
+  `tests/tasks/test_success.py`), `commands.py` (a `CommandTerm` subclass that
+  samples goals, scatters objects on reset, and computes the success metric —
+  an *adapter* that gathers sim buffers for the success criteria and the
+  shared `tasks/common/success.py` / `scatter.py` helpers), `observations.py`,
+  `rewards.py`, `terminations.py`. `mdp/__init__.py` re-exports the terms.
+- `<cat>_env_cfg.py` — `make_<cat>_env_cfg(variant, play)` builds only the
+  category-shaped parts (entities, command, task obs/reward/termination terms)
+  and hands them to `tasks/common/env_cfg.make_manipulation_env_cfg`, which
+  owns the shared skeleton (table, proprioceptive obs, actor/critic groups,
+  regularization rewards + curriculum, reset events, viewer/sim defaults, the
+  `play` strip-down).
+- `config/__init__.py` — one `tasks/common/registration.register_category(...)`
+  call: it loops robots × variants, wires the robot in (via
+  `tasks/common/manipulator_wiring.wire_manipulator_into_env` with the
+  category's `grasp_obs_terms`/`ee_contact_sensors`), registers each task with
+  the shared PPO cfg (`tasks/common/rl_cfg.manipulation_ppo_runner_cfg`,
+  per-category `max_iterations`), and records the category's
+  `REWARD_MODE_TERMS` (defined in `<cat>_env_cfg.py`) in
+  `registration.TASK_TABLE` — which is what `g3a-train --reward-mode` reads
+  (unknown task/mode aborts loudly).
+- `__init__.py` — empty (discovery happens one level up, see below).
 
-**Shared building blocks live in `tasks/common/`**: `manipulator_wiring.py`
-(the one robot↔task seam), `env_cfg.py` (reset events, regularization rewards,
-curriculum, play overrides), `rl_cfg.py` (the PPO runner factory),
-`commands.py` (`GripperGateCommandCfg`/`GripperOpenGate` success gate,
-`JitteredCellGrid` scatter), plus `table.py` and `debug_markers.py`. Only
-byte-identical boilerplate is shared; per-category values stay in the
-category.
+`tasks/common/` is the home of everything shared: the workbench builder, the
+manipulator wiring, the registration seam + PPO cfg, the shared success
+gating (`success.py`: `OBJECT_VEL_THRESHOLD` and the `SuccessGate` that
+combines a category's success criterion with the at-rest + released
+conditions), the `GripperGateCommandCfg`/`GripperOpenGate` "gripper released"
+success gate (`commands.py`; the joints/threshold are robot-specific and
+injected by the manipulator wiring), the `ScatterGrid` spawn sampler, the
+table asset, and the debug markers.
 
 **Registration is automatic via discovery**: `tasks/__init__.py` calls mjlab's
 `import_packages` once (blacklist `["utils", ".mdp", "common"]`), which walks

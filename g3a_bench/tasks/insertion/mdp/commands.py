@@ -10,8 +10,9 @@ sorter). It owns:
 - the per-reset scatter of pegs, the offset of the movable top sheet, and (for
   the sorter) the cube's random flat orientation plus the commanded target
   piece, and
-- the insertion test. Peg/two-sheet: instantaneous axial depth + lateral
-  centring + tilt (+ sheet alignment). Sorter: a *latched* mouth-plane
+- the insertion test (pure criteria in ``success.py``). Peg/two-sheet:
+  instantaneous axial depth + lateral centring + tilt (+ sheet alignment).
+  Sorter: a *latched* mouth-plane
   crossing -- a piece scores the moment it passes through its own hole into
   the cube, stays scored while it tumbles around inside, and no shape piece fits
   into a foreign hole.
@@ -38,12 +39,13 @@ from mjlab.utils.lab_api.math import (
     quat_mul,
 )
 
-from g3a_bench.tasks.common.commands import (
-    GripperGateCommandCfg,
-    GripperOpenGate,
-    JitteredCellGrid,
-)
+from g3a_bench.tasks.common.commands import GripperGateCommandCfg, GripperOpenGate
 from g3a_bench.tasks.common.debug_markers import MARKER_INFLATE, marker_color
+from g3a_bench.tasks.common.scatter import ScatterGrid, random_yaw
+from g3a_bench.tasks.common.success import (
+    OBJECT_VEL_THRESHOLD,
+    SuccessGate,
+)
 from g3a_bench.tasks.insertion.assets import (
     BOARD_POS,
     PALETTE,
@@ -55,6 +57,12 @@ from g3a_bench.tasks.insertion.assets import (
     frame_axes,
     load_sorter_layout,
     socket_layout,
+)
+from g3a_bench.tasks.insertion.mdp.success import (
+    SorterLatch,
+    peg_axial_lateral,
+    peg_axis_cos_tilt,
+    peg_inserted,
 )
 from g3a_bench.tasks.insertion.variants import (
     PEG_HALF_LEN,
@@ -78,7 +86,7 @@ class InsertionCommandCfg(GripperGateCommandCfg):
     """Movable top sheet entity (two-sheet variant only)."""
     sheet_align_tol: float = 0.010
     """Max top-sheet/bottom-hole offset to count as aligned."""
-    peg_vel_threshold: float = 0.05
+    peg_vel_threshold: float = OBJECT_VEL_THRESHOLD
     """Max linear speed (m/s) of any assigned peg to count success."""
 
     def build(self, env: ManagerBasedRlEnv) -> InsertionCommand:
@@ -147,20 +155,21 @@ class InsertionCommand(CommandTerm):
 
         self.peg_pos_w = torch.zeros(E, N, 3, device=dev)
         self.inserted = torch.zeros(E, S, device=dev)
-        self.success = torch.zeros(E, device=dev)
-        self.episode_success = torch.zeros(E, device=dev)
+        self._gate = SuccessGate(E, dev, vel_threshold=cfg.peg_vel_threshold)
+        self._gripper_gate = GripperOpenGate(cfg)
         self._half_len = PEG_HALF_LEN
+        self._latch: SorterLatch | None = None
 
         if self._is_sorter:
             layout = load_sorter_layout()
             self._cube_half = layout.half_size
-            self._piece_half = torch.tensor(
+            piece_half = torch.tensor(
                 [layout.pieces[s.shape].half_len for s in variant.sockets],
                 device=dev,
             )  # (S,)
 
             # Lateral gate of the insertion channel: hole outline + margin.
-            self._hole_radius = (
+            hole_radius = (
                 torch.tensor(
                     [layout.holes[s.shape].bounding_radius for s in variant.sockets],
                     device=dev,
@@ -175,12 +184,16 @@ class InsertionCommand(CommandTerm):
                 [layout.holes[s.shape].wall_thickness for s in variant.sockets],
                 device=dev,
             )
-            self._s_cross = -(wall_t + self._piece_half)  # (S,)
-            self._sorter_tilt_cos = math.cos(math.radians(30.0))
+            self._latch = SorterLatch(
+                E,
+                S,
+                dev,
+                hole_radius=hole_radius,
+                piece_half=piece_half,
+                s_cross=-(wall_t + piece_half),
+                tilt_cos=math.cos(math.radians(30.0)),
+            )
             self.target_idx = torch.zeros(E, dtype=torch.long, device=dev)
-            self.latched = torch.zeros(E, S, dtype=torch.bool, device=dev)
-            self._prev_sv = torch.full((E, S), 1.0, device=dev)
-            self._prev_in_channel = torch.zeros(E, S, dtype=torch.bool, device=dev)
 
             # The six flat resting orientations (each face down), composed
             # with a random yaw on reset.
@@ -201,26 +214,24 @@ class InsertionCommand(CommandTerm):
             )
             self._flat_quats = quat_from_angle_axis(angles, axes)  # (6, 4)
 
-        self._gripper_gate = GripperOpenGate(cfg)
-
         # Pegs/pieces are spawned upright into the parts tray, env-local (env
-        # origins are added at spawn time). Pegs use a jittered grid; the
-        # bigger sorter pieces use fixed 60 mm-pitch cells whose spacing rules
-        # out overlap at any yaw, so they get no jitter.
+        # origins are added at spawn time). Pegs use a jittered grid; the bigger
+        # sorter pieces use fixed 60 mm-pitch cells whose spacing rules out overlap
+        # at any yaw.
         tx, ty, _ = TRAY_POS
         if self._is_sorter:
-            self._spawn_grid: JitteredCellGrid | None = None
-            self._spawn_cells: torch.Tensor | None = torch.tensor(
-                [(tx + dx, ty + dy) for dx, dy in SORTER_PIECE_CELLS], device=dev
+            self._scatter = ScatterGrid(
+                cells=torch.tensor(
+                    [(tx + dx, ty + dy) for dx, dy in SORTER_PIECE_CELLS], device=dev
+                ),
+                jitter=torch.zeros(2, device=dev),
             )
-            assert self._spawn_cells.shape[0] >= N
         else:
             hx, hy = TRAY_SPAWN_HALF
-            self._spawn_grid = JitteredCellGrid(
+            self._scatter = ScatterGrid.from_region(
                 (tx - hx, tx + hx), (ty - hy, ty + hy), nx=2, ny=4, device=dev
             )
-            self._spawn_cells = None
-            assert self._spawn_grid.num_cells >= N
+        assert self._scatter.num_cells >= N
 
         self.metrics["lateral_error"] = torch.zeros(E, device=dev)
         self.metrics["num_inserted"] = torch.zeros(E, device=dev)
@@ -232,6 +243,44 @@ class InsertionCommand(CommandTerm):
             self.metrics["sheet_align_error"] = torch.zeros(E, device=dev)
 
     # Helpers. --------------------------------------------------------------
+
+    @property
+    def success(self) -> torch.Tensor:
+        """(E,) float: task done, scored pegs at rest, gripper open."""
+        return self._gate.success
+
+    @property
+    def episode_success(self) -> torch.Tensor:
+        """(E,) float: success latched since the last reset."""
+        return self._gate.episode_success
+
+    @property
+    def latched(self) -> torch.Tensor:
+        """(E, S) bool: sorter pieces latched inside the cube."""
+        assert self._latch is not None
+        return self._latch.latched
+
+    @property
+    def axis_local(self) -> torch.Tensor:
+        """(S, 3) outward bore axes in the board/cube frame."""
+        return self._axis_local
+
+    @property
+    def cube_half(self) -> float:
+        """Sorter cube half size (m)."""
+        return self._cube_half
+
+    @property
+    def piece_half(self) -> torch.Tensor:
+        """(S,) sorter piece half lengths along their insertion axis."""
+        assert self._latch is not None
+        return self._latch.piece_half
+
+    @property
+    def s_cross(self) -> torch.Tensor:
+        """(S,) signed crossing-plane offset from the mouth (+ is outside)."""
+        assert self._latch is not None
+        return self._latch.s_cross
 
     def assigned_peg_pos(self) -> torch.Tensor:
         """Position of the peg assigned to each socket, (E, S, 3)."""
@@ -289,44 +338,20 @@ class InsertionCommand(CommandTerm):
         pos = self.assigned_peg_pos()  # (E, S, 3)
         quat = peg_quat[:, :S]
         axis = self.socket_axis_w
-        rel = pos - self.socket_mouth_w
-        axial = torch.sum(rel * axis, dim=-1)  # signed, + is outside
-        lateral = torch.norm(rel - axial.unsqueeze(-1) * axis, dim=-1)
+        axial, lateral = peg_axial_lateral(pos, self.socket_mouth_w, axis)
+        cos_tilt = peg_axis_cos_tilt(quat, axis)
 
-        w, x, y, z = quat.unbind(-1)
-        peg_axis = torch.stack(
-            [2 * (x * z + w * y), 2 * (y * z - w * x), 1 - 2 * (x * x + y * y)], dim=-1
-        )
-        cos_tilt = torch.sum(peg_axis * axis, dim=-1).abs()
-
-        if self._is_sorter:
-            # Latched crossing of the insertion channel: the piece was in the
-            # channel above the crossing plane on the previous step and is at
-            # or below it now. The event latches until reset, so it survives
-            # the piece tumbling around inside the hollow cube.
-            in_channel = (
-                (lateral < self._hole_radius)
-                & (axial > self._s_cross - 0.02)
-                & (axial < self._piece_half + 0.01)
-            )
-            crossed = (
-                self._prev_in_channel
-                & in_channel
-                & (self._prev_sv > self._s_cross)
-                & (axial <= self._s_cross)
-                & (cos_tilt > self._sorter_tilt_cos)
-            )
-            self.latched |= crossed
-            self._prev_sv = axial.clone()
-            self._prev_in_channel = in_channel
-            inserted = self.latched
+        if self._latch is not None:
+            inserted = self._latch.update(axial, lateral, cos_tilt)
         else:
-            center_depth = -axial
-            tip_depth = center_depth + self._half_len * cos_tilt
-            inserted = (
-                (tip_depth >= self.insert_depth)
-                & (lateral < self.lateral_tol)
-                & (cos_tilt > self.tilt_cos)
+            inserted = peg_inserted(
+                axial,
+                lateral,
+                cos_tilt,
+                half_len=self._half_len,
+                insert_depth=self.insert_depth,
+                lateral_tol=self.lateral_tol,
+                tilt_cos=self.tilt_cos,
             )
             if self.sheet is not None:
                 sheet_xy = self.sheet.data.root_link_pos_w[:, :2]
@@ -344,22 +369,19 @@ class InsertionCommand(CommandTerm):
         )  # (E, N, 3)
         assigned_speed = peg_lin_vel_w[:, :S].norm(dim=-1)  # (E, S)
 
-        gripper_open = self._gripper_gate(self._env.scene["robot"])
+        released = self._gripper_gate(self._env.scene["robot"])
 
         if self._is_sorter:
+            # Only the single commanded target piece scores; the rest is
+            # clutter that may keep moving.
             tgt = self.target_idx.unsqueeze(1)
-            target_in = self.latched.gather(1, tgt).squeeze(1)
-            target_still = (
-                assigned_speed.gather(1, tgt).squeeze(1) <= self.cfg.peg_vel_threshold
-            )
-            all_conditions = target_in & target_still & gripper_open
-            self.metrics["target_inserted"] = target_in.float()
+            task_done = self.latched.gather(1, tgt).squeeze(1)
+            speed = assigned_speed.gather(1, tgt).squeeze(1)
+            self.metrics["target_inserted"] = task_done.float()
         else:
-            pegs_still = assigned_speed.max(dim=-1).values <= self.cfg.peg_vel_threshold
-            all_conditions = all_in & pegs_still & gripper_open
-
-        self.success = all_conditions.float()
-        self.episode_success = torch.maximum(self.episode_success, self.success)
+            task_done = all_in
+            speed = assigned_speed
+        self._gate.update(task_done, speed, released)
 
         self.metrics["lateral_error"] = lateral.mean(dim=1)
         self.metrics["num_inserted"] = self.inserted.sum(dim=1)
@@ -374,18 +396,14 @@ class InsertionCommand(CommandTerm):
         N = self.num_pegs
         origins = self._env.scene.env_origins[env_ids]
 
-        self.success[env_ids] = 0.0
-        self.episode_success[env_ids] = 0.0
+        self._gate.reset(env_ids)
         self.inserted[env_ids] = 0.0
 
         if self._is_sorter:
-            assert self.board is not None
-            self.latched[env_ids] = False
-            self._prev_in_channel[env_ids] = False
-            self._prev_sv[env_ids] = 1.0  # far outside: no spurious crossing
+            assert self.board is not None and self._latch is not None
+            self._latch.reset(env_ids)
             self.target_idx[env_ids] = torch.randint(self.num_sockets, (n,), device=dev)
-            # Drop the cube near the board spot at random yaw with any of its
-            # six faces down.
+            # Drop the cube near the board spot at random yaw with any of its six faces down
             face = torch.randint(6, (n,), device=dev)
             yaw = quat_from_euler_xyz(
                 torch.zeros(n, device=dev),
@@ -412,19 +430,12 @@ class InsertionCommand(CommandTerm):
                 torch.zeros(n, 6, device=dev), env_ids=env_ids
             )
 
-        # Scatter pegs/pieces upright on distinct cells inside the parts tray.
-        if self._spawn_grid is not None:
-            xy = self._spawn_grid.sample(n, N)
-        else:
-            assert self._spawn_cells is not None
-            pick = torch.argsort(
-                torch.rand(n, self._spawn_cells.shape[0], device=dev), dim=1
-            )[:, :N]
-            xy = self._spawn_cells[pick]
-        spawn_yaw = torch.rand(n, N, device=dev) * 2 * math.pi
+        # Scatter pegs upright on distinct jittered cells inside the parts tray.
+        xy = self._scatter.sample(n, N)
+        spawn_yaw = random_yaw(n, N, device=dev)
         zeros = torch.zeros(n, device=dev)
         for i, peg in enumerate(self.pegs):
-            half = float(self._piece_half[i]) if self._is_sorter else self._half_len
+            half = float(self.piece_half[i]) if self._is_sorter else self._half_len
             z = (half + 0.002 + origins[:, 2]).unsqueeze(-1)
             p = torch.cat([xy[:, i, :] + origins[:, :2], z], dim=-1)
             quat = quat_from_euler_xyz(zeros, zeros, spawn_yaw[:, i])

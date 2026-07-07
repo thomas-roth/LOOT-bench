@@ -30,14 +30,13 @@ Task ids look like `G3a-Cube-<Variant>-<Robot>`, e.g. `G3a-Cube-Stack3-Dk1_uni`.
 | ---- | -------------- |
 | [`variants.py`](../g3a_bench/tasks/cube/variants.py) | `Form`, `FORM_HALF_EXTENTS`, `PieceCfg`, `CubeVariantCfg`, and the `CUBE_VARIANTS` dict. |
 | [`assets.py`](../g3a_bench/tasks/cube/assets.py) | `get_piece_spec` — procedural `MjSpec` per piece (box or cylinder geom + free joint). The `PALETTE` of named colors. |
-| [`cube_env_cfg.py`](../g3a_bench/tasks/cube/cube_env_cfg.py) | `make_cube_env_cfg(variant, robot, play)` — assembles the full `ManagerBasedRlEnvCfg`. |
+| [`cube_env_cfg.py`](../g3a_bench/tasks/cube/cube_env_cfg.py) | `make_cube_env_cfg(variant, play)` — builds the cube-shaped parts and hands them to the shared workbench builder ([`tasks/common/env_cfg.py`](../g3a_bench/tasks/common/env_cfg.py)). |
 | [`mdp/commands.py`](../g3a_bench/tasks/cube/mdp/commands.py) | `PieceArrangementCommand(Cfg)` — samples goals, scatters pieces, tracks per-slot placement and success. |
 | [`mdp/observations.py`](../g3a_bench/tasks/cube/mdp/observations.py) | `pieces_rel_grasp`, `slot_goal_deltas`, `slot_placed_flags`. |
 | [`mdp/rewards.py`](../g3a_bench/tasks/cube/mdp/rewards.py) | `placed_slots_reward`, `success_reward`. |
 | [`mdp/terminations.py`](../g3a_bench/tasks/cube/mdp/terminations.py) | `arrangement_complete`. |
 | [`mdp/__init__.py`](../g3a_bench/tasks/cube/mdp/__init__.py) | Re-exports the MDP terms. |
-| [`rl_cfg.py`](../g3a_bench/tasks/cube/rl_cfg.py) | `cube_ppo_runner_cfg` — RSL-RL PPO runner config. |
-| [`config/__init__.py`](../g3a_bench/tasks/cube/config/__init__.py) | Registers every variant × robot into the mjlab registry. |
+| [`config/__init__.py`](../g3a_bench/tasks/cube/config/__init__.py) | One `register_category(...)` call ([`tasks/common/registration.py`](../g3a_bench/tasks/common/registration.py)): registers every variant × robot with the shared PPO cfg and records the reward modes. |
 | [`README.md`](../g3a_bench/tasks/cube/README.md) | Short in-tree summary + variant table. |
 
 ---
@@ -112,7 +111,7 @@ Python loops.
 
 ### Cfg knobs (`PieceArrangementCommandCfg`)
 
-- `entity_names` — scene entities; the first `num_goal_pieces` are goal
+- `piece_names` — scene entities; the first `num_goal_pieces` are goal
   pieces in slot order, the rest distractors. `cube_env_cfg.py` relies on
   this ordering (builds `piece_0…` goal-first).
 - `workspace_x/y` — the table rectangle goals and scatter live in.
@@ -121,17 +120,19 @@ Python loops.
   dominos.
 - `piece_vel_threshold` (0.05 m/s) — max speed of any goal piece to count as
   at rest.
-- `gripper_open_threshold` (-0.015) — min `gripper_left` joint position to
-  count as open (roughly ≥2/3 open).
+- `gripper_joints` / `gripper_open_threshold` (inherited from
+  [`GripperGateCommandCfg`](../g3a_bench/tasks/common/commands.py)) — the
+  robot-specific "released" gate, injected by the manipulator wiring (DK1:
+  `gripper_left` above ≈2/3 of its stroke).
 
 ### `__init__` — state + precomputation
 
 Per-env episode state (mutated each reset/step): `slot_goal_pos` (E,G,3,
 world), `piece_for_slot` (E,G, which piece fills each slot; identity unless
 interchangeable), `row_yaw` (E,), cached `piece_pos_w` (E,N,3), and
-`slot_at_goal`, `success`, `episode_success`. `_gripper_joint_idx` is
-resolved lazily on the first `_update_metrics` call (joint data isn't
-available yet in `__init__`).
+`slot_at_goal`, `success`, `episode_success`. The `GripperOpenGate` resolves
+its joint indices lazily on the first `_update_metrics` call (joint data
+isn't available yet in `__init__`).
 
 Variant-only constants, computed once:
 - `_slot_goal_z` — per-slot height. For a **stack** it's cumulative (`z +
@@ -182,7 +183,7 @@ wraparound discontinuity a raw angle would have.
      neighbour. `abs` makes it mod-π.
    - All three (`at_goal & upright & aligned`) must hold.
 3. **Velocity and gripper gates.** Every goal piece's linear speed must be
-   below `piece_vel_threshold`, and the `gripper_left` joint position above
+   below `piece_vel_threshold`, and all the robot's gripper joints above
    `gripper_open_threshold` (open).
 4. Success bookkeeping:
    - `self.success = all_placed & pieces_still & gripper_open` — the full
@@ -260,8 +261,10 @@ success termination is removed so sessions run indefinitely.
 ## How it links to the rest of the repo
 
 ### Robot-agnostic by design
-`make_cube_env_cfg` takes a `ManipulatorInterface`
-([`robots/interface.py`](../g3a_bench/robots/interface.py)) and reads every
+`make_cube_env_cfg` leaves robot placeholders that
+`wire_manipulator_into_env` ([`tasks/common/manipulator_wiring.py`](../g3a_bench/tasks/common/manipulator_wiring.py))
+fills from a `ManipulatorInterface`
+([`robots/interface.py`](../g3a_bench/robots/interface.py)), reading every
 robot-specific value from it — grasp site, end-effector subtree, finger-pad
 geom regex, action scale, viewer body. Nothing in the cube code hardcodes
 the DK1. Currently only the unimanual DK1
@@ -269,7 +272,7 @@ the DK1. Currently only the unimanual DK1
 a robot is one more interface instance.
 
 ### Built on mjlab
-The cube domain only defines the task; the train/play loop is mjlab's. It
+The cube category only defines the task; the train/play loop is mjlab's. It
 uses mjlab managers (`ManagerBasedRlEnvCfg`, observation/reward/event/
 command managers), mjlab's built-in MDP terms (`mdp.joint_pos_rel`,
 `mdp.action_rate_l2`, …), the manipulation MDP helpers
@@ -284,7 +287,7 @@ A single `import g3a_bench` registers everything:
 g3a_bench/__init__.py        →  import g3a_bench.tasks
 tasks/__init__.py            →  import_packages(...)  (blacklists "utils", ".mdp")
 tasks/cube/__init__.py       →  import_packages(...)  → imports config/
-tasks/cube/config/__init__.py→  register_mjlab_task(...) per variant × robot
+tasks/cube/config/__init__.py→  register_category(...) per variant × robot
 ```
 
 See [`g3a_bench/__init__.py`](../g3a_bench/__init__.py),
