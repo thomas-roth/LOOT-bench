@@ -82,21 +82,8 @@ USE_FOLLOWER_STATE_FOR_SIM = (
 # state machine all live in recording_mixin (shared with the Viser viewer).
 
 # Joint1 calibration offset between the raw leader frame and the sim frame
-# (see mapper.LEADER_JOINT1_SIM_OFFSET). It must be applied identically in the
-# two places that need a sim-frame joint1 — the teleop action mapping AND the
-# ghost / rest-pose target — or the ghost ends up sitting ~this many radians
-# beside the leader-driven arm. Editing it in only one place is exactly what
-# breaks that alignment, so it lives here as a SINGLE knob both sites read.
-#   0.0                       → correction off (leader already matches sim)
-#   LEADER_JOINT1_SIM_OFFSET  → correction on (π/2; leader calibrated off-sim)
 LIVE_JOINT1_OFFSET = 0.0
 
-# Where the ghost overlay (and reset-phase "are we home?" check) target the
-# arm — independent of _HOME_JOINT_POS in dk1_constants.py, which is the RL
-# tasks' episode-reset/action-reference pose and stays untouched by this.
-# These are the RAW leader joint readings as printed by print_leader_pose.py
-# (leader frame). To pick new values: run print_leader_pose.py, move the real
-# leader to a comfortable rest pose, and copy the printed numbers in here.
 LIVE_REST_POSE: dict[str, float] = {
     "joint1": +0.1565,
     "joint2": +0.0015,
@@ -130,17 +117,7 @@ KEY_WRIST_CAM = KEY_W
 WRIST_CAMERA_NAME = "wrist_camera"
 
 # Default orbit/free-camera framing for the teleop viewer (the view you start in,
-# before pressing W for the wrist cam). Positioned above and behind the robot,
-# slightly to the side, looking forward along the gripper (+x) direction — a
-# high "sun" 3/4 view that keeps the workspace and gripper easy to read while
-# recording demos.
-#
-# MuJoCo free-cam convention: AZIMUTH is the heading of the camera *relative to
-# the lookat point* (degrees, CCW about +z; 0=+x side, 90=+y side). The robot's
-# gripper reaches toward +x, so AZIMUTH≈180 puts the camera behind the robot
-# looking forward; the +20 offset nudges it slightly to the side. ELEVATION<0
-# looks downward (more negative = more top-down). Flip the offset's sign
-# (160 instead of 200) to view from the other shoulder.
+# before pressing W for the wrist cam). Positioned above and behind the robot
 ORBIT_CAM_LOOKAT = (0.20, 0.0, 0.15)  # world point the camera aims at (≈ workspace)
 ORBIT_CAM_DISTANCE = 1.3
 ORBIT_CAM_AZIMUTH = 200.0
@@ -256,9 +233,7 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeMujocoViewer):
 
     The per-episode recording state machine (record → reset phase → collision
     label, plus ghost-color feedback) lives in RecordingViewerMixin. This
-    subclass only adds the native-specific rendering: drawing the ghost overlay
-    via the passive handle's ``user_scn`` and pinning the visualization flags
-    against the native viewer's single-key toggles.
+    subclass only adds the native-specific rendering of the ghost arm and the wrist-camera toggle.
 
     State machine:
       RECORDING        → normal step loop
@@ -295,10 +270,7 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeMujocoViewer):
         self._wrist_cam_on = False
         self._wrist_cam_id = -1
         self._saved_cam: tuple | None = None
-        # Snapshot of the intended MjvOption visualization flags, captured once in
-        # setup() and re-asserted every frame so the native viewer's built-in
-        # single-key flag toggles (every letter is one — see _on_key) can't alter
-        # the scene. None until setup() runs.
+        # Snapshot of the intended MjvOption visualization flags
         self._baseline_visflags: np.ndarray | None = None
         super().__init__(
             env,
@@ -309,17 +281,7 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeMujocoViewer):
         )
 
     def setup(self) -> None:
-        """Capture the intended visualization-flag baseline after base setup.
-
-        The native MuJoCo viewer routes every keystroke through its OWN handler
-        in addition to ours, and binds nearly every letter to a built-in
-        visualization-flag toggle (see mjVISSTRING). We snapshot the flags right
-        after the base viewer has configured them — before the operator can press
-        anything — and restore that snapshot each frame (see
-        _update_debug_visualizers), so no accidental key can change the look of
-        the scene. Most importantly this defeats 'D' = mjVIS_STATIC, which would
-        otherwise hide the floor / table / fixtures and black out the scene.
-        """
+        """Capture the intended visualization-flag baseline after base setup."""
         super().setup()
         assert self.viewer is not None
         self._baseline_visflags = self.viewer.opt.flags.copy()
@@ -334,9 +296,7 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeMujocoViewer):
         """
         super()._update_debug_visualizers(viewer)
         # Re-assert the visualization-flag baseline every frame so the native
-        # viewer's built-in single-key flag toggles can't alter the scene —
-        # crucially 'D' = mjVIS_STATIC, which otherwise hides the floor / table
-        # and makes the scene look black except the robot and objects.
+        # viewer's built-in single-key flag toggles can't alter the scene
         if viewer is not None and self._baseline_visflags is not None:
             viewer.opt.flags[:] = self._baseline_visflags
         if self._ghost_model is None or self._ghost_qpos is None:
@@ -636,9 +596,7 @@ def main():
             debug_timing=args.debug_timing,
         )
         # Take the big static object graph (mujoco model, warp kernels, torch
-        # tensors) out of the GC's scan set so the periodic gen-2 collections
-        # triggered by per-frame allocations stay cheap — removes a source of
-        # intermittent multi-10 ms pauses that tank instantaneous FPS.
+        # tensors) out of the GC's scan set
         gc.collect()
         gc.freeze()
         viewer.run()

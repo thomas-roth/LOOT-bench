@@ -1,25 +1,5 @@
-"""Viewer-agnostic recording state machine shared by the native and Viser
-live-record viewers.
-
-The live teleop+record session is the same regardless of which mjlab viewer
-renders it: read the latest leader action from the policy, step the sim, push a
-frame to the recorder, and drive the per-episode state machine (record → reset
-phase → collision label). Only the *drawing* of the ghost-arm overlay differs
-between the native MuJoCo viewer (``user_scn`` / ``MujocoNativeDebugVisualizer``)
-and the Viser viewer (``MjlabViserScene.add_ghost_mesh``), so that part stays in
-each viewer subclass; everything else lives here so the two viewers cannot drift
-apart (cf. CLAUDE.md "derive both from one source").
-
-A subclass mixes this in alongside an mjlab ``BaseViewer`` and must:
-  * call :meth:`_init_recording` (sets the shared recording attributes and builds
-    the ghost model) before/around its own viewer ``__init__``;
-  * provide the ghost model to its renderer via ``self._ghost_model`` /
-    ``self._ghost_qpos`` and the live color via :meth:`_get_ghost_color` /
-    :meth:`_get_ghost_model_with_color`.
-The mixin relies only on ``BaseViewer`` members (``self.env``, ``self.policy``,
-``self.log``, ``self.pause``, ``self.verbosity``, ``self._step_count``,
-``self._stats_steps``, ``self._interrupted``).
-"""
+"""Viewer-agnostic recording state machine (record → reset phase → collision label).
+Only viewer-specific drawing differs; everything else here to avoid drift."""
 
 import copy
 import time
@@ -39,13 +19,7 @@ RESET_THRESHOLD_RAD = 0.2  # all 6 arm joints must be within this many rad of ho
 
 
 class RecordingViewerMixin:
-    """Multi-episode recording + ghost-arm reset phase, viewer-independent.
-
-    State machine:
-      RECORDING        → normal step loop
-      AWAITING_LABEL   → collision fired; sim frozen; waiting for B/N key
-      RESET_PHASE      → episode ended; ghost visible; waiting for arm at home
-    """
+    """Multi-episode recording + reset phase. States: RECORDING → (collision: AWAITING_LABEL) → RESET_PHASE → next episode."""
 
     def _init_recording(
         self,
@@ -60,21 +34,17 @@ class RecordingViewerMixin:
         sim_rest_pose: dict,
         home_joint_pos: dict,
     ) -> None:
-        """Set up the shared recording state. Call from the subclass __init__."""
+        """Set up recording state; call from subclass __init__."""
         self._recorder = recorder
         self._robot_obs_list = robot_obs_list
         self._hw_failed = hw_failed
         self._debug_timing = debug_timing
         self._live_rest_pose_rel = live_rest_pose_rel
-        self._spike_ms = 35.0  # log any recording step slower than this
+        self._spike_ms = 35.0
         self._worst_step_ms = 0.0
         self._ghost_model: _mujoco.MjModel | None = None
         self._ghost_qpos: np.ndarray | None = None
-        # Recolored ghost models cached by color tuple. Stable object identity per
-        # color matters: the Viser scene caches ghost meshes by id(model), so a
-        # fresh deepcopy every frame would force it to rebuild the ghost handles
-        # each frame. Only the (≤3) distinct colors — normal / success / failure —
-        # are ever built.
+        # Stable object identity per color (Viser caches meshes by id)
         self._ghost_model_cache: dict[tuple, _mujoco.MjModel] = {}
         if mj_model is not None:
             self._ghost_model, self._ghost_qpos = build_ghost_model_and_qpos(
@@ -85,18 +55,15 @@ class RecordingViewerMixin:
         self.episodes_saved = 0
         self._in_reset_phase = False
         self._awaiting_collision_label = False
-        # Visual feedback for success/failure (ghost-arm color flash)
         self._feedback_color: tuple[float, float, float, float] | None = None
         self._feedback_color_start_time = 0.0
-        # Provisional failure: after collision, user has ~2s to press N (discard)
-        # otherwise auto-save failure.
+        # Auto-save failure after ~2s if user doesn't press N (discard) first
         self._provisional_failure = False
         self._provisional_failure_time = 0.0
 
-    # ── Ghost arm helpers ────────────────────────────────────────────────────
+    # Ghost arm helpers
 
     def _get_ghost_color(self) -> tuple[float, float, float, float]:
-        """Return the ghost-arm color based on feedback state."""
         if self._feedback_color is None:
             return GHOST_COLOR
         elapsed = time.perf_counter() - self._feedback_color_start_time
@@ -108,8 +75,7 @@ class RecordingViewerMixin:
     def _get_ghost_model_with_color(
         self, color: tuple[float, float, float, float]
     ) -> "_mujoco.MjModel | None":
-        """Return a ghost model whose robot geoms use ``color``, or None if no
-        ghost model is available. Cached per color (stable identity across frames)."""
+        """Return ghost model recolored, or None. Cached per color (stable id)."""
         if self._ghost_model is None:
             return None
         key = tuple(round(float(c), 4) for c in color)
@@ -137,12 +103,11 @@ class RecordingViewerMixin:
         self._ghost_model_cache[key] = ghost_model
         return ghost_model
 
-    # ── Reset phase ──────────────────────────────────────────────────────────
+    # Reset phase
 
     def _enter_reset_phase(self) -> None:
         self._in_reset_phase = True
-        # Suppress the per-tick "[RUNNING] Step N | FPS..." spam outside of actual
-        # recording — it's just noise while lining the arm up with the ghost.
+        # Suppress verbose per-tick spam during arm alignment
         self.verbosity = VerbosityLevel.INFO
         print(
             f"[INFO] Reset phase — move the arm in the sim to the ghost position "
@@ -152,9 +117,8 @@ class RecordingViewerMixin:
     def _exit_reset_phase(self) -> None:
         self._in_reset_phase = False
         self.verbosity = VerbosityLevel.DEBUG
-        # env already auto-reset when done=True fired; no second reset needed
 
-    # ── Custom actions (raised by GUI buttons / keys) ────────────────────────
+    # Custom actions (GUI buttons / keys)
 
     def _handle_custom_action(self, action, payload) -> bool:  # type: ignore[override]
         if payload == "save_success":
@@ -170,9 +134,7 @@ class RecordingViewerMixin:
                 self._feedback_color = None
             self._enter_reset_phase()
         else:
-            # Not one of our recording actions — let the concrete viewer handle it
-            # (e.g. the Viser viewer's checkpoint / GUI-reset actions). On the
-            # native viewer this lands on BaseViewer and returns False.
+            # Delegate to concrete viewer (checkpoint, GUI-reset, etc.)
             return super()._handle_custom_action(action, payload)
         return True
 
@@ -189,7 +151,6 @@ class RecordingViewerMixin:
             f"[INFO] Episode {self.episodes_saved} saved as {label} ({frames} frames)"
         )
 
-        # Trigger visual feedback: flash ghost-arm color (green/red)
         self._feedback_color = GHOST_COLOR_SUCCESS if success else GHOST_COLOR_FAILURE
         self._feedback_color_start_time = time.perf_counter()
 
@@ -203,17 +164,12 @@ class RecordingViewerMixin:
             self._enter_reset_phase()
 
     def _handle_done(self) -> None:
-        """Called when env signals done=True. Distinguishes success from collision."""
-        # The env auto-resets inside step() before done=True reaches us, so any
-        # command-term state (e.g. slot_at_goal) is already zeroed here. The
-        # termination manager's per-term dones survive the reset — they are only
-        # overwritten by the next compute() — so read the success term directly.
+        """Distinguish success from collision."""
+        # Env auto-resets before done reaches us; read success term from termination manager
         try:
             tm = self.env.env.termination_manager
             is_success = bool(tm.get_term("success")[0].item())
         except Exception:
-            # If the termination term is unavailable, fall back to treating as
-            # collision.
             is_success = False
 
         if is_success:
@@ -230,10 +186,10 @@ class RecordingViewerMixin:
             self._feedback_color_start_time = time.perf_counter()
             self.verbosity = VerbosityLevel.INFO
 
-    # ── Step loop ────────────────────────────────────────────────────────────
+    # Step loop
 
     def _log_step_timing(self, t0, t1, t2, t3, t4) -> None:
-        """Print a per-stage breakdown for any recording step over budget."""
+        """Log stage breakdown for slow steps."""
         total_ms = (t4 - t0) * 1e3
         if total_ms <= self._spike_ms:
             return
@@ -254,7 +210,7 @@ class RecordingViewerMixin:
             self._interrupted = True
             return False
 
-        # ── Provisional failure: waiting for discard or auto-save timeout ──
+        # Provisional failure: waiting for discard or auto-save
         if self._provisional_failure:
             timeout = 2.0  # seconds to wait before auto-saving
             elapsed = time.perf_counter() - self._provisional_failure_time
@@ -264,11 +220,7 @@ class RecordingViewerMixin:
                 self._end_episode(success=False)
             return True
 
-        # ── Reset phase: ghost visible, sim live, not recorded ──
-        # Operator moves the arm in the sim toward the ghost (rest pose).
-        # joint_pos_rel is first 6 entries of actor obs — it is q − HOME, so we
-        # compare against _live_rest_pose_rel (rest pose in that same q-HOME frame)
-        # rather than against zero. Nothing is added to the recorder in this phase.
+        # Reset phase: ghost visible, not recorded; operator aligns arm to ghost
         if self._in_reset_phase:
             try:
                 with torch.no_grad():
@@ -297,11 +249,11 @@ class RecordingViewerMixin:
                 return False
             return True
 
-        # ── Collision label: sim frozen, waiting for B or N key ──
+        # Collision label: sim frozen, waiting for user input
         if self._awaiting_collision_label:
             return True
 
-        # ── Normal recording step ──
+        # Normal recording step
         try:
             with torch.no_grad():
                 t0 = time.perf_counter()
@@ -312,6 +264,7 @@ class RecordingViewerMixin:
                 _obs_next, rew, dones, _extras = self.env.step(actions)
                 t3 = time.perf_counter()
 
+                # Only record if both leader action and robot obs are available
                 leader_action = getattr(self.policy, "latest_leader_action", None)
                 robot_obs = self._robot_obs_list[0]
                 if leader_action is not None and robot_obs is not None:
@@ -350,14 +303,7 @@ def build_ghost_model_and_qpos(
     sim_rest_pose: dict,
     home_joint_pos: dict,
 ) -> "tuple[_mujoco.MjModel, np.ndarray]":
-    """Build a deep-copied model showing only the robot's visual geoms, recolored
-    translucent green, posed at the rest pose — for add_ghost_mesh.
-
-    Same technique as mjlab's own tracking task ghost visualization: collision
-    geoms get alpha=0 (hidden), everything outside the robot entity (cube pieces,
-    ground, ...) also gets alpha=0 so only the robot ghost is drawn, and the
-    robot's own visual geoms get recolored to GHOST_COLOR.
-    """
+    """Build ghost model: robot visual geoms only, colored, at rest pose."""
     ghost_model = copy.deepcopy(mj_model)
     prefix = f"{GHOST_ROBOT_ENTITY}/"
     for gi in range(ghost_model.ngeom):
