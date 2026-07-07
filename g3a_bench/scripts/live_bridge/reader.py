@@ -129,15 +129,26 @@ class LiveReader(Reader):
                 "lerobot_robot_trlc_dk1 not installed — cannot connect to real robot. "
                 "Run: uv pip install -e /path/to/trlc-dk1"
             )
+        import sys
+
         self.use_follower = use_follower
         if use_follower:
             assert DK1Follower is not None
-            # Auto-detect any unspecified ports
+            # Only provide Linux defaults; require explicit ports elsewhere.
             if follower_port is None or leader_port is None:
-                leader_port = "/dev/ttyACM0"
-                follower_port = "/dev/ttyACM1"
+                if sys.platform.startswith("linux"):
+                    leader_port = leader_port or "/dev/ttyACM0"
+                    follower_port = follower_port or "/dev/ttyACM1"
+                else:
+                    raise ValueError(
+                        "leader_port/follower_port must be provided when not on Linux"
+                    )
         else:
-            leader_port = leader_port or "/dev/ttyACM0"
+            if leader_port is None:
+                if sys.platform.startswith("linux"):
+                    leader_port = "/dev/ttyACM0"
+                else:
+                    raise ValueError("leader_port must be provided when not on Linux")
             follower_port = None
         self.follower_port = follower_port
         self.leader_port = leader_port
