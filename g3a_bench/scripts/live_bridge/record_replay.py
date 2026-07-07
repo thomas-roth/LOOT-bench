@@ -93,11 +93,14 @@ def main():
 
     # 3. Open dataset to replay.
     if args.dataset_dir:
-        # Local session recorded by live_record.py (repo_id is always "live_record")
+        # Local session recorded by live_record.py (repo_id is always "live_record").
+        # Sessions store the actual LeRobot datasets under success/ and failure/.
         repo_id_in = "live_record"
-        root_in = args.dataset_dir
+        root_path = Path(args.dataset_dir)
+        success_root = root_path / "success"
+        root_in = str(success_root) if success_root.exists() else args.dataset_dir
         repo_id_out = "sim_replay"
-        out_root = str(Path(args.dataset_dir) / "sim_replay")
+        out_root = str(root_path / "sim_replay")
     else:
         repo_id_in = "FabianKerj/corkinbox100-fullrel"
         root_in = None
