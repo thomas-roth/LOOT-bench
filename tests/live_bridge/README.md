@@ -103,21 +103,21 @@ Tests `recorder.py`. Split into two parts:
 
 | Test | What it checks |
 |------|----------------|
-| `test_create_dataset` | `Recorder.__init__` calls `LeRobotDataset.create` with correct feature schema |
+| `test_create_dataset_lazily` | no dataset on init — `LeRobotDataset.create` happens on the first `save_episode()` of that kind |
 | `test_add_frame_buffers_until_save` | `add_frame()` holds frames in memory; dataset NOT written yet |
 | `test_save_episode_labels_frames_success` | `save_episode(True)` stamps `success=True` on every frame, then flushes |
 | `test_save_episode_labels_frames_failure` | `save_episode(False)` stamps `success=False` |
 | `test_save_episode_flushes_all_frames` | all buffered frames (not just the first) are written on save |
 | `test_discard_episode_drops_buffer` | `discard_episode()` clears buffer without writing anything |
-| `test_save_episode_empty_is_noop` | `save_episode()` with no frames buffered does not write an empty episode |
-| `test_close_finalizes_dataset` | `close()` calls `finalize()` on the underlying dataset |
+| `test_save_episode_empty_is_noop` | `save_episode()` with no frames buffered writes nothing and creates no dataset |
+| `test_close_finalizes_dataset` | `close()` calls `finalize()` on every dataset that was created |
 | `test_discard_then_save_new_episode` | after discard, a fresh episode can be buffered and saved normally |
 
 **Real round-trip tests** — write actual LeRobot datasets to `tmp_path`, read back, check shapes.
 
 | Test | What it checks |
 |------|----------------|
-| `test_recorder_real_roundtrip` | obs/action shapes, success column persists after finalize |
+| `test_recorder_real_roundtrip` | obs/action shapes, success column persists after finalize; no failure dataset for a success-only session |
 | `test_close_stores_operator_id` | `close(operator_id=3)` → `meta.info["operator_id"] == 3` after re-open |
 | `test_close_without_operator_id_still_finalizes` | `close()` with no argument does not raise |
 
@@ -141,16 +141,12 @@ No sim, no hardware, no I/O.
 | `test_ghost_spec_geoms_start_invisible` | All ghost geoms start with `alpha=0` |
 | `test_ghost_spec_arm_joints_spring_at_home` | Arm joints have `stiffness>0` and `springref` matching home pose |
 
-**`live_record.py` helpers** (`ask_operator`, `_arm_at_home`):
+**`live_record.py` helpers** (`ask_operator`):
 
 | Test | What it checks |
 |------|----------------|
 | `test_ask_operator_valid` | Returns int for valid input "2" |
-| `test_ask_operator_retries_on_bad_input` | Loops until valid input, ignores "0"/"5"/"abc" |
-| `test_arm_at_home_true_within_threshold` | True when obs within threshold of HOME |
-| `test_arm_at_home_false_outside_threshold` | False when one joint is 0.5 rad from home |
-| `test_arm_at_home_none_returns_false` | False when obs is None |
-
+| `test_ask_operator_retries_on_bad_input` | Loops until valid input, ignores "0"/"5"/"abc"
 ```bash
 uv run pytest tests/live_bridge/test_live_record_helpers.py -v
 ```

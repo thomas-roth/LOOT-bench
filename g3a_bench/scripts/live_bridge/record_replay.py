@@ -4,7 +4,7 @@ and save a recorded LeRobot dataset to logs/.
 Usage:
     # replay a locally recorded session (from live_record.py)
     uv run python g3a_bench/scripts/live_bridge/record_replay.py \\
-        --dataset-dir g3a_bench/scripts/live_bridge/logs/live_record/2026-06-29_10-00-00
+        --dataset-dir out/demos/success/2026-06-29_10-00-00
 
     # replay a specific episode
     uv run python g3a_bench/scripts/live_bridge/record_replay.py \\
@@ -14,8 +14,8 @@ Usage:
     uv run python g3a_bench/scripts/live_bridge/record_replay.py
 
 The native MuJoCo window opens and replays the dataset through the sim.
-Output is saved to <dataset-dir>/sim_replay/ (local) or
-logs/sim_replay_cube_stack3/ (HuggingFace).
+Output is saved to <dataset-dir>/sim_replay/success/ (local) or
+logs/sim_replay_cube_stack3/success/ (HuggingFace).
 After the episode finishes, the viewer keeps running (hold-last-action mode)
 until you close the window or press Ctrl+C.
 """
@@ -53,8 +53,8 @@ def main():
         type=str,
         default=None,
         help=(
-            "Path to a local live_record session directory "
-            "(e.g. logs/live_record/2026-06-29_10-00-00). "
+            "Path to a local live_record dataset directory "
+            "(e.g. out/demos/success/2026-06-29_10-00-00). "
             "When omitted, replays the default HuggingFace dataset."
         ),
     )
@@ -116,7 +116,13 @@ def main():
     # so a different task (with a different actor-obs size) still records a
     # correctly-shaped dataset.
     obs_dim = int(env.get_observations()["actor"].shape[-1])
-    recorder = Recorder(repo_id=repo_id_out, fps=50, obs_dim=obs_dim, root=out_root)
+    recorder = Recorder(
+        repo_id=repo_id_out,
+        fps=50,
+        obs_dim=obs_dim,
+        success_root=str(Path(out_root) / "success"),
+        failure_root=str(Path(out_root) / "failure"),
+    )
     print(f"[INFO] Recording to {out_root}")
 
     # 5. Policy that reads dataset + records results.

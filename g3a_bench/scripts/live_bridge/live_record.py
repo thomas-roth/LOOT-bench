@@ -73,7 +73,8 @@ from g3a_bench.scripts.live_bridge.mapper import (
 from g3a_bench.scripts.live_bridge.recorder import Recorder
 from g3a_bench.scripts.live_bridge.recording_mixin import RecordingViewerMixin
 
-LOGS_DIR = Path(__file__).resolve().parent / "logs"
+# Repo-root out/ directory (consistent with the out/<cat>_check render outputs).
+DEMOS_DIR = Path(__file__).resolve().parents[3] / "out" / "demos"
 
 USE_FOLLOWER_STATE_FOR_SIM = (
     False  # True → follower joint obs drives sim instead of leader action
@@ -140,7 +141,7 @@ def _hw_loop(
     hw_failed: list,
     follower_port: str | None,
     leader_port: str | None,
-    use_follower: bool = True,
+    use_follower: bool = False,
 ):
     """Read leader at ~200 Hz → send to follower → push to shared lists.
 
@@ -455,8 +456,9 @@ def main():
         type=str,
         default=None,
         help=(
-            "Output directory. Defaults to logs/live_record/<timestamp>/. "
-            "Errors if the directory already exists (data is never overwritten)."
+            "Output base directory. Defaults to out/demos/ at the repo root. "
+            "Episodes are saved to <base>/success/<timestamp>/ and "
+            "<base>/failure/<timestamp>/ (data is never overwritten)."
         ),
     )
     parser.add_argument(
@@ -520,24 +522,32 @@ def main():
     if mj_model is None:
         print("[WARN] Ghost-at-home overlay disabled (could not locate MjModel)")
 
-    # 4. Resolve dataset output directory — never wipe existing data.
-    if args.dataset_dir:
-        dataset_root = Path(args.dataset_dir)
-        if dataset_root.exists():
+    # 4. Resolve dataset output directories — never wipe existing data.
+    #    Layout: <base>/success/<stamp>/ and <base>/failure/<stamp>/; each
+    #    dataset is only created once an episode of that kind is saved.
+    base_dir = Path(args.dataset_dir) if args.dataset_dir else DEMOS_DIR
+    stamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    success_root = base_dir / "success" / stamp
+    failure_root = base_dir / "failure" / stamp
+    for _path in (success_root, failure_root):
+        if _path.exists():
             raise SystemExit(
-                f"[ERROR] {dataset_root} already exists — choose a new --dataset-dir "
-                "(refusing to overwrite recorded data)."
+                f"[ERROR] {_path} already exists (refusing to overwrite recorded data)."
             )
-    else:
-        stamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        dataset_root = LOGS_DIR / "live_record" / stamp
 
     # 5. Set up recorder.
     obs_dim = int(env.get_observations()["actor"].shape[-1])
     recorder = Recorder(
-        repo_id="live_record", fps=50, obs_dim=obs_dim, root=str(dataset_root)
+        repo_id="live_record",
+        fps=50,
+        obs_dim=obs_dim,
+        success_root=str(success_root),
+        failure_root=str(failure_root),
     )
-    print(f"[INFO] Recording to {dataset_root} (obs_dim={obs_dim})")
+    print(
+        f"[INFO] Recording to {base_dir}/{{success,failure}}/{stamp} "
+        f"(obs_dim={obs_dim})"
+    )
 
     # 6. Shared single-element lists (GIL-safe last-writer-wins).
     action_list: list = [None]
@@ -608,8 +618,9 @@ def main():
         env.close()
         saved = viewer.episodes_saved if viewer is not None else 0
         print(f"[INFO] Done. Saved {saved} episode(s)")
-        print(f"[INFO]   Success episodes: {dataset_root}/success/")
-        print(f"[INFO]   Failure episodes: {dataset_root}/failure/")
+        print(f"[INFO]   Success episodes: {success_root}/")
+        print(f"[INFO]   Failure episodes: {failure_root}/")
+        print("[INFO]   (a directory only exists if such episodes were saved)")
         if hw_failed[0]:
             print(
                 "[WARN] Session ended due to a hardware-thread failure "

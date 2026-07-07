@@ -1,335 +1,37 @@
 # live_bridge
 
-Teleop → sim mirroring → dataset recording pipeline for the G3A benchmark.
+Teleop → sim mirroring → dataset recording for G3A benchmark. Records demonstrations from a real DK1 robot (GELLO leader + optional DK1 follower) into a LeRobot dataset for offline RL training.
 
-Connects a real TRLC-DK1 robot (GELLO leader + optional DK1 follower) to a MuJoCo
-simulation, mirrors every movement in real time, and records multiple labeled
-demonstrations per session into a LeRobot dataset for offline behaviour-cloning
-training.
-
----
-
-## Setup for `live_record.py` (real hardware)
-
-### 1. Install the trlc-dk1 hardware drivers
-
-The trlc-dk1 package requires **Python 3.12 or newer**.
-
-```bash
-uv pip install -e /path/to/trlc-dk1
-```
-
-### 2. Find the USB port names
-
-Plug in the **leader** USB cable. Then run:
-
-```bash
-uv run lerobot-find-port
-```
-
-This lists all currently connected serial ports. Now **unplug** the leader cable
-— the tool will tell you which port disappeared. That is the leader port.
-Plug it back in and repeat for the follower if you are using one.
-
-On Linux the ports are (only if directly connected):
-
-- **Leader**: `/dev/ttyACM0`
-- **Follower**: `/dev/ttyACM1`
-
-These are the defaults the script uses when you do not pass `--leader-port` /
-`--follower-port` explicitly.
-
-### 3. Grant USB access (Linux — required every reconnect)
-
-Linux denies serial port access to normal users. After plugging in (or after any
-disconnect / loose connection), run:
-
-```bash
-sudo chmod 666 /dev/ttyACM*
-```
-
-This must be repeated every time the device is physically removed and
-reconnected.
-
-### 4. A display is required
-
-`live_record.py` opens a native MuJoCo viewer window.
-
----
+**Setup:** See `pyproject.toml` for dependencies. Hardware setup: find USB ports with `uv run lerobot-find-port`, grant access on Linux with `sudo chmod 666 /dev/ttyACM*`. A display is required for the MuJoCo viewer.
 
 ## Scripts
 
-### `lerobot_to_qc.py` — convert a recorded session to QC training format
+### `live_record.py` — record demonstrations via live teleop
 
-No hardware needed. Reads a LeRobot session recorded by `live_record.py` and writes
-a `.npz` file in the format expected by the `qc` training repo.
-
-```bash
-# convert successful episodes only (default)
-uv run python g3a_bench/scripts/live_bridge/lerobot_to_qc.py \
-    --dataset-dir g3a_bench/scripts/live_bridge/logs/live_record/2026-06-24_13-31-48 \
-    --output g3a_bench/scripts/live_bridge/logs/live_record/2026-06-24_13-31-48/dataset.npz
-
-# include failure episodes too
-uv run python g3a_bench/scripts/live_bridge/lerobot_to_qc.py \
-    --dataset-dir logs/live_record/<timestamp> \
-    --output dataset.npz \
-    --all-episodes
-```
-
-**Arguments:**
-
-| Argument | Default | Description |
-|----------|---------|-------------|
-| `--dataset-dir` | *(required)* | Path to the timestamped session directory. |
-| `--output` | *(required)* | Output `.npz` file path. |
-| `--all-episodes` | off | Include failure / discarded episodes. Default: only successes. |
-
-**Output format:**
-
-The `.npz` contains two logical sections:
-
-*QC training keys* — pass only these to `Dataset.create()`:
-
-| Key | Shape | Contents |
-|-----|-------|----------|
-| `observations` | (N, obs_dim) | Sim actor obs at timestep t |
-| `next_observations` | (N, obs_dim) | Sim actor obs at t+1; zeros at episode terminals |
-| `actions` | (N, 7) | Leader arm command at timestep t |
-| `rewards` | (N,) | Reward returned by env.step() |
-| `terminals` | (N,) | 1.0 at the last frame of each episode, else 0.0 |
-| `masks` | (N,) | 1.0 - terminals (0.0 at terminals; prevents Q-value bootstrapping) |
-
-*Metadata keys* — useful for analysis, strip before `Dataset.create()`:
-
-| Key | Shape | Contents |
-|-----|-------|----------|
-| `episode_index` | (N,) | Which episode each row belongs to |
-| `frame_index` | (N,) | Position of this row within its episode |
-| `timestamp` | (N,) | Wall-clock time of each frame |
-| `success` | (N,) | Operator label (constant within an episode) |
-| `sim_done` | (N,) | Whether the sim itself terminated (vs. operator-stopped) |
-
-> **Why `terminals` is not taken from `next.done`:** when the operator presses
-> Numpad 1/2 to end an episode manually, the last frame has `next.done=False`
-> because the sim never fired its termination condition. Using `next.done` would
-> leave `masks=1.0` at those episode boundaries, causing QC to bootstrap
-> Q-values incorrectly from a zero next-observation. `terminals` is instead
-> derived from `episode_index` boundaries, which is always correct.
-
-**Loading for QC training:**
-
-```python
-from g3a_bench.scripts.live_bridge.lerobot_to_qc import QC_KEYS
-from qc.utils.datasets import Dataset
-import numpy as np
-
-raw = np.load("dataset.npz")
-train_dataset = Dataset.create(**{k: raw[k] for k in QC_KEYS})
-```
-
-**Verifying the output:**
+**Requires hardware.** Records episodes at ~50 Hz from real robot actions (~200 Hz GELLO leader, optional DK1 follower).
 
 ```bash
-uv run python -c "
-import numpy as np
-d = np.load('dataset.npz')
-for k in sorted(d.keys()):
-    arr = d[k]
-    print(k, arr.shape, arr.dtype)
-
-# boundary checks
-term_idx = d['terminals'].nonzero()[0]
-assert (d['next_observations'][term_idx] == 0).all(), 'cross-episode leak!'
-assert (d['masks'][term_idx] == 0).all(), 'mask wrong at terminal!'
-print('checks passed — terminals:', int(d['terminals'].sum()), 'episodes')
-"
+uv run python g3a_bench/scripts/live_bridge/live_record.py [--follower] [--leader-port PORT] [--follower-port PORT] [--num-episodes N] [--dataset-dir PATH]
 ```
 
----
+Asks for operator ID (1–4) at startup. **Numpad controls:**
+- `1`: Save episode as **success** → reset phase
+- `2`: Save as **failure** → reset phase  
+- `3`: **Discard** → reset phase → redo
+- `4`: Finalize dataset and quit
 
-### `record_replay.py` — replay a dataset through the sim and record results
+**State machine:** RECORDING → [auto-save on task success | collision prompt (AWAITING_LABEL) → operator labels | Numpad 1/2/3] → RESET_PHASE (ghost arm at rest pose, no recording) → back to RECORDING when sim arm near rest.
 
-No hardware needed. Reads an existing LeRobot dataset, feeds each frame's
-action through the sim, and saves a new dataset with sim observations +
-reward/done.
+Output: `out/demos/success/<YYYY-MM-DD_HH-MM-SS>/` and `out/demos/failure/<YYYY-MM-DD_HH-MM-SS>/` at the repo root (timestamped, never overwrites). A directory is only created if at least one episode of that kind was saved.
+
+**Optional:** set `USE_FOLLOWER_STATE_FOR_SIM = True` in `live_record.py` to drive from follower joint observations instead of leader action.
+
+### `record_replay.py` — offline dataset replay
+
+**No hardware.** Replays a LeRobot dataset through the sim, records sim obs + reward/done.
 
 ```bash
 uv run python g3a_bench/scripts/live_bridge/record_replay.py
 ```
 
-**What happens:**
-1. Downloads `FabianKerj/corkinbox100-fullrel` from HuggingFace (~655 MB, cached after first run)
-2. Opens a MuJoCo viewer window showing the replay
-3. Records sim obs + reward + done to `g3a_bench/scripts/live_bridge/logs/sim_replay_cube_stack3/`
-4. When you close the window, finalizes and saves the dataset
-
-**On Windows (first run):** HuggingFace may print a symlink warning — harmless, download completes.
-
----
-
-### `live_record.py` — live teleop + sim mirroring + recording
-
-Requires real hardware. Reads the GELLO leader at ~200 Hz, mirrors it in the
-sim at ~50 Hz, and records multiple labeled demonstrations in one session.
-
-```bash
-# leader only (default — no follower arm needed)
-uv run python g3a_bench/scripts/live_bridge/live_record.py
-
-# with follower arm
-uv run python g3a_bench/scripts/live_bridge/live_record.py --follower
-
-# explicit ports (if auto-defaults don't match your setup)
-uv run python g3a_bench/scripts/live_bridge/live_record.py --follower \
-    --leader-port /dev/ttyACM0 \
-    --follower-port /dev/ttyACM1
-
-# stop automatically after N saved episodes
-uv run python g3a_bench/scripts/live_bridge/live_record.py --num-episodes 10
-
-# write to a specific directory (must not exist)
-uv run python g3a_bench/scripts/live_bridge/live_record.py \
-    --dataset-dir path/to/my_dataset
-```
-
-**Arguments:**
-
-| Argument | Default | Description |
-|----------|---------|-------------|
-| `--follower` | off | Connect to the real follower arm. Without this flag only the leader is read. |
-| `--leader-port` | `/dev/ttyACM0` | Serial port for the leader (GELLO controller). |
-| `--follower-port` | `/dev/ttyACM1` | Serial port for the follower arm (only used with `--follower`). |
-| `--task` | `G3a-Cube-Stack3-Dk1_uni` | MJLab task name to load. |
-| `--dataset-dir` | `logs/live_record/<timestamp>/` | Output directory. Errors if it already exists. |
-| `--num-episodes` | `0` | Stop after N saved episodes. 0 = record until Numpad 4 is pressed. |
-
-**Startup:** the script asks for an operator number (1–4) before doing anything
-else. The number is stored in `meta/info.json` of the recorded dataset.
-
-**What happens:**
-1. Asks `Operator (1 / 2 / 3 / 4):` on stdin
-2. Loads the task in play mode (no noise, infinite episode length)
-3. Adds a ghost arm to the scene (visual-only DK1 fixed at rest pose, initially invisible)
-4. Starts a background thread reading the leader at ~200 Hz (and commanding the follower if `--follower` is set)
-5. Opens a MuJoCo viewer; move the leader arm to drive the sim
-6. Records sim obs + real robot state + leader action + reward + done, **buffered in memory** per episode
-7. Handles episode end automatically (see state machine below)
-
-**Key bindings (numpad):**
-
-| Key | Action |
-|-----|--------|
-| `Numpad 1` | Save current episode as **success** → enter reset phase |
-| `Numpad 2` | Save current episode as **failure** → enter reset phase |
-| `Numpad 3` | **Discard** current episode → enter reset phase → redo |
-| `Numpad 4` | Stop session and finalize dataset |
-
-> Main-row digit keys (1–4) are swallowed by the MuJoCo viewer to toggle render
-> groups and never reach the script — use the **numpad**.
-
----
-
-### State machine
-
-Each episode moves through three states:
-
-```
-RECORDING ──── task complete (all cubes placed) ──────► auto-save SUCCESS
-          └─── ground collision ──────────────────────► AWAITING_LABEL
-          └─── Numpad 1 ────────────────────────────► save SUCCESS ──► RESET_PHASE
-
-AWAITING_LABEL (sim frozen, collision prompt on screen)
-          ├─── Numpad 2 ──► save FAILURE ──► RESET_PHASE
-          ├─── Numpad 3 ──► discard       ──► RESET_PHASE
-          └─── Numpad 1 ──► save SUCCESS  ──► RESET_PHASE
-
-RESET_PHASE (sim live, not recorded, ghost arm visible at rest pose)
-          └─── sim arm ≈ ghost (all 6 joints within 0.2 rad of rest) ──► RECORDING
-```
-
-**RECORDING:** Normal operation. Each sim step gets recorded. When `done=True`
-fires, the script checks whether all cubes are placed — if yes, it auto-saves;
-if a ground collision is detected, it shows the collision prompt.
-
-**AWAITING_LABEL:** Sim is frozen. The operator decides what to do with the
-episode (save as failure or discard). Numpad 1 can also override and save as success.
-
-**RESET_PHASE:** After any episode ends, the ghost arm (semi-transparent green
-DK1) becomes visible in the sim at the rest pose. The operator moves the leader
-arm back toward rest — the live sim arm follows. When the sim arm is within
-0.2 rad of rest on all 6 joints, the next episode begins automatically and the
-ghost disappears. Nothing is recorded during this phase.
-
----
-
-**Output:** `g3a_bench/scripts/live_bridge/logs/live_record/<YYYY-MM-DD_HH-MM-SS>/`
-
-Each session creates a new timestamped directory. Data is **never overwritten**.
-If `--dataset-dir` is given and already exists, the script errors rather than
-wiping it.
-
-**`USE_FOLLOWER_STATE_FOR_SIM` toggle:** at the top of `live_record.py`, set
-`USE_FOLLOWER_STATE_FOR_SIM = True` to drive the sim from the follower's joint
-observations instead of the leader's action command. Default is `False` (leader
-action drives the sim).
-
----
-
-## Module overview
-
-| File | Role |
-|------|------|
-| `reader.py` | `LiveReader` (real robot, 200 Hz), `DatasetReader` (offline replay). Both return `ReaderFrame(joint_pos, leader_action, timestamp)`. |
-| `mapper.py` | Converts real-robot joint/gripper values to MuJoCo raw action format. `lerobot_to_mjlab_raw_action(leader_action)` is the main entry point. |
-| `recorder.py` | Wraps `LeRobotDataset`. `add_frame()` buffers frames in memory; `save_episode(success)` flushes with a label; `discard_episode()` drops the buffer; `close(operator_id)` writes operator id to `meta/info.json` and finalizes. |
-| `live_record.py` | Main live teleop script. HW thread (~200 Hz) + sim viewer thread (~50 Hz), decoupled via single-element lists. State machine handles multi-episode recording with ghost-arm reset phase. |
-| `record_replay.py` | Offline replay + recording. No hardware. Reads a LeRobot session and feeds each frame through the sim. |
-| `lerobot_to_qc.py` | Converts a LeRobot session to QC `.npz` format for offline/online RL training. One function: `convert(dataset_root, output_path, only_successes=True)`. |
-
----
-
-## Data layout
-
-Each recorded frame contains:
-
-| Column | Shape | Contents |
-|--------|-------|----------|
-| `observation.state` | (53,) | Sim actor obs: joint_pos_rel(6) + joint_vel_rel(6) + gripper(2) + pieces_rel_grasp(9) + slot_goal_deltas(9) + slot_placed(3) + command(9) + last_action(7) (exact size depends on task config) |
-| `observation.robot_state` | (7,) | Real robot: follower joint pos in radians, gripper in [0=open, 1=closed] |
-| `action` | (7,) | Leader command: same format as robot_state |
-| `next.reward` | (1,) | Reward returned by env.step() for this frame |
-| `next.done` | (1,) | Whether the episode terminated after this step |
-| `success` | (1,) | Operator label: `True` = success, `False` = failure (constant within an episode) |
-| `task` | str | Task id, e.g. `G3a-Cube-Stack3-Dk1_uni` |
-
-Dataset `meta/info.json` also includes `operator_id` (int 1–4) for the session.
-
----
-
-## Architecture notes
-
-Two threads run in parallel:
-
-- **HW thread (~200 Hz, daemon):** reads leader → (optionally) sends to follower → writes
-  latest action to `action_list[0]` (last-writer-wins, GIL-safe single-element
-  list). If this thread crashes (serial disconnect), it sets `hw_failed[0]=True`
-  and the viewer aborts cleanly.
-
-- **Main thread (viewer-paced ~50 Hz):** `_LivePolicy` reads `action_list[0]` →
-  maps to MuJoCo raw action → `env.step()` → records frame. The state machine
-  lives here.
-
-Termination detection: when `done=True` fires, the script queries
-`env.env.command_manager.get_term("arrangement").slot_at_goal` to distinguish
-success (all cubes placed) from collision.
-
----
-
-## Tests
-
-Unit and integration tests live in `tests/live_bridge/`. Run with:
-
-```bash
-uv run pytest tests/live_bridge/ -v
-```
+Downloads example dataset from HuggingFace on first run (~655 MB cached). Output: `logs/sim_replay_cube_stack3/success/`
