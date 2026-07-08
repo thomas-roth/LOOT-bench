@@ -148,3 +148,17 @@ actuated). `dk1_constants.py` carries `# pyright: reportAttributeAccessIssue=fal
   pre-commit hooks on commit.
 - Test renders are written to `out/render/<domain>/`; training logs to `logs/` and
   `wandb/`. The `examples/` dir holds reference mjlab code, not part of the package.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and PRDs live as local markdown under `.scratch/<feature-slug>/`; no external tracker. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Uses the default five-role vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`) as `Status:` markers. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` + `docs/adr/` at the repo root created lazily by `/domain-modeling`. See `docs/agents/domain.md`.
