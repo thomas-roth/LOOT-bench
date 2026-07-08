@@ -123,6 +123,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default=None,
         help="where to torch.save the trained agent's state_dict",
     )
+    parser.add_argument(
+        "--resume",
+        type=str,
+        default=None,
+        help=(
+            "path to agent.pt checkpoint — skip offline training and resume"
+            " from this policy (requires --online-steps and --task)"
+        ),
+    )
     return parser
 
 
@@ -283,6 +292,12 @@ def main() -> None:
     )
     agent = QCFQLAgent.create(config, ex_obs, ex_act)
 
+    if args.resume:
+        agent.load_state_dict(torch.load(args.resume, map_location=args.device))
+        print(
+            f"[INFO] Loaded checkpoint from {args.resume} — skipping offline training"
+        )
+
     action_dim = dataset.data["actions"].shape[-1]
 
     if args.online_steps > 0 or args.eval_interval:
@@ -300,9 +315,10 @@ def main() -> None:
     else:
         eval_env = None
 
-    train_offline(agent, dataset, args, eval_env=eval_env, action_dim=action_dim)
+    if not args.resume:
+        train_offline(agent, dataset, args, eval_env=eval_env, action_dim=action_dim)
 
-    if args.checkpoint_path:
+    if args.checkpoint_path and not args.resume:
         torch.save(agent.state_dict(), args.checkpoint_path)
         print(f"Saved checkpoint to {args.checkpoint_path}")
 
