@@ -93,6 +93,11 @@ class DatasetReader(Reader):
         self._end = int(ends[self._episode_index])
         self._frame_index = 0
 
+    @property
+    def meta_info(self) -> dict:
+        """The dataset's info.json dict (episode_seeds, seed_device, operator_id, ...)."""
+        return self._ds.meta.info
+
     def read(self) -> ReaderFrame:
         if self._frame_index >= (self._end - self._start):
             raise StopIteration

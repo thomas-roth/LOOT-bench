@@ -238,6 +238,7 @@ class _LiveRecordingViewer(NativeMujocoViewer):
         self.episodes_saved = 0
         self._in_reset_phase = False
         self._awaiting_collision_label = False
+        self._current_ep_seed: int | None = None
         super().__init__(
             env,
             policy,
@@ -280,7 +281,18 @@ class _LiveRecordingViewer(NativeMujocoViewer):
     def _exit_reset_phase(self) -> None:
         self._in_reset_phase = False
         self.verbosity = VerbosityLevel.DEBUG
-        # env already auto-reset when done=True fired; no second reset needed
+        # Controlled seeded reset: the auto-reset that fired on done=True used
+        # unseeded RNG, so re-scatter the objects from a known seed that gets
+        # saved with the episode — record_replay.py restores it to reproduce
+        # the exact same layout. The arm is at the ghost/rest pose here, so
+        # the reset's jump to home is minimal by design.
+        self.start_episode_seeded_reset()
+
+    def start_episode_seeded_reset(self) -> None:
+        """Reseed all RNGs and reset the env so this episode's object scatter
+        and sampled goal can be reproduced at replay time from the saved seed."""
+        self._current_ep_seed = int(np.random.randint(0, 2**31 - 1))
+        self.env.env.reset(seed=self._current_ep_seed)
 
     # ── Key handling ─────────────────────────────────────────────────────────
 
@@ -318,7 +330,7 @@ class _LiveRecordingViewer(NativeMujocoViewer):
         if frames == 0:
             print("[INFO] Nothing to save (no frames recorded yet)")
             return
-        self._recorder.save_episode(success=success)
+        self._recorder.save_episode(success=success, seed=self._current_ep_seed)
         self.episodes_saved += 1
         label = "SUCCESS" if success else "FAILURE"
         print(
@@ -404,6 +416,8 @@ class _LiveRecordingViewer(NativeMujocoViewer):
         try:
             with torch.no_grad():
                 obs = self.env.get_observations()
+                # Ground-truth sim state, captured pre-step to align with obs.
+                qpos_np = self.env.env.sim.data.qpos[0].cpu().numpy().copy()
                 actions = self.policy(obs)
                 _obs_next, rew, dones, _extras = self.env.step(actions)
 
@@ -417,6 +431,7 @@ class _LiveRecordingViewer(NativeMujocoViewer):
                         bool(dones[0]),
                         task=self._task,
                         robot_obs=robot_obs,
+                        qpos=qpos_np,
                     )
 
                 self._step_count += 1
@@ -585,10 +600,18 @@ def main():
 
     # 5. Set up recorder.
     obs_dim = int(env.get_observations()["actor"].shape[-1])
+    qpos_dim = int(env.env.sim.data.qpos.shape[-1])
     recorder = Recorder(
-        repo_id="live_record", fps=50, obs_dim=obs_dim, root=str(dataset_root)
+        repo_id="live_record",
+        fps=50,
+        obs_dim=obs_dim,
+        root=str(dataset_root),
+        qpos_dim=qpos_dim,
+        device=device,
     )
-    print(f"[INFO] Recording to {dataset_root} (obs_dim={obs_dim})")
+    print(
+        f"[INFO] Recording to {dataset_root} (obs_dim={obs_dim}, qpos_dim={qpos_dim})"
+    )
 
     # 6. Shared single-element lists (GIL-safe last-writer-wins).
     action_list: list = [None]
@@ -640,6 +663,8 @@ def main():
             task=args.task,
             num_episodes=args.num_episodes,
         )
+        # Episode 1 also starts from a seeded reset so it is replayable.
+        viewer.start_episode_seeded_reset()
         viewer.run()
     finally:
         shutdown_flag[0] = True
