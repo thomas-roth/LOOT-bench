@@ -48,51 +48,6 @@ def get_unimanual_spec() -> mujoco.MjSpec:
     return spec
 
 
-def get_ghost_spec() -> mujoco.MjSpec:
-    """DK1 spec configured as a non-colliding ghost arm locked at home pose.
-
-    All body/geom/joint names are prefixed 'ghost_' to avoid conflicts with
-    the real robot in the same scene.  Gripper equality constraint is removed —
-    both gripper joints get individual springs to home=0.
-    """
-    spec = mujoco.MjSpec.from_file(str(_DK1_XML))
-
-    # Drop gripper equality — individual springs handle it.
-    for eq in list(spec.equalities):
-        spec.delete(eq)
-
-    def _process(body: mujoco.MjsBody) -> None:
-        if body.name:
-            body.name = f"ghost_{body.name}"
-        for geom in body.geoms:
-            if geom.name:
-                geom.name = f"ghost_{geom.name}"
-            geom.contype = 0
-            geom.conaffinity = 0
-            geom.group = 4
-            geom.rgba = [0.5, 0.5, 0.5, 0.0]
-        for joint in body.joints:
-            orig = joint.name
-            if orig:
-                joint.name = f"ghost_{orig}"
-            if orig in _HOME_JOINT_POS:
-                joint.stiffness[0] = 100_000.0
-                joint.springref = _HOME_JOINT_POS[orig]
-                joint.damping[0] = 1_000.0
-        for child in body.bodies:
-            _process(child)
-
-    for body in spec.worldbody.bodies:
-        _process(body)
-
-    # Fix light targetbody references — bodies were renamed above.
-    for light in spec.worldbody.lights:
-        if light.targetbody:
-            light.targetbody = f"ghost_{light.targetbody}"
-
-    return spec
-
-
 ##
 # Keyframe config.
 ##

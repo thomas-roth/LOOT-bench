@@ -122,7 +122,7 @@ class LiveReader(Reader):
         follower_port: str | None = None,
         leader_port: str | None = None,
         connect_on_init: bool = True,
-        use_follower: bool = True,
+        use_follower: bool = False,
     ):
         if DK1Leader is None:
             raise ImportError(

@@ -1,37 +1,50 @@
 # live_bridge
 
-Teleop → sim mirroring → dataset recording for G3A benchmark. Records demonstrations from a real DK1 robot (GELLO leader + optional DK1 follower) into a LeRobot dataset for offline RL training.
+Record DK1 demonstrations into a LeRobot dataset for offline RL. A GELLO leader
+(and optional DK1 follower) drives the sim; episodes are saved with success/failure
+labels.
 
-**Setup:** See `pyproject.toml` for dependencies. Hardware setup: find USB ports with `uv run lerobot-find-port`, grant access on Linux with `sudo chmod 666 /dev/ttyACM*`. A display is required for the MuJoCo viewer.
+## Setup
 
-## Scripts
+Find USB ports with `uv run lerobot-find-port`. On Linux, grant access with
+`sudo chmod 666 /dev/ttyACM*`. The MuJoCo viewer needs a display.
 
-### `live_record.py` — record demonstrations via live teleop
+## live_record.py
 
-**Requires hardware.** Records episodes at ~50 Hz from real robot actions (~200 Hz GELLO leader, optional DK1 follower).
+Records episodes at ~50 Hz from live teleop. Requires hardware.
 
 ```bash
-uv run python g3a_bench/scripts/live_bridge/live_record.py [--follower] [--leader-port PORT] [--follower-port PORT] [--num-episodes N] [--dataset-dir PATH]
+uv run python g3a_bench/scripts/live_bridge/live_record.py \
+    [--follower] [--leader-port PORT] [--follower-port PORT] \
+    [--task TASK] [--num-episodes N] [--dataset-dir PATH]
 ```
 
-Asks for operator ID (1–4) at startup. **Numpad controls:**
-- `1`: Save episode as **success** → reset phase
-- `2`: Save as **failure** → reset phase  
-- `3`: **Discard** → reset phase → redo
-- `4`: Finalize dataset and quit
+Ports are auto-detected if omitted. Enter an operator ID (1–4) at startup, then
+control recording with the numpad:
 
-**State machine:** RECORDING → [auto-save on task success | collision prompt (AWAITING_LABEL) → operator labels | Numpad 1/2/3] → RESET_PHASE (ghost arm at rest pose, no recording) → back to RECORDING when sim arm near rest.
+- `1` — save as success, reset
+- `2` — save as failure, reset
+- `3` — discard, reset
+- `4` — finalize and quit
 
-Output: `out/demos/success/<YYYY-MM-DD_HH-MM-SS>/` and `out/demos/failure/<YYYY-MM-DD_HH-MM-SS>/` at the repo root (timestamped, never overwrites). A directory is only created if at least one episode of that kind was saved.
+On task success an episode auto-saves; on a ground collision the sim freezes for
+you to label. After each save the arm ghosts back to rest, then recording resumes.
 
-**Optional:** set `USE_FOLLOWER_STATE_FOR_SIM = True` in `live_record.py` to drive from follower joint observations instead of leader action.
+Episodes go to `out/demos/success/<timestamp>/` and `out/demos/failure/<timestamp>/`
+at the repo root (override with `--dataset-dir`). Nothing is ever overwritten, and a
+directory is created only once an episode of that kind exists.
 
-### `record_replay.py` — offline dataset replay
+Set `USE_FOLLOWER_STATE_FOR_SIM = True` in the script to drive the sim from follower
+joint states instead of leader actions.
 
-**No hardware.** Replays a LeRobot dataset through the sim, records sim obs + reward/done.
+## record_replay.py
+
+Replays a LeRobot dataset through the sim and records sim observations plus
+reward/done. No hardware.
 
 ```bash
 uv run python g3a_bench/scripts/live_bridge/record_replay.py
 ```
 
-Downloads example dataset from HuggingFace on first run (~655 MB cached). Output: `logs/sim_replay_cube_stack3/success/`
+First run downloads an example dataset from HuggingFace (~655 MB, cached). Output
+goes to `logs/sim_replay_cube_stack3/success/`.
