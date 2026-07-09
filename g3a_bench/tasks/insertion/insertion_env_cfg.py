@@ -152,11 +152,15 @@ def make_insertion_env_cfg(
         # Sorter: one commanded insert but the cube may need reorienting first.
         episode_length_s=30.0 if sorter else 10.0 + 8.0 * variant.num_sockets,
         # Two-sheet: two 16-box rings stacked on top of each other need
-        # extra contact/constraint headroom. Sorter: ~90 convex mesh parts
-        # on the cube colliding with pieces, table and gripper.
+        # extra contact/constraint headroom. Sorter: ~90 convex mesh parts on
+        # the cube colliding with pieces, table and gripper -- 500/2000 has
+        # 1.7-8x margin over observed peak usage (~289 contacts at a fresh
+        # reset, comfortably clean through the piece-tumbling latch check
+        # down to 60/240) and is ~2x faster to step than the original
+        # 2000/8000, which was far larger than the geometry ever needs.
         solver_iterations=15,
         solver_ls_iterations=25,
-        nconmax=2000 if sorter else 120 + 120 * num_pegs + (200 if two_sheet else 0),
-        njmax=8000 if sorter else 900 + 90 * num_pegs + (400 if two_sheet else 0),
+        nconmax=500 if sorter else 120 + 120 * num_pegs + (200 if two_sheet else 0),
+        njmax=2000 if sorter else 900 + 90 * num_pegs + (400 if two_sheet else 0),
         play=play,
     )

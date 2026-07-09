@@ -114,11 +114,6 @@ def make_cube_env_cfg(
     cfg.sim.mujoco.disableflags = ("nativeccd",)
 
     if play:
-        # Real-time play tuning.
-        cfg.sim.mujoco.iterations = 20
-        cfg.sim.mujoco.ls_iterations = 10
-        cfg.sim.mujoco.timestep = 0.01
-        cfg.decimation = 1
         # live_bridge demo playback needs episodes to actually terminate on
         # success, unlike the other categories' play sessions.
         cfg.terminations["success"] = task_terminations["success"]

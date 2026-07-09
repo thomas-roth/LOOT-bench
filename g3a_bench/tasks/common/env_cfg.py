@@ -56,6 +56,10 @@ def make_manipulation_env_cfg(
     viewer_distance: float = 1.5,
     viewer_elevation: float = -15.0,
     play: bool = False,
+    play_timestep: float = 0.01,
+    play_decimation: int = 1,
+    play_solver_iterations: int = 20,
+    play_solver_ls_iterations: int = 10,
 ) -> ManagerBasedRlEnvCfg:
     """Assemble the shared workbench around a category core.
 
@@ -81,8 +85,18 @@ def make_manipulation_env_cfg(
         task_terminations: category terminations, placed after ``time_out``
             (``success`` must be one of them for the play block to strip).
         sensors: scene sensors (e.g. the insertion contact sensor).
-        play: strip corruption/curriculum/success-termination and make the
-            episode endless, for interactive play.
+        play: strip corruption/curriculum/success-termination, make the
+            episode endless, and retune physics for real-time responsiveness
+            (see ``play_*`` args), for interactive play.
+        play_timestep, play_decimation, play_solver_iterations,
+            play_solver_ls_iterations: physics knobs applied only when
+            ``play=True``. A bigger timestep with fewer substeps
+            (``decimation``) cuts wall-clock cost per ``env.step()`` for
+            live/teleop use; more solver iterations with a shorter
+            line-search partially offsets the coarser timestep for
+            constraint stability. Override per category if the default
+            (tuned against the cube task) causes instability, e.g. a fast
+            projectile tunneling through thin geometry.
     """
     actor_terms: dict[str, ObservationTermCfg] = {
         "joint_pos": ObservationTermCfg(
@@ -245,5 +259,9 @@ def make_manipulation_env_cfg(
         cfg.observations["actor"].enable_corruption = False
         cfg.curriculum = {}
         cfg.terminations.pop("success")
+        cfg.sim.mujoco.timestep = play_timestep
+        cfg.decimation = play_decimation
+        cfg.sim.mujoco.iterations = play_solver_iterations
+        cfg.sim.mujoco.ls_iterations = play_solver_ls_iterations
 
     return cfg
