@@ -22,9 +22,9 @@ target).
 Use `uv run` for everything — the venv is managed by uv. The environment is at .venv/.
 
 ```bash
-# Install (picks cu128 vs cpu from nvidia-smi, also installs pre-commit hooks)
+# Install (torch build picked by platform in pyproject.toml, also installs pre-commit hooks)
 bash install.sh            # or ./install.ps1 on Windows
-uv sync --extra cu128      # manual editable install (or --extra cpu)
+uv sync                    # manual editable install (cu128 on Linux/Windows, cpu on macOS)
 
 # Quality (CI = pre-commit; run before committing)
 uv run ruff check          # lint
@@ -124,6 +124,16 @@ actuated). `dk1_constants.py` carries `# pyright: reportAttributeAccessIssue=fal
 
 ## Conventions and gotchas
 
+- **Torch build is platform-pinned, not extra-gated.** There are no `cpu`/`cu128`
+  extras. `[tool.uv.sources]` in `pyproject.toml` pins `torch`/`torchvision` to
+  the `pytorch-cu128` index on Linux/Windows and `pytorch-cpu` on macOS (no CUDA
+  wheels exist there), baked into the base resolution. So a bare `uv sync` /
+  `uv run` resolves the right wheel and **never churns torch back to the CPU
+  wheel** — the old `--extra cu128` flag and the installers' `nvidia-smi` probing
+  are gone. `torch-backend = "auto"` is *not* used: it's only honored by the
+  `uv pip` interface, not `uv sync`/`uv lock` (uv issue #12994, unimplemented).
+  Tradeoff: no lean CPU-only build on Linux/Windows — CPU-only boxes still run
+  fine on the (larger, ~2.5 GB) cu128 wheels.
 - **mjlab is pinned to 1.4.0** and the API has drifted from older snippets. Use
   `mjlab.utils.lab_api.math` (not `mjlab.utils.math`), `RslRlOnPolicyRunnerCfg`
   with separate actor/critic `RslRlModelCfg` (not `RslRlPpoRunnerCfg`), and

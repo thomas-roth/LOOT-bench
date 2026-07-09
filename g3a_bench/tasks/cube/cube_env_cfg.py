@@ -86,7 +86,7 @@ def make_cube_env_cfg(
     num_pieces = len(variant.pieces)
     # Extra contact/constraint headroom for the maze wall segments ("push").
     maze_ncon = 60 if variant.arrangement == "push" else 0
-    return make_manipulation_env_cfg(
+    cfg = make_manipulation_env_cfg(
         entities=entities,
         fixed_props=("table", "maze") if variant.arrangement == "push" else ("table",),
         command_name=COMMAND_NAME,
@@ -104,6 +104,23 @@ def make_cube_env_cfg(
         solver_iterations=10,
         solver_ls_iterations=20,
         nconmax=55 + 80 * num_pieces + maze_ncon,
-        njmax=600 + 60 * num_pieces + 2 * maze_ncon,
+        # nativeccd is disabled below for better box-to-box collisions, which
+        # raises the constraint count for cascading multi-piece contacts
+        # (e.g. toppling dominos); give njmax extra headroom for that.
+        njmax=600 + 100 * num_pieces + 2 * maze_ncon,
         play=play,
     )
+    # Better box-to-box collisions between pieces.
+    cfg.sim.mujoco.disableflags = ("nativeccd",)
+
+    if play:
+        # Real-time play tuning.
+        cfg.sim.mujoco.iterations = 20
+        cfg.sim.mujoco.ls_iterations = 10
+        cfg.sim.mujoco.timestep = 0.01
+        cfg.decimation = 1
+        # live_bridge demo playback needs episodes to actually terminate on
+        # success, unlike the other categories' play sessions.
+        cfg.terminations["success"] = task_terminations["success"]
+
+    return cfg

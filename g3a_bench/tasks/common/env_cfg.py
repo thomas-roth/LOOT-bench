@@ -222,6 +222,8 @@ def make_manipulation_env_cfg(
             distance=viewer_distance,
             elevation=viewer_elevation,
             azimuth=150.0,
+            enable_shadows=False,
+            enable_reflections=False,
         ),
         sim=SimulationCfg(
             nconmax=nconmax,

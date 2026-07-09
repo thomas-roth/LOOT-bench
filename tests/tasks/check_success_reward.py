@@ -34,8 +34,15 @@ _STEPS = 10  # cube uses play=True (no success termination); other categories st
 # ---------------------------------------------------------------------------
 
 
-def _make_env(task_id: str, device: str, *, play: bool = False) -> ManagerBasedRlEnv:
+def _make_env(
+    task_id: str, device: str, *, play: bool = False, pop_success: bool = False
+) -> ManagerBasedRlEnv:
     cfg = load_env_cfg(task_id, play=play)
+    if pop_success:
+        # Cube's play config keeps "success" active (live_bridge auto-saves a
+        # recording when it fires) — pop it here too so it doesn't auto-reset
+        # mid-measurement, same as record_replay.py does for actual playback.
+        cfg.terminations.pop("success", None)
     cfg.scene.num_envs = _NUM_ENVS
     env = ManagerBasedRlEnv(cfg=cfg, device=device)
     env.reset()
@@ -225,9 +232,9 @@ def _check_cube_stack(
 ) -> str | None:
     from typing import cast
 
-    # play=True removes success termination; cube now terminates on step 1
-    # which would reset env mid-measurement in the training config.
-    env = _make_env(task_id, device, play=True)
+    # Cube's play config keeps "success" active (see _make_env); pop it here
+    # too, otherwise it terminates on step 1 and resets env mid-measurement.
+    env = _make_env(task_id, device, play=True, pop_success=True)
     cmd = cast(PieceArrangementCommand, env.command_manager.get_term("arrangement"))
     zeros = _zeros(env, device)
     env.step(zeros)

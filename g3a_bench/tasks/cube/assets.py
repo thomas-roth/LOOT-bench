@@ -24,7 +24,7 @@ PALETTE: dict[str, tuple[float, float, float, float]] = {
     "white": (0.95, 0.95, 0.95, 1.0),
 }
 
-PIECE_MASS = 0.04
+PIECE_MASS = 0.1
 
 WALL_RGBA = (0.55, 0.55, 0.6, 1.0)
 
@@ -75,6 +75,8 @@ def get_piece_spec(piece: PieceCfg, name: str = "piece") -> mujoco.MjSpec:
         size=size,
         mass=PIECE_MASS,
         rgba=PALETTE[piece.color],
+        condim=6,
+        friction=(1.0, 0.01, 0.0001),
     )
     return spec
 

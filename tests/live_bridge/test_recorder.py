@@ -8,13 +8,20 @@ from g3a_bench.scripts.live_bridge.recorder import Recorder
 
 class TestRecorder:
     @patch("g3a_bench.scripts.live_bridge.recorder.LeRobotDataset")
-    def test_create_dataset(self, mock_dataset_cls):
-        """Dataset is created on init with the expected feature schema."""
+    def test_create_dataset_lazily(self, mock_dataset_cls):
+        """No dataset is created on init — only on the first save_episode(),
+        so a session never leaves empty success/failure datasets on disk."""
         mock_ds = MagicMock()
         mock_dataset_cls.create.return_value = mock_ds
         rec = Recorder(repo_id="test/ds", fps=30, obs_dim=10)
+        mock_dataset_cls.create.assert_not_called()
+        rec.add_frame(
+            {"actor": torch.zeros(1, 10)}, np.zeros(7, np.float32), 0.0, False
+        )
+        rec.save_episode(success=True)
         mock_dataset_cls.create.assert_called_once()
-        assert rec.dataset is mock_ds
+        assert rec.dataset_success is mock_ds
+        assert rec.dataset_failure is None
 
     @patch("g3a_bench.scripts.live_bridge.recorder.LeRobotDataset")
     def test_add_frame_buffers_until_save(self, mock_dataset_cls):
@@ -98,19 +105,25 @@ class TestRecorder:
 
     @patch("g3a_bench.scripts.live_bridge.recorder.LeRobotDataset")
     def test_save_episode_empty_is_noop(self, mock_dataset_cls):
-        """Saving with nothing buffered must not write an empty episode."""
+        """Saving with nothing buffered must not write an empty episode —
+        and must not even create a dataset directory."""
         mock_ds = MagicMock()
         mock_dataset_cls.create.return_value = mock_ds
         rec = Recorder(repo_id="test/ds", fps=30, obs_dim=10)
         rec.save_episode(success=True)
+        mock_dataset_cls.create.assert_not_called()
         mock_ds.save_episode.assert_not_called()
 
     @patch("g3a_bench.scripts.live_bridge.recorder.LeRobotDataset")
     def test_close_finalizes_dataset(self, mock_dataset_cls):
-        """close() calls finalize() on the underlying dataset."""
+        """close() calls finalize() on every dataset that was created."""
         mock_ds = MagicMock()
         mock_dataset_cls.create.return_value = mock_ds
         rec = Recorder(repo_id="test/ds", fps=30, obs_dim=10)
+        rec.add_frame(
+            {"actor": torch.zeros(1, 10)}, np.zeros(7, np.float32), 0.0, False
+        )
+        rec.save_episode(success=True)
         rec.close()
         mock_ds.finalize.assert_called_once()
 
@@ -134,12 +147,20 @@ def test_recorder_real_roundtrip(tmp_path):
     """Un-mocked round-trip against the installed lerobot.
 
     Verifies the buffering+label path end-to-end: add frames, save with
-    success=True, read back and confirm the success column persists.
+    success=True, read back and confirm the success column persists — and
+    that no failure dataset was created for a success-only session.
     """
     from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
-    root = tmp_path / "ds"
-    rec = Recorder(repo_id="test_roundtrip", fps=50, obs_dim=53, root=str(root))
+    success_root = tmp_path / "success" / "stamp"
+    failure_root = tmp_path / "failure" / "stamp"
+    rec = Recorder(
+        repo_id="test_roundtrip",
+        fps=50,
+        obs_dim=53,
+        success_root=str(success_root),
+        failure_root=str(failure_root),
+    )
     for i in range(2):
         rec.add_frame(
             {"actor": torch.zeros(1, 53)},
@@ -151,7 +172,8 @@ def test_recorder_real_roundtrip(tmp_path):
     rec.save_episode(success=True)
     rec.close()
 
-    ds = LeRobotDataset("test_roundtrip", root=str(root))
+    assert not failure_root.exists()
+    ds = LeRobotDataset("test_roundtrip", root=str(success_root))
     assert ds.num_frames == 2
     assert ds.num_episodes == 1
     frame = ds[0]
@@ -159,3 +181,36 @@ def test_recorder_real_roundtrip(tmp_path):
     assert np.asarray(frame["observation.robot_state"]).shape == (7,)
     assert np.asarray(frame["action"]).shape == (7,)
     assert bool(np.asarray(frame["success"]).flatten()[0]) is True
+
+
+def test_close_stores_operator_id(tmp_path):
+    """operator_id passed to close() must appear in dataset info after finalize."""
+    import numpy as np
+    import torch
+    from lerobot.datasets.lerobot_dataset import LeRobotDataset
+
+    from g3a_bench.scripts.live_bridge.recorder import Recorder
+
+    root = tmp_path / "ds_op" / "success"
+    rec = Recorder(repo_id="test_op", fps=50, obs_dim=53, success_root=str(root))
+    rec.add_frame(
+        {"actor": torch.zeros(1, 53)},
+        np.zeros(7, dtype=np.float32),
+        0.0,
+        False,
+        robot_obs=np.zeros(7, dtype=np.float32),
+    )
+    rec.save_episode(success=True)
+    rec.close(operator_id=3)
+
+    ds = LeRobotDataset("test_op", root=str(root))
+    assert ds.meta.info.get("operator_id") == 3
+
+
+def test_close_without_operator_id_still_finalizes(tmp_path):
+    """close() with no operator_id must not crash (backwards compat)."""
+    from g3a_bench.scripts.live_bridge.recorder import Recorder
+
+    root = tmp_path / "ds_noop" / "success"
+    rec = Recorder(repo_id="test_noop", fps=50, obs_dim=53, success_root=str(root))
+    rec.close()  # no argument, nothing recorded — must not raise

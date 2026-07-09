@@ -48,6 +48,13 @@ _ARM_JOINTS: dict[str, ElectricActuator] = {
 }
 
 
+def get_arm_stiffness() -> dict[str, float]:
+    """Per-joint PD stiffness (kp), unprefixed — for callers that need the raw
+    gain rather than a full actuator cfg (e.g. live-teleop gravity feedforward).
+    """
+    return {name: _EFFECTIVE_INERTIAS[name] * _NATURAL_FREQ**2 for name in _ARM_JOINTS}
+
+
 def get_arm_actuators(prefix: str = "") -> tuple[BuiltinPositionActuatorCfg, ...]:
     return tuple(
         BuiltinPositionActuatorCfg(

@@ -46,7 +46,58 @@ assert _DK1_XML.exists()
 
 
 def get_unimanual_spec() -> mujoco.MjSpec:
-    return mujoco.MjSpec.from_file(str(_DK1_XML))
+    spec = mujoco.MjSpec.from_file(str(_DK1_XML))
+    # base/link1-2 mesh surfaces interpenetrate slightly at rest (joint1's own
+    # axis). MuJoCo's default parent-child contact filter doesn't catch this
+    # pair for some reason, so the resulting contact force fights the joint1
+    # actuator and effectively locks the base rotation. Exclude explicitly.
+    spec.add_exclude(bodyname1="base", bodyname2="link1-2")
+    return spec
+
+
+def get_ghost_spec() -> mujoco.MjSpec:
+    """DK1 spec configured as a non-colliding ghost arm locked at home pose.
+
+    All body/geom/joint names are prefixed 'ghost_' to avoid conflicts with
+    the real robot in the same scene.  Gripper equality constraint is removed —
+    both gripper joints get individual springs to home=0.
+    """
+    spec = mujoco.MjSpec.from_file(str(_DK1_XML))
+
+    # Drop gripper equality — individual springs handle it.
+    for eq in list(spec.equalities):
+        spec.delete(eq)
+
+    def _process(body: mujoco.MjsBody) -> None:
+        if body.name:
+            body.name = f"ghost_{body.name}"
+        for geom in body.geoms:
+            if geom.name:
+                geom.name = f"ghost_{geom.name}"
+            geom.contype = 0
+            geom.conaffinity = 0
+            geom.group = 4
+            geom.rgba = [0.5, 0.5, 0.5, 0.0]
+        for joint in body.joints:
+            orig = joint.name
+            if orig:
+                joint.name = f"ghost_{orig}"
+            if orig in _HOME_JOINT_POS:
+                joint.stiffness[0] = 100_000.0
+                joint.springref = _HOME_JOINT_POS[orig]
+                joint.damping[0] = 1_000.0
+        for child in body.bodies:
+            _process(child)
+
+    for body in spec.worldbody.bodies:
+        _process(body)
+
+    # Fix light targetbody references — bodies were renamed above.
+    for light in spec.worldbody.lights:
+        if light.targetbody:
+            light.targetbody = f"ghost_{light.targetbody}"
+
+    return spec
 
 
 ##

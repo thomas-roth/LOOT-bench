@@ -2,11 +2,20 @@
 and save a recorded LeRobot dataset to logs/.
 
 Usage:
-    cd /home/minhtrung/Documents/UNI/G3a/g3a-bench
-    uv run --extra cpu python g3a_bench/scripts/live_bridge/record_replay.py
+    # replay a locally recorded session (from live_record.py)
+    uv run python g3a_bench/scripts/live_bridge/record_replay.py \\
+        --dataset-dir out/demos/success/2026-06-29_10-00-00
+
+    # replay a specific episode
+    uv run python g3a_bench/scripts/live_bridge/record_replay.py \\
+        --dataset-dir ... --episode-index 2
+
+    # replay the default HuggingFace dataset (no --dataset-dir)
+    uv run python g3a_bench/scripts/live_bridge/record_replay.py
 
 The native MuJoCo window opens and replays the dataset through the sim.
-All obs/action/reward/done are recorded to logs/sim_replay_cube_stack3/.
+Output is saved to <dataset-dir>/sim_replay/success/ (local) or
+logs/sim_replay_cube_stack3/success/ (HuggingFace).
 After the episode finishes, the viewer keeps running (hold-last-action mode)
 until you close the window or press Ctrl+C.
 """
@@ -15,6 +24,7 @@ until you close the window or press Ctrl+C.
 # native import-order segfault (HF `datasets` vs mujoco-warp). Must precede mjlab.
 import lerobot.datasets.lerobot_dataset  # noqa: F401,E402,I001
 
+import argparse
 import traceback
 from pathlib import Path
 
@@ -35,12 +45,46 @@ LOGS_DIR = Path(__file__).resolve().parent / "logs"
 
 
 def main():
+    parser = argparse.ArgumentParser(
+        description="Replay a LeRobot dataset through the sim and record results"
+    )
+    parser.add_argument(
+        "--dataset-dir",
+        type=str,
+        default=None,
+        help=(
+            "Path to a local live_record dataset directory "
+            "(e.g. out/demos/success/2026-06-29_10-00-00). "
+            "When omitted, replays the default HuggingFace dataset."
+        ),
+    )
+    parser.add_argument(
+        "--episode-index",
+        type=int,
+        default=0,
+        help="Which episode to replay (default: 0).",
+    )
+    parser.add_argument(
+        "--task",
+        type=str,
+        default="G3a-Cube-Stack3-Dk1_uni",
+        help="MJLab task name to load.",
+    )
+    args = parser.parse_args()
+
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
     print(f"[INFO] Using device: {device}")
 
-    # 1. Load cube task config (play mode: infinite, no noise).
-    cfg = load_env_cfg("G3a-Cube-Stack3-Dk1_uni", play=True)
+    # 1. Load task config (play mode: infinite, no noise).
+    cfg = load_env_cfg(args.task, play=True)
     cfg.terminations["time_out"].time_out = False
+    # Drop ee_ground_collision: it survives the play-mode termination pop, and a
+    # single >10 N gripper-vs-ground contact in the replayed trajectory would
+    # auto-reset the env mid-episode (auto_reset=True) and corrupt the recording.
+    cfg.terminations.pop("ee_ground_collision", None)
+    cfg.terminations.pop(
+        "success", None
+    )  # replay runs through the full episode uninterrupted
 
     # 2. Create environment.
     env = ManagerBasedRlEnv(cfg=cfg, device=device)
@@ -48,28 +92,41 @@ def main():
     print("[INFO] Environment created")
 
     # 3. Open dataset to replay.
-    reader = DatasetReader("FabianKerj/corkinbox100-fullrel")
+    if args.dataset_dir:
+        # Local session recorded by live_record.py (repo_id is always "live_record").
+        # Sessions store the actual LeRobot datasets under success/ and failure/.
+        repo_id_in = "live_record"
+        root_path = Path(args.dataset_dir)
+        success_root = root_path / "success"
+        root_in = str(success_root) if success_root.exists() else args.dataset_dir
+        repo_id_out = "sim_replay"
+        out_root = str(root_path / "sim_replay")
+    else:
+        repo_id_in = "FabianKerj/corkinbox100-fullrel"
+        root_in = None
+        repo_id_out = "sim_replay_cube_stack3"
+        out_root = str(LOGS_DIR / repo_id_out)
+
+    reader = DatasetReader(repo_id_in, root=root_in, episode_index=args.episode_index)
     total_frames = reader._end - reader._start
     print(f"[INFO] Dataset opened — episode has {total_frames} frames")
 
     # 4. Create recorder.
-    logs_dir = LOGS_DIR
-    repo_id = "sim_replay_cube_stack3"
-    dataset_root = logs_dir / repo_id
     # Derive the sim observation width from the env rather than hardcoding it,
     # so a different task (with a different actor-obs size) still records a
     # correctly-shaped dataset.
     obs_dim = int(env.get_observations()["actor"].shape[-1])
     recorder = Recorder(
-        repo_id=repo_id, fps=50, obs_dim=obs_dim, root=str(dataset_root)
+        repo_id=repo_id_out,
+        fps=50,
+        obs_dim=obs_dim,
+        success_root=str(Path(out_root) / "success"),
+        failure_root=str(Path(out_root) / "failure"),
     )
-    save_path = logs_dir / repo_id
-    print(f"[INFO] Recording to {save_path}")
+    print(f"[INFO] Recording to {out_root}")
 
     # 5. Policy that reads dataset + records results.
-    replay = _ReplayAndRecord(
-        reader, recorder, total_frames, device, task="G3a-Cube-Stack3-Dk1_uni"
-    )
+    replay = _ReplayAndRecord(reader, recorder, total_frames, device, task=args.task)
 
     # 6. Launch native viewer with recording.
     print("[INFO] Starting Native MuJoCo viewer (recording enabled)")
@@ -81,7 +138,7 @@ def main():
     replay.finalize()
     env.close()
     reader.close()
-    print(f"[INFO] Done. Dataset saved to {save_path}")
+    print(f"[INFO] Done. Dataset saved to {out_root}")
 
 
 class _ReplayAndRecord:
