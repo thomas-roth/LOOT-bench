@@ -9,19 +9,9 @@ import math
 from mjlab.actuator import BuiltinPositionActuatorCfg
 from mjlab.utils.actuator import ElectricActuator, reflect_rotary_to_linear
 
-# Effective inertias: diagonal of the joint-space mass matrix, measured from
-# the compiled model at the home keyframe, plus motor armature.
+# Motor armatures (rotor inertia reflected through the gearbox).
 _ARMATURE_DM_4340 = 0.032
 _ARMATURE_DM_4310 = 0.0018
-
-_EFFECTIVE_INERTIAS: dict[str, float] = {
-    "joint1": 0.194 + _ARMATURE_DM_4340,
-    "joint2": 0.347 + _ARMATURE_DM_4340,
-    "joint3": 0.137 + _ARMATURE_DM_4340,
-    "joint4": 0.017 + _ARMATURE_DM_4310,
-    "joint5": 0.005 + _ARMATURE_DM_4310,
-    "joint6": 0.0006 + _ARMATURE_DM_4310,
-}
 
 # Same motors as the i2rt YAM (mjlab asset zoo reference values).
 #
@@ -41,8 +31,7 @@ _DM_4310 = ElectricActuator(
     effort_limit=10.0,
 )
 
-_NATURAL_FREQ = 2 * math.tau  # 2 Hz
-_DAMPING_RATIO = 2.0
+_DAMPING_RATIO = 2.0  # gripper PD damping ratio (arm uses explicit KD below).
 
 _ARM_JOINTS: dict[str, ElectricActuator] = {
     "joint1": _DM_4340,
@@ -53,20 +42,42 @@ _ARM_JOINTS: dict[str, ElectricActuator] = {
     "joint6": _DM_4310,
 }
 
+# Arm PD gains from the official trlc_dk1_control config.py MIT-mode gains
+# (KP / KD). These are markedly stiffer than an inertia-derived critically-
+# damped tuning, matching the real teleop controller and giving the end
+# effector enough Cartesian stiffness (~700 N/m at the wrist) to push scene
+# objects without large leader over-travel. Units: kp [Nm/rad], kd [Nm·s/rad].
+_ARM_KP: dict[str, float] = {
+    "joint1": 100.0,
+    "joint2": 100.0,
+    "joint3": 100.0,
+    "joint4": 20.0,
+    "joint5": 20.0,
+    "joint6": 10.0,
+}
+_ARM_KD: dict[str, float] = {
+    "joint1": 5.0,
+    "joint2": 5.0,
+    "joint3": 4.0,
+    "joint4": 1.0,
+    "joint5": 1.0,
+    "joint6": 1.0,
+}
+
 
 def get_arm_stiffness() -> dict[str, float]:
     """Per-joint PD stiffness (kp), unprefixed — for callers that need the raw
     gain rather than a full actuator cfg (e.g. live-teleop gravity feedforward).
     """
-    return {name: _EFFECTIVE_INERTIAS[name] * _NATURAL_FREQ**2 for name in _ARM_JOINTS}
+    return dict(_ARM_KP)
 
 
 def get_arm_actuators(prefix: str = "") -> tuple[BuiltinPositionActuatorCfg, ...]:
     return tuple(
         BuiltinPositionActuatorCfg(
             target_names_expr=(f"{prefix}{name}",),
-            stiffness=_EFFECTIVE_INERTIAS[name] * _NATURAL_FREQ**2,
-            damping=2.0 * _DAMPING_RATIO * _EFFECTIVE_INERTIAS[name] * _NATURAL_FREQ,
+            stiffness=_ARM_KP[name],
+            damping=_ARM_KD[name],
             effort_limit=motor.effort_limit,
             armature=motor.reflected_inertia,
         )
