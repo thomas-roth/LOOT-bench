@@ -313,6 +313,16 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeMujocoViewer):
         ghost_model = self._get_ghost_model_with_color(current_color)
         visualizer.add_ghost_mesh(self._ghost_qpos, model=ghost_model, label="ghost")
 
+    def _exit_reset_phase(self) -> None:
+        super()._exit_reset_phase()
+        self.start_episode_seeded_reset()
+
+    def start_episode_seeded_reset(self) -> None:
+        """Reseed all RNGs and reset the env so this episode's object scatter
+        and sampled goal can be reproduced at replay time from the saved seed."""
+        self._current_ep_seed = int(np.random.randint(0, 2**31 - 1))
+        self.env.env.reset(seed=self._current_ep_seed)
+
     # ── Key handling ─────────────────────────────────────────────────────────
 
     def _on_key(self, key: int) -> None:
@@ -517,7 +527,7 @@ def main():
     vcfg.azimuth = ORBIT_CAM_AZIMUTH
     vcfg.elevation = ORBIT_CAM_ELEVATION
 
-    # 3. Build the ghost-at-home overlay (see _build_ghost_model_and_qpos).
+    # 3. Build the ghost-at-home overlay (see build_ghost_model_and_qpos).
     mj_model = _get_mj_model(env)
     if mj_model is None:
         print("[WARN] Ghost-at-home overlay disabled (could not locate MjModel)")

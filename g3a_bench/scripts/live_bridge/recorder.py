@@ -134,11 +134,11 @@ class Recorder:
         self._episodes_saved += 1
         if seed is not None:
             self._episode_seeds[str(ep_index)] = int(seed)
-            self.dataset.meta.info["episode_seeds"] = self._episode_seeds
+            dataset.meta.info["episode_seeds"] = self._episode_seeds
             if self._device is not None:
                 # RNG streams differ between cuda and cpu — replay warns on mismatch.
-                self.dataset.meta.info["seed_device"] = self._device.split(":")[0]
-            write_info(self.dataset.meta.info, self.dataset.meta.root)
+                dataset.meta.info["seed_device"] = self._device.split(":")[0]
+            write_info(dataset.meta.info, dataset.meta.root)
 
     def discard_episode(self) -> None:
         """Drop the current episode without saving (operator rejected the demo)."""
