@@ -3,7 +3,7 @@
        https://github.com/robot-learning-co/trlc-dk1 (Apache-2.0).
        Joint frames, limits and inertials mirror TRLC-DK1-Follower.urdf.
        Motors: joints 1-3 DAMIAO DM4340, joints 4-6 DM4310,
-       gripper DM4310 via 8.75 mm rack-and-pinion (114 N, 0.183 m/s). -->
+       gripper DM4310 via 8.75 mm rack-and-pinion (114 N, 0.263 m/s max). -->
   <compiler angle="radian" meshdir="assets" />
 
   <default>

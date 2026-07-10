@@ -24,14 +24,20 @@ _EFFECTIVE_INERTIAS: dict[str, float] = {
 }
 
 # Same motors as the i2rt YAM (mjlab asset zoo reference values).
+#
+# velocity_limit is the motor's max/no-load speed (the zero-torque intercept of
+# the torque-speed curve), taken from the official trlc_dk1_control config.py
+# (DM4340_DQ_MAX / DM4310_DQ_MAX) and matching the YAM asset convention. NOTE:
+# BuiltinPositionActuatorCfg does not currently consume velocity_limit, so these
+# values are informational only (no torque-speed derating is modeled).
 _DM_4340 = ElectricActuator(
     reflected_inertia=_ARMATURE_DM_4340,
-    velocity_limit=5.49,  # In rad/s. Corresponds to 52.5 rpm (DK1 datasheet).
-    effort_limit=27.0,
+    velocity_limit=8.0,  # rad/s, DM4340 max speed (config.py DM4340_DQ_MAX).
+    effort_limit=28.0,  # Nm, per the official trlc_dk1_control config.py torque limit.
 )
 _DM_4310 = ElectricActuator(
     reflected_inertia=_ARMATURE_DM_4310,
-    velocity_limit=20.94,  # In rad/s. Corresponds to 200 rpm (DK1 datasheet) and 0.183 m/s (URDF with _GRIPPER_SPUR_RADIUS).
+    velocity_limit=30.0,  # rad/s, DM4310 max speed (config.py DM4310_DQ_MAX).
     effort_limit=10.0,
 )
 
@@ -93,9 +99,10 @@ _DAMPING_GRIPPER = (
     2.0 * _DAMPING_RATIO * _ARMATURE_DM_4310_LINEAR * _NATURAL_FREQ_GRIPPER
 )
 
-# The DK1 datasheet rates the gripper at 114 N; we additionally derate for sim
-# stability (same practice as the mjlab YAM asset).
-_EFFORT_LIMIT_GRIPPER_SAFE = 114.0 * 0.3
+# The DK1 datasheet rates the gripper at 114 N (the official trlc_dk1_control
+# config.py caps the gripper motor at 1.0 Nm, which through the 8.75 mm pinion
+# is exactly 114 N). Use the full rated grip force; no extra sim derating.
+_EFFORT_LIMIT_GRIPPER_SAFE = 114.0 * 1.0
 
 
 def get_gripper_actuator(prefix: str = "") -> BuiltinPositionActuatorCfg:
