@@ -60,6 +60,7 @@ class RecordingViewerMixin:
         # Auto-save failure after ~2s if user doesn't press N (discard) first
         self._provisional_failure = False
         self._provisional_failure_time = 0.0
+        self._current_ep_seed: int | None = None
 
     # Ghost arm helpers
 
@@ -151,7 +152,7 @@ class RecordingViewerMixin:
         if frames == 0:
             print("[INFO] Nothing to save (no frames recorded yet)")
             return
-        self._recorder.save_episode(success=success)
+        self._recorder.save_episode(success=success, seed=self._current_ep_seed)
         self.episodes_saved += 1
         label = "SUCCESS" if success else "FAILURE"
         color_label = "✓ SUCCESS" if success else "✗ FAILURE"
@@ -272,6 +273,9 @@ class RecordingViewerMixin:
                 _obs_next, rew, dones, _extras = self.env.step(actions)
                 t3 = time.perf_counter()
 
+                # Ground-truth sim state, captured pre-step to align with obs.
+                qpos_np = self.env.env.sim.data.qpos[0].cpu().numpy().copy()
+
                 # Only record if both leader action and robot obs are available
                 leader_action = getattr(self.policy, "latest_leader_action", None)
                 robot_obs = self._robot_obs_list[0]
@@ -283,6 +287,7 @@ class RecordingViewerMixin:
                         bool(dones[0]),
                         task=self._task,
                         robot_obs=robot_obs,
+                        qpos=qpos_np,
                     )
                 t4 = time.perf_counter()
 

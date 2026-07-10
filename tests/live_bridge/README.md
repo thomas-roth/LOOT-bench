@@ -11,7 +11,7 @@ Unit and integration tests for the live-bridge pipeline
 uv run pytest tests/live_bridge/ -v
 ```
 
-Expected output: all green, 41 tests (43 collected, 2 skipped = hardware/network), a few seconds.
+Expected output: all green, 36 passed (38 collected, 2 skipped = hardware/network), a few seconds.
 
 ---
 

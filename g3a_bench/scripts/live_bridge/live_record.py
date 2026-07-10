@@ -537,16 +537,19 @@ def main():
 
     # 5. Set up recorder.
     obs_dim = int(env.get_observations()["actor"].shape[-1])
+    qpos_dim = int(env.env.sim.data.qpos.shape[-1])
     recorder = Recorder(
         repo_id="live_record",
         fps=50,
         obs_dim=obs_dim,
         success_root=str(success_root),
         failure_root=str(failure_root),
+        qpos_dim=qpos_dim,
+        device=device,
     )
     print(
         f"[INFO] Recording to {base_dir}/{{success,failure}}/{stamp} "
-        f"(obs_dim={obs_dim})"
+        f"(obs_dim={obs_dim}, qpos_dim={qpos_dim})"
     )
 
     # 6. Shared single-element lists (GIL-safe last-writer-wins).
@@ -609,6 +612,8 @@ def main():
         # tensors) out of the GC's scan set
         gc.collect()
         gc.freeze()
+        # Episode 1 also starts from a seeded reset so it is replayable.
+        viewer.start_episode_seeded_reset()
         viewer.run()
     finally:
         shutdown_flag[0] = True

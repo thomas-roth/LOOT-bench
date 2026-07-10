@@ -111,22 +111,50 @@ def main():
     total_frames = reader._end - reader._start
     print(f"[INFO] Dataset opened — episode has {total_frames} frames")
 
+    # 3.5 Restore the per-episode seed saved by live_record.py: a seeded reset
+    #     re-runs the same RNG draws, so the object scatter and the sampled
+    #     goal come out exactly as they were during recording — for any task.
+    episode_seed: int | None = None
+    seed_val = reader.meta_info.get("episode_seeds", {}).get(str(args.episode_index))
+    if seed_val is not None:
+        episode_seed = int(seed_val)
+        rec_device = reader.meta_info.get("seed_device")
+        if rec_device is not None and rec_device != device.split(":")[0]:
+            print(
+                f"[WARN] Dataset was recorded on '{rec_device}' but replaying on "
+                f"'{device.split(':')[0]}' — torch RNG streams differ per device, "
+                "object positions may not match the recording."
+            )
+        print(f"[INFO] Restoring recorded episode seed {episode_seed}")
+        env.env.reset(seed=episode_seed)
+    else:
+        print(
+            "[WARN] Dataset has no recorded seed for this episode — object "
+            "positions will NOT match the recording. Re-record with the "
+            "updated live_record.py to get reproducible replays."
+        )
+
     # 4. Create recorder.
     # Derive the sim observation width from the env rather than hardcoding it,
     # so a different task (with a different actor-obs size) still records a
     # correctly-shaped dataset.
     obs_dim = int(env.get_observations()["actor"].shape[-1])
+    qpos_dim = int(env.env.sim.data.qpos.shape[-1])
     recorder = Recorder(
         repo_id=repo_id_out,
         fps=50,
         obs_dim=obs_dim,
         success_root=str(Path(out_root) / "success"),
         failure_root=str(Path(out_root) / "failure"),
+        qpos_dim=qpos_dim,
+        device=device,
     )
     print(f"[INFO] Recording to {out_root}")
 
     # 5. Policy that reads dataset + records results.
-    replay = _ReplayAndRecord(reader, recorder, total_frames, device, task=args.task)
+    replay = _ReplayAndRecord(
+        reader, recorder, total_frames, device, task=args.task, seed=episode_seed
+    )
 
     # 6. Launch native viewer with recording.
     print("[INFO] Starting Native MuJoCo viewer (recording enabled)")
@@ -158,12 +186,14 @@ class _ReplayAndRecord:
         total_frames: int,
         device: str,
         task: str = "",
+        seed: int | None = None,
     ):
         self.reader = reader
         self.recorder = recorder
         self.total_frames = total_frames
         self.device = device
         self.task = task
+        self.seed = seed
         self.frames_recorded = 0
         self.recording_finished = False
 
@@ -171,6 +201,14 @@ class _ReplayAndRecord:
         self._last_action_np = None
         self._last_robot_obs = None
         self._fallback_action_np = None
+
+        # Drift vs the original recording: for locally recorded sessions the
+        # dataset's observation.state is the sim actor obs, so per frame we can
+        # compare it with the replayed obs. Quantifies replay faithfulness
+        # (sim nondeterminism / open-loop divergence) as a printed number.
+        self._drift_sum = 0.0
+        self._drift_max = 0.0
+        self._drift_frames = 0
 
     def __call__(self, obs):
         self._last_obs = obs
@@ -184,7 +222,7 @@ class _ReplayAndRecord:
                     f"[INFO] Dataset replay complete after "
                     f"{self.frames_recorded} frames — viewer keeps running"
                 )
-                self.recorder.save_episode(success=True)
+                self._save_episode()
                 self.recording_finished = True
             # Keep the viewer alive by repeating the last action.
             frame = ReaderFrame(
@@ -204,15 +242,25 @@ class _ReplayAndRecord:
         if self._fallback_action_np is None:
             self._fallback_action_np = frame.leader_action.copy()
 
-        raw_action = lerobot_to_mjlab_raw_action(frame.leader_action)
+        raw_action = lerobot_to_mjlab_raw_action(frame.leader_action, True)
         return torch.from_numpy(raw_action).unsqueeze(0).to(self.device)
 
-    def record_step_result(self, rew: float, done: bool):
+    def record_step_result(
+        self, rew: float, done: bool, qpos: np.ndarray | None = None
+    ):
         """Called by the custom viewer after env.step()."""
         if self.recording_finished:
             return
         if self._last_obs is None or self._last_action_np is None:
             return
+
+        replayed_obs = self._last_obs["actor"][0].cpu().numpy().flatten()
+        recorded_obs = self._last_robot_obs
+        if recorded_obs is not None and recorded_obs.shape == replayed_obs.shape:
+            drift = float(np.max(np.abs(replayed_obs - recorded_obs)))
+            self._drift_sum += drift
+            self._drift_max = max(self._drift_max, drift)
+            self._drift_frames += 1
 
         self.recorder.add_frame(
             {"actor": self._last_obs["actor"]},
@@ -221,6 +269,7 @@ class _ReplayAndRecord:
             done,
             task=self.task,
             robot_obs=self._last_robot_obs,
+            qpos=qpos,
         )
         self.frames_recorded += 1
         if self.frames_recorded % 100 == 0:
@@ -230,12 +279,26 @@ class _ReplayAndRecord:
             print(
                 f"[INFO] All {self.total_frames} frames recorded — finalizing dataset"
             )
-            self.recorder.save_episode(success=True)
+            self._save_episode()
             self.recording_finished = True
+
+    def _save_episode(self):
+        self.recorder.save_episode(success=True, seed=self.seed)
+        self._report_drift()
+
+    def _report_drift(self):
+        if self._drift_frames == 0:
+            return
+        print(
+            f"[INFO] Replay drift vs recording (max-abs obs deviation per frame, "
+            f"{self._drift_frames} frames): "
+            f"mean {self._drift_sum / self._drift_frames:.5f}, "
+            f"max {self._drift_max:.5f}"
+        )
 
     def finalize(self):
         if not self.recording_finished:
-            self.recorder.save_episode(success=True)
+            self._save_episode()
         self.recorder.close()
 
 
@@ -259,13 +322,15 @@ class _RecordingViewer(NativeMujocoViewer):
         try:
             with torch.no_grad():
                 obs = self.env.get_observations()
+                # Ground-truth sim state, captured pre-step to align with obs.
+                qpos_np = self.env.env.sim.data.qpos[0].cpu().numpy().copy()
                 actions = self.policy(obs)
                 _obs_next, rew, dones, _extras = self.env.step(actions)
 
                 # Notify the recording policy with step results.
                 record_fn = getattr(self.policy, "record_step_result", None)
                 if record_fn is not None:
-                    record_fn(float(rew[0]), bool(dones[0]))
+                    record_fn(float(rew[0]), bool(dones[0]), qpos_np)
 
                 self._step_count += 1
                 self._stats_steps += 1

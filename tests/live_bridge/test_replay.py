@@ -1,8 +1,7 @@
 """Replay LeRobot dataset in simulation using Native MuJoCo viewer.
 
 Usage:
-    cd /home/minhtrung/Documents/UNI/G3a/g3a-bench
-    uv run python g3a_bench/scripts/live_bridge/test_replay.py
+    uv run python tests/live_bridge/test_replay.py
 
 Opens an interactive MuJoCo window showing the cube task environment
 replaying leader actions from a recorded dataset.
