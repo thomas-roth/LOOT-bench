@@ -1,5 +1,7 @@
 """Environment configuration for the object-insertion task category."""
 
+import math
+
 from mjlab.entity import EntityCfg
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.managers.observation_manager import ObservationTermCfg
@@ -9,6 +11,7 @@ from mjlab.managers.termination_manager import TerminationTermCfg
 from mjlab.utils.noise import UniformNoiseCfg as Unoise
 
 from g3a_bench.tasks.common.env_cfg import make_manipulation_env_cfg
+from g3a_bench.tasks.common.success import OBJECT_VEL_THRESHOLD
 from g3a_bench.tasks.common.table import table_entity_cfg
 from g3a_bench.tasks.insertion import mdp as ins_mdp
 from g3a_bench.tasks.insertion.assets import (
@@ -140,6 +143,12 @@ def make_insertion_env_cfg(
             variant=variant,
             resampling_time_range=(1.0e9, 1.0e9),
             debug_vis=True,
+            # The sorter cube keeps tumbling after the target piece is
+            # latched in (it and the other loose pieces settle slowly), so
+            # gating success/termination on the piece being at rest is
+            # unreliable here. Every other insertion kind keeps the default
+            # at-rest gate.
+            peg_vel_threshold=math.inf if sorter else OBJECT_VEL_THRESHOLD,
         ),
         task_obs_terms=task_obs_terms,
         # Fixed boards make the raw command constant (mouths pinned to the env

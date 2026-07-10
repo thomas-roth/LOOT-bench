@@ -87,7 +87,9 @@ class InsertionCommandCfg(GripperGateCommandCfg):
     sheet_align_tol: float = 0.010
     """Max top-sheet/bottom-hole offset to count as aligned."""
     peg_vel_threshold: float = OBJECT_VEL_THRESHOLD
-    """Max linear speed (m/s) of any assigned peg to count success."""
+    """Max linear speed (m/s) of any assigned peg to count success. The
+    sorter kind overrides this to ``math.inf`` (see ``insertion_env_cfg.py``)
+    since the free cube keeps tumbling after the target piece latches in."""
 
     def build(self, env: ManagerBasedRlEnv) -> InsertionCommand:
         return InsertionCommand(self, env)
