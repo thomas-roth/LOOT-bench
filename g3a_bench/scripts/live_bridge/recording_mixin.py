@@ -107,12 +107,6 @@ class RecordingViewerMixin:
     # Reset phase
 
     def _enter_reset_phase(self) -> None:
-        # Ensure the next episode starts from a clean env reset (especially when an
-        # episode is ended/discarded manually without env-driven termination).
-        reset = getattr(self, "reset_environment", None)
-        if callable(reset):
-            reset()
-
         self._in_reset_phase = True
         self._provisional_failure = False
         self._awaiting_collision_label = False

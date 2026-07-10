@@ -1,6 +1,7 @@
 # Output files (e.g., videos)
 logs/
 wandb/
+out/
 
 # Python-generated files
 __pycache__/
