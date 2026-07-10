@@ -25,6 +25,7 @@ until you close the window or press Ctrl+C.
 import lerobot.datasets.lerobot_dataset  # noqa: F401,E402,I001
 
 import argparse
+import shutil
 import traceback
 from pathlib import Path
 
@@ -106,6 +107,15 @@ def main():
         root_in = None
         repo_id_out = "sim_replay_cube_stack3"
         out_root = str(LOGS_DIR / repo_id_out)
+
+    # Isolate each episode's replay output. Without this, replaying a second
+    # episode (or re-running one) collides: LeRobotDataset.create does
+    # mkdir(exist_ok=False) and raises FileExistsError on the existing root.
+    # sim_replay is regenerated output, so a stale run is safe to overwrite.
+    out_root = str(Path(out_root) / f"episode_{args.episode_index}")
+    if Path(out_root).exists():
+        print(f"[WARN] Overwriting existing replay output at {out_root}")
+        shutil.rmtree(out_root)
 
     reader = DatasetReader(repo_id_in, root=root_in, episode_index=args.episode_index)
     total_frames = reader._end - reader._start
@@ -200,6 +210,7 @@ class _ReplayAndRecord:
         self._last_obs = None
         self._last_action_np = None
         self._last_robot_obs = None
+        self._last_state = None
         self._fallback_action_np = None
 
         # Drift vs the original recording: for locally recorded sessions the
@@ -239,6 +250,7 @@ class _ReplayAndRecord:
             raise RuntimeError("DatasetReader frame is missing an action")
         self._last_action_np = frame.leader_action
         self._last_robot_obs = frame.joint_pos
+        self._last_state = frame.state
         if self._fallback_action_np is None:
             self._fallback_action_np = frame.leader_action.copy()
 
@@ -255,7 +267,7 @@ class _ReplayAndRecord:
             return
 
         replayed_obs = self._last_obs["actor"][0].cpu().numpy().flatten()
-        recorded_obs = self._last_robot_obs
+        recorded_obs = self._last_state
         if recorded_obs is not None and recorded_obs.shape == replayed_obs.shape:
             drift = float(np.max(np.abs(replayed_obs - recorded_obs)))
             self._drift_sum += drift

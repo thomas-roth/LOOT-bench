@@ -38,6 +38,9 @@ class ReaderFrame:
     joint_pos: np.ndarray
     # (7,) same format as joint_pos — what the human commanded via leader arm
     leader_action: np.ndarray | None = None
+    # Full policy observation vector (sim actor obs) for datasets that store it;
+    # used by replay to measure drift vs the recording. None for live sources.
+    state: np.ndarray | None = None
     # dict of camera_name → raw image as (H, W, 3) uint8 numpy array
     cameras: dict[str, np.ndarray] = field(default_factory=dict)
     # seconds since epoch
@@ -104,9 +107,18 @@ class DatasetReader(Reader):
         idx = self._start + self._frame_index
         self._frame_index += 1
         frame = self._ds[idx]
+        # joint_pos is the (7,) real-robot state; the recorder expects that shape.
+        # Fall back to zeros if the source dataset has no robot_state column.
+        robot_state = frame.get("observation.robot_state")
+        joint_pos = (
+            np.asarray(robot_state, dtype=np.float32)
+            if robot_state is not None
+            else np.zeros(7, dtype=np.float32)
+        )
         return ReaderFrame(
-            joint_pos=np.asarray(frame["observation.state"], dtype=np.float32),
+            joint_pos=joint_pos,
             leader_action=np.asarray(frame["action"], dtype=np.float32),
+            state=np.asarray(frame["observation.state"], dtype=np.float32),
             timestamp=float(frame["timestamp"]),
         )
 

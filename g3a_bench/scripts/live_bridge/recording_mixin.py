@@ -267,13 +267,15 @@ class RecordingViewerMixin:
                 _obs_next, rew, dones, _extras = self.env.step(actions)
                 t3 = time.perf_counter()
 
-                # Ground-truth sim state, captured pre-step to align with obs.
-                qpos_np = self.env.env.sim.data.qpos[0].cpu().numpy().copy()
-
                 # Only record if both leader action and robot obs are available
                 leader_action = getattr(self.policy, "latest_leader_action", None)
                 robot_obs = self._robot_obs_list[0]
                 if leader_action is not None and robot_obs is not None:
+                    # Ground-truth sim state. Cloned because the qpos buffer is
+                    # overwritten next step, and kept on-device — the GPU→CPU
+                    # copy is deferred to save time so this loop pays no extra
+                    # CUDA sync (that stall dropped live fps from 60 to 45).
+                    qpos_t = self.env.env.sim.data.qpos[0].clone()
                     self._recorder.add_frame(
                         {"actor": obs["actor"]},
                         leader_action,
@@ -281,7 +283,7 @@ class RecordingViewerMixin:
                         bool(dones[0]),
                         task=self._task,
                         robot_obs=robot_obs,
-                        qpos=qpos_np,
+                        qpos=qpos_t,
                     )
                 t4 = time.perf_counter()
 

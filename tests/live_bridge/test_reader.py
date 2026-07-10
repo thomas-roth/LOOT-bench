@@ -51,6 +51,7 @@ class TestDatasetReader:
         def make_frame(i):
             return {
                 "observation.state": np.full(7, 0.1 * (i + 1), dtype=np.float32),
+                "observation.robot_state": np.full(7, 0.5 * (i + 1), dtype=np.float32),
                 "action": np.full(7, 0.01 * (i + 1), dtype=np.float32),
                 "timestamp": np.float32(i * 0.033),
             }
@@ -68,12 +69,16 @@ class TestDatasetReader:
         frame = reader.read()
         assert isinstance(frame, ReaderFrame)
         assert frame.joint_pos.shape == (7,)
-        assert np.allclose(frame.joint_pos, 0.1)
+        # joint_pos maps from observation.robot_state (the 7-dim robot state),
+        # while state carries the full observation.state vector for drift checks.
+        assert np.allclose(frame.joint_pos, 0.5)
+        assert frame.state is not None
+        assert np.allclose(frame.state, 0.1)
         assert frame.leader_action is not None
         assert np.allclose(frame.leader_action, 0.01)
 
         frame2 = reader.read()
-        assert np.allclose(frame2.joint_pos, 0.2)
+        assert np.allclose(frame2.joint_pos, 1.0)
         reader.close()
 
     @patch("g3a_bench.scripts.live_bridge.reader.LeRobotDataset")

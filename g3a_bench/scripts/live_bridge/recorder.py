@@ -53,8 +53,12 @@ class Recorder:
         self._pending: list[dict] = []
         self._qpos_dim = qpos_dim
         self._device = device
-        self._episode_seeds: dict[str, int] = {}
-        self._episodes_saved = 0
+        # Seeds and save-counts are tracked per dataset (success vs failure).
+        # The success and failure datasets are indexed independently starting at
+        # 0, and replay looks a seed up by that per-dataset --episode-index, so a
+        # single shared counter mis-mapped seeds whenever the two were interleaved.
+        self._episode_seeds: dict[bool, dict[str, int]] = {True: {}, False: {}}
+        self._episodes_saved: dict[bool, int] = {True: 0, False: 0}
 
     def _get_dataset(self, success: bool) -> LeRobotDataset:
         if success:
@@ -104,7 +108,10 @@ class Recorder:
         if self._qpos_dim is not None:
             if qpos is None:
                 qpos = np.zeros(self._qpos_dim, dtype=np.float32)
-            frame["observation.qpos"] = np.asarray(qpos, dtype=np.float32)
+            # Store as-is: qpos may be an on-device torch tensor. The GPU→CPU
+            # copy is deferred to save_episode() so the per-frame recording loop
+            # pays no CUDA sync (that stall dropped live fps from 60 to 45).
+            frame["observation.qpos"] = qpos
         self._pending.append(frame)
 
     @property
@@ -127,14 +134,22 @@ class Recorder:
         dataset = self._get_dataset(success)
         for frame in self._pending:
             frame["success"] = label
+            if self._qpos_dim is not None:
+                # Deferred host copy: convert the (possibly on-device) qpos to a
+                # numpy array here, off the hot recording loop.
+                qpos = frame["observation.qpos"]
+                if hasattr(qpos, "detach"):
+                    qpos = qpos.detach().cpu().numpy()
+                frame["observation.qpos"] = np.asarray(qpos, dtype=np.float32)
             dataset.add_frame(frame)
         dataset.save_episode()
         self._pending = []
-        ep_index = self._episodes_saved
-        self._episodes_saved += 1
+        ep_index = self._episodes_saved[success]
+        self._episodes_saved[success] += 1
         if seed is not None:
-            self._episode_seeds[str(ep_index)] = int(seed)
-            dataset.meta.info["episode_seeds"] = self._episode_seeds
+            seeds = self._episode_seeds[success]
+            seeds[str(ep_index)] = int(seed)
+            dataset.meta.info["episode_seeds"] = seeds
             if self._device is not None:
                 # RNG streams differ between cuda and cpu — replay warns on mismatch.
                 dataset.meta.info["seed_device"] = self._device.split(":")[0]
