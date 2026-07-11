@@ -11,10 +11,9 @@ import torch
 from mjlab.viewer.base import VerbosityLevel
 
 GHOST_ROBOT_ENTITY = "robot"  # scene entity key whose geoms get ghosted
-GHOST_COLOR = (0.5, 0.7, 0.5, 0.5)  # translucent green, same as mjlab's tracking task
+GHOST_COLOR = (0.5, 0.6, 0.9, 0.5)  # translucent blue, the neutral/reset-target color
 GHOST_COLOR_SUCCESS = (0.3, 0.9, 0.3, 0.8)  # bright green for success feedback
 GHOST_COLOR_FAILURE = (0.9, 0.3, 0.3, 0.8)  # bright red for failure feedback
-FEEDBACK_COLOR_DURATION = 1.5  # seconds to show success/failure color
 RESET_THRESHOLD_RAD = 0.2  # all 6 arm joints must be within this many rad of home
 
 
@@ -57,7 +56,6 @@ class RecordingViewerMixin:
         self.episodes_saved = 0
         self._in_reset_phase = False
         self._feedback_color: tuple[float, float, float, float] | None = None
-        self._feedback_color_start_time = 0.0
         # Auto-save failure after ~2s if user doesn't press N (discard) first
         self._provisional_failure = False
         self._provisional_failure_time = 0.0
@@ -66,11 +64,10 @@ class RecordingViewerMixin:
     # Ghost arm helpers
 
     def _get_ghost_color(self) -> tuple[float, float, float, float]:
+        """Success/failure color persists until the arm is realigned to the
+        reset position (_exit_reset_phase clears it); otherwise the neutral
+        reset-target color."""
         if self._feedback_color is None:
-            return GHOST_COLOR
-        elapsed = time.perf_counter() - self._feedback_color_start_time
-        if elapsed > FEEDBACK_COLOR_DURATION:
-            self._feedback_color = None
             return GHOST_COLOR
         return self._feedback_color
 
@@ -119,6 +116,7 @@ class RecordingViewerMixin:
 
     def _exit_reset_phase(self) -> None:
         self._in_reset_phase = False
+        self._feedback_color = None
         self.verbosity = VerbosityLevel.DEBUG
 
     # Custom actions (GUI buttons / keys)
@@ -133,8 +131,7 @@ class RecordingViewerMixin:
             self._recorder.discard_episode()
             self._provisional_failure = False
             print(f"[INFO] Episode discarded ({frames} frames dropped)")
-            if self._feedback_color is not None:
-                self._feedback_color = None
+            self._feedback_color = GHOST_COLOR_FAILURE
             self._enter_reset_phase()
         else:
             # Delegate to concrete viewer (checkpoint, GUI-reset, etc.)
@@ -155,7 +152,6 @@ class RecordingViewerMixin:
         )
 
         self._feedback_color = GHOST_COLOR_SUCCESS if success else GHOST_COLOR_FAILURE
-        self._feedback_color_start_time = time.perf_counter()
 
         folder = "success" if success else "failure"
         print(f"[{color_label}] Episode saved to {folder}/ folder")
@@ -186,7 +182,6 @@ class RecordingViewerMixin:
             self._provisional_failure = True
             self._provisional_failure_time = time.perf_counter()
             self._feedback_color = GHOST_COLOR_FAILURE
-            self._feedback_color_start_time = time.perf_counter()
             self.verbosity = VerbosityLevel.INFO
 
     # Step loop
