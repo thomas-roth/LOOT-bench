@@ -14,8 +14,8 @@ Usage:
     uv run python g3a_bench/scripts/live_bridge/record_replay.py
 
 The native MuJoCo window opens and replays the dataset through the sim.
-Output is saved to <dataset-dir>/sim_replay/success/ (local) or
-logs/sim_replay_cube_stack3/success/ (HuggingFace).
+Output is saved to <dataset-dir>/sim_replay/episode_<N>/success/ (local) or
+logs/sim_replay_cube_stack3/episode_<N>/success/ (HuggingFace).
 After the episode finishes, the viewer keeps running (hold-last-action mode)
 until you close the window or press Ctrl+C.
 """

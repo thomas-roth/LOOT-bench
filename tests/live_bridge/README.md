@@ -11,7 +11,7 @@ Unit and integration tests for the live-bridge pipeline
 uv run pytest tests/live_bridge/ -v
 ```
 
-Expected output: all green, 36 passed (38 collected, 2 skipped = hardware/network), a few seconds.
+Expected output: all green, 32 passed (34 collected, 2 skipped = hardware/network), a few seconds.
 
 ---
 
@@ -49,7 +49,7 @@ Uses mocks and monkeypatching — no real serial ports or network needed.
 
 | Test | What it checks |
 |------|----------------|
-| `test_creation_with_all_fields` | all four fields (joint_pos, leader_action, cameras, timestamp) accepted |
+| `test_creation_with_all_fields` | joint_pos, leader_action, cameras, timestamp accepted (also has a `state` field, untested here, used by replay's drift metric) |
 | `test_default_fields` | only joint_pos required; leader_action=None, cameras={}, timestamp=0.0 |
 
 **`TestDatasetReader`** — offline replay from a mocked LeRobot dataset:
@@ -153,7 +153,7 @@ uv run pytest tests/live_bridge/test_live_record_helpers.py -v
 
 ---
 
-### `test_replay.py`
+### `manual_replay_demo.py`
 
 **Not a pytest test — an interactive script.** Opens a MuJoCo viewer window
 and replays `FabianKerj/corkinbox100-fullrel` through the sim. No recording,
@@ -162,7 +162,7 @@ no hardware.
 Use it to visually verify the dataset→sim pipeline end to end.
 
 ```bash
-uv run python tests/live_bridge/test_replay.py
+uv run python tests/live_bridge/manual_replay_demo.py
 ```
 
 **First run:** downloads ~655 MB from HuggingFace (cached after).

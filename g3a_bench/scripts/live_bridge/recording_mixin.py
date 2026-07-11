@@ -19,7 +19,9 @@ RESET_THRESHOLD_RAD = 0.2  # all 6 arm joints must be within this many rad of ho
 
 
 class RecordingViewerMixin:
-    """Multi-episode recording + reset phase. States: RECORDING → (collision: AWAITING_LABEL) → RESET_PHASE → next episode."""
+    """Multi-episode recording + reset phase. States: RECORDING → (collision:
+    PROVISIONAL_FAILURE, auto-saves after a 2s grace period unless discarded)
+    → RESET_PHASE → next episode."""
 
     def _init_recording(
         self,
@@ -54,7 +56,6 @@ class RecordingViewerMixin:
         self._num_episodes = num_episodes
         self.episodes_saved = 0
         self._in_reset_phase = False
-        self._awaiting_collision_label = False
         self._feedback_color: tuple[float, float, float, float] | None = None
         self._feedback_color_start_time = 0.0
         # Auto-save failure after ~2s if user doesn't press N (discard) first
@@ -109,7 +110,6 @@ class RecordingViewerMixin:
     def _enter_reset_phase(self) -> None:
         self._in_reset_phase = True
         self._provisional_failure = False
-        self._awaiting_collision_label = False
         # Suppress verbose per-tick spam during arm alignment
         self.verbosity = VerbosityLevel.INFO
         print(
@@ -250,10 +250,6 @@ class RecordingViewerMixin:
                 )
                 self.pause()
                 return False
-            return True
-
-        # Collision label: sim frozen, waiting for user input
-        if self._awaiting_collision_label:
             return True
 
         # Normal recording step

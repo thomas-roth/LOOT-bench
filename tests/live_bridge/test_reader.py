@@ -141,6 +141,7 @@ class TestLiveReader:
             follower_port="/dev/null",
             leader_port="/dev/null",
             connect_on_init=False,
+            use_follower=True,
         )
         assert reader.follower_port == "/dev/null"
         assert reader.leader_port == "/dev/null"
@@ -171,6 +172,7 @@ class TestLiveReader:
             follower_port="/dev/ttyACM_test",
             leader_port="/dev/ttyUSB_test",
             connect_on_init=True,
+            use_follower=True,
         )
         mock_follower_cls.assert_called_once()
         mock_follower_cls.return_value.connect.assert_called_once()
@@ -228,6 +230,7 @@ class TestLiveReader:
             follower_port="/dev/ttyACM_test",
             leader_port="/dev/ttyUSB_test",
             connect_on_init=True,
+            use_follower=True,
         )
         frame = reader.read()
         assert isinstance(frame, ReaderFrame)
@@ -265,6 +268,7 @@ class TestLiveReader:
             follower_port="/dev/ttyACM_test",
             leader_port="/dev/ttyUSB_test",
             connect_on_init=True,
+            use_follower=True,
         )
         reader.close()
         mock_follower.disconnect.assert_called_once()
@@ -295,6 +299,7 @@ class TestLiveReader:
             follower_port="/dev/ttyACM_test",
             leader_port="/dev/ttyUSB_test",
             connect_on_init=True,
+            use_follower=True,
         )
 
         action_np = np.array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7], dtype=np.float32)

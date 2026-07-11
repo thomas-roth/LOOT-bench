@@ -14,14 +14,15 @@ Architecture (decoupled threads):
       pop latest action → mapper → env.step() → recorder.add_frame()
 
 State machine (per episode):
-  RECORDING      normal step loop; done=True → _handle_done()
-  AWAITING_LABEL ground collision: sim frozen, waiting for numpad 2 (failure)
-                 or numpad 3 (discard)
-  RESET_PHASE    ghost arm visible at home; sim live (not recorded); arm moves to ghost
+  RECORDING            normal step loop; done=True → _handle_done()
+  PROVISIONAL_FAILURE  ground collision: stepping paused, auto-saves as
+                       FAILURE after a 2s grace period unless numpad 2
+                       (save now) or numpad 3 (discard) is pressed first
+  RESET_PHASE          ghost arm visible at home; sim live (not recorded); arm moves to ghost
 
 Key bindings:
     Numpad 1  save episode as SUCCESS (also fires automatically on task completion)
-    Numpad 2  save episode as FAILURE  (required when collision prompt appears)
+    Numpad 2  save episode as FAILURE  (also fires automatically ~2s after a collision)
     Numpad 3  discard episode
     Numpad 4  stop session and finalize dataset
     W         toggle viewer between orbit camera and the robot's wrist camera
@@ -237,9 +238,10 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeMujocoViewer):
     subclass only adds the native-specific rendering of the ghost arm and the wrist-camera toggle.
 
     State machine:
-      RECORDING        → normal step loop
-      AWAITING_LABEL   → collision fired; sim frozen; waiting for numpad 2/3
-      RESET_PHASE      → episode ended; ghost visible; waiting for arm at home
+      RECORDING            → normal step loop
+      PROVISIONAL_FAILURE  → collision fired; stepping paused; auto-saves as
+                             failure after a 2s grace period unless numpad 2/3
+      RESET_PHASE          → episode ended; ghost visible; waiting for arm at home
     """
 
     def __init__(

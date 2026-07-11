@@ -1,7 +1,9 @@
 """Replay LeRobot dataset in simulation using Native MuJoCo viewer.
 
+Not a pytest test — an interactive manual-verification script.
+
 Usage:
-    uv run python tests/live_bridge/test_replay.py
+    uv run python tests/live_bridge/manual_replay_demo.py
 
 Opens an interactive MuJoCo window showing the cube task environment
 replaying leader actions from a recorded dataset.

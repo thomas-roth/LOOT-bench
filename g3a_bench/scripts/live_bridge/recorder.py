@@ -123,7 +123,6 @@ class Recorder:
 
         Success episodes go to the success dataset, failures to the failure
         dataset. No-op if nothing was buffered (avoids empty/garbage episodes).
-        No-op if nothing was buffered (avoids empty/garbage episodes).
         ``seed`` is the RNG seed the env was reset with at this episode's start;
         it is persisted to info.json immediately (not at close) so seeds survive
         a crash, letting record_replay.py restore the exact object layout.

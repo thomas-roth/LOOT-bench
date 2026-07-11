@@ -24,6 +24,11 @@ The dataset `.npz` must come from `scripts/live_bridge/lerobot_to_qc.py`
 **As of now, no recorded demo dataset exists for `G3a-Cube-Stack3-Dk1_uni`** —
 recording demos via `live_bridge` and converting them is a manual prerequisite.
 
+```bash
+uv run python g3a_bench/scripts/live_bridge/lerobot_to_qc.py \
+    --success-dir out/demos/success/<stamp> --output demos.npz
+```
+
 ## What it does
 
 Offline-RL algorithm with three components:
