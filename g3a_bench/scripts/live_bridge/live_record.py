@@ -54,8 +54,13 @@ import threading
 import time
 import traceback
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import mujoco as _mujoco
+
+if TYPE_CHECKING:
+    from PyQt5.QtWidgets import QApplication, QLabel, QMainWindow
+
 import numpy as np
 import torch
 from mjlab.envs import ManagerBasedRlEnv
@@ -63,8 +68,8 @@ from mjlab.rl import RslRlVecEnvWrapper
 from mjlab.tasks.registry import load_env_cfg
 from mjlab.viewer import NativeMujocoViewer, ViewerConfig
 from mjlab.viewer.base import VerbosityLevel
-from mjlab.viewer.native.visualizer import MujocoNativeDebugVisualizer
 from mjlab.viewer.native.keys import KEY_KP_1, KEY_KP_2, KEY_KP_3, KEY_KP_4, KEY_W
+from mjlab.viewer.native.visualizer import MujocoNativeDebugVisualizer
 
 import g3a_bench  # noqa: F401
 from g3a_bench.robots.trlc_dk1.dk1_constants import _HOME_JOINT_POS
@@ -73,6 +78,19 @@ from g3a_bench.scripts.live_bridge.mapper import (
 )
 from g3a_bench.scripts.live_bridge.recorder import Recorder
 from g3a_bench.scripts.live_bridge.recording_mixin import RecordingViewerMixin
+
+
+def _get_pip_app() -> "QApplication":
+    from PyQt5.QtWidgets import QApplication
+
+    return QApplication.instance() or QApplication([])  # type: ignore[reportReturnType]
+
+
+def _get_qimage_and_qpixmap():
+    from PyQt5.QtGui import QImage, QPixmap
+
+    return QImage, QPixmap
+
 
 # Repo-root out/ directory (consistent with the out/<cat>_check render outputs).
 DEMOS_DIR = Path(__file__).resolve().parents[3] / "out" / "demos"
@@ -117,6 +135,7 @@ KEY_WRIST_CAM = KEY_W
 # cameras (e.g. "robot/wrist_camera"), so it is matched by suffix — see
 # _find_camera_id.
 WRIST_CAMERA_NAME = "wrist_camera"
+
 
 # Default orbit/free-camera framing for the teleop viewer (the view you start in,
 # before pressing W for the wrist cam). Positioned above and behind the robot
@@ -255,6 +274,11 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeMujocoViewer):
         task: str = "",
         num_episodes: int = 0,
         debug_timing: bool = False,
+        wrist_renderer: "_mujoco.Renderer | None" = None,
+        wrist_cam_id_pip: int = -1,
+        pip_app: "QApplication | None" = None,
+        pip_window: "QMainWindow | None" = None,
+        pip_label: "QLabel | None" = None,
         **kwargs,
     ):
         self._init_recording(
@@ -279,6 +303,26 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeMujocoViewer):
         # per-frame MjData allocations that caused gradual FPS decay.
         self._vis_task: MujocoNativeDebugVisualizer | None = None
         self._vis_ghost: MujocoNativeDebugVisualizer | None = None
+        # Wrist-camera offscreen renderer (PiP window). Built by the caller
+        # (main(), before the hw thread starts — see _build_wrist_pip) rather
+        # than lazily here in setup()/__init__: constructing mujoco.Renderer's
+        # own GLFW context and the QApplication/QMainWindow are one-time
+        # operations that can block for a long stretch (GLFW context creation
+        # racing the native viewer's own render thread), which was starving
+        # the already-running ~200 Hz hw thread and causing spurious
+        # "no status packet" serial timeouts the instant the session started.
+        self._wrist_renderer = wrist_renderer
+        self._wrist_cam_id_pip = wrist_cam_id_pip
+        self._pip_app = pip_app
+        self._pip_window = pip_window
+        self._pip_label = pip_label
+        # Throttle: the offscreen render + Qt image conversion + processEvents()
+        # are GIL-holding C calls. Running them at full render frame_rate (up to
+        # 120 Hz) starved the hw thread's ~200 Hz / tight-timeout serial reads of
+        # scheduling time and caused spurious "no status packet" ConnectionErrors.
+        # A human only needs ~15 Hz to judge gripper alignment.
+        self._wrist_pip_last_update: float = 0.0
+        self._WRIST_PIP_INTERVAL: float = 1.0 / 15.0
         super().__init__(
             env,
             policy,
@@ -302,7 +346,7 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeMujocoViewer):
             self.viewer.user_scn, self.mjm, self.env_idx, self._show_all_envs
         )
 
-    # ── Ghost arm rendering (native-specific) ────────────────────────────────
+        # ── Ghost arm rendering (native-specific) ────────────────────────────────
 
     def _update_debug_visualizers(self, viewer: "_mujoco.viewer.Handle") -> None:  # type: ignore[name-defined]
         """Draw the ghost-at-home overlay every frame, on top of whatever the
@@ -332,6 +376,26 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeMujocoViewer):
         self._vis_ghost.add_ghost_mesh(
             self._ghost_qpos, model=ghost_model, label="ghost"
         )
+
+        # PiP: render wrist camera offscreen → show in PyQt window. Throttled
+        # (see _WRIST_PIP_INTERVAL) — this must never run at full frame_rate.
+        now = time.perf_counter()
+        if (
+            self._wrist_renderer is not None
+            and self._wrist_cam_id_pip >= 0
+            and self._pip_label is not None
+            and now - self._wrist_pip_last_update >= self._WRIST_PIP_INTERVAL
+        ):
+            self._wrist_pip_last_update = now
+            self._wrist_renderer.update_scene(
+                self.mjd,
+                camera=self._wrist_cam_id_pip,
+            )
+            img = self._wrist_renderer.render()
+            QImage, QPixmap = _get_qimage_and_qpixmap()
+            qimg = QImage(img.tobytes(), 320, 240, QImage.Format_RGB888).rgbSwapped()
+            self._pip_label.setPixmap(QPixmap.fromImage(qimg))
+            self._pip_app.processEvents()
 
     def _exit_reset_phase(self) -> None:
         super()._exit_reset_phase()
@@ -435,6 +499,35 @@ def _find_camera_id(mj_model: "_mujoco.MjModel", suffix: str) -> int:
         if name == suffix or name.endswith("/" + suffix):
             return ci
     return -1
+
+
+def _build_wrist_pip(mj_model: "_mujoco.MjModel | None"):
+    """One-time construction of the wrist-camera PiP window.
+
+    Must be called before the hw thread starts polling the real arm.
+    mujoco.Renderer opens its own GLFW context and QApplication/QMainWindow
+    init talks to the display server — both are one-time operations that can
+    block for a long stretch. Doing that after the ~200 Hz hw thread is
+    already running starved it of scheduling time and tripped its tight
+    serial-reply timeout the instant the session started.
+    """
+    if mj_model is None:
+        return None, -1, None, None, None
+    cam_id = _find_camera_id(mj_model, WRIST_CAMERA_NAME)
+    if cam_id < 0:
+        return None, -1, None, None, None
+
+    from PyQt5.QtWidgets import QLabel, QMainWindow
+
+    renderer = _mujoco.Renderer(mj_model, height=240, width=320)
+    app = _get_pip_app()
+    window = QMainWindow()
+    label = QLabel()
+    window.setCentralWidget(label)
+    window.setWindowTitle("wrist")
+    window.resize(320, 240)
+    window.show()
+    return renderer, cam_id, app, window, label
 
 
 def _get_mj_model(wrapped_env) -> "_mujoco.MjModel | None":
@@ -598,6 +691,16 @@ def main():
     shutdown_flag: list = [False]
     hw_failed: list = [False]
 
+    # 6b. Build the wrist-cam PiP window now, before the hw thread starts —
+    # its one-time GLFW/Qt init can block for a long stretch, and doing that
+    # concurrently with the ~200 Hz hw thread starved it and blew its serial
+    # reply timeout. See _build_wrist_pip.
+    wrist_renderer, wrist_cam_id_pip, pip_app, pip_window, pip_label = _build_wrist_pip(
+        mj_model
+    )
+    if wrist_cam_id_pip < 0:
+        print(f"[WARN] No '{WRIST_CAMERA_NAME}' camera in model — PiP window disabled")
+
     # 7. Start HW thread (reads leader → sends to follower → fills lists).
     hw_thread = threading.Thread(
         target=_hw_loop,
@@ -647,6 +750,12 @@ def main():
             task=args.task,
             num_episodes=args.num_episodes,
             debug_timing=args.debug_timing,
+            wrist_renderer=wrist_renderer,
+            wrist_cam_id_pip=wrist_cam_id_pip,
+            pip_app=pip_app,
+            pip_window=pip_window,
+            pip_label=pip_label,
+            frame_rate=120,
         )
         # Take the big static object graph (mujoco model, warp kernels, torch
         # tensors) out of the GC's scan set
@@ -660,6 +769,11 @@ def main():
         hw_thread.join(timeout=2.0)
         recorder.discard_episode()  # drop any partial unsaved episode
         recorder.close(operator_id=operator_id)
+        if viewer is not None:
+            if viewer._wrist_renderer is not None:
+                viewer._wrist_renderer.close()
+            if viewer._pip_window is not None:
+                viewer._pip_window.close()
         env.close()
         saved = viewer.episodes_saved if viewer is not None else 0
         print(f"[INFO] Done. Saved {saved} episode(s)")
