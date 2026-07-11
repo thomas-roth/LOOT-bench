@@ -48,3 +48,25 @@ uv run python g3a_bench/scripts/live_bridge/record_replay.py
 
 First run downloads an example dataset from HuggingFace (~655 MB, cached). Output
 goes to `logs/sim_replay_cube_stack3/success/`.
+
+## verify_replay.py
+
+Numerically verifies that a recorded episode replays *exactly* — no viewer, no
+eyeballing. Re-simulates the episode headlessly (seeded reset + recorded
+actions, stepping exactly like live_record) and compares every frame's full sim
+qpos against the ground truth stored in `observation.qpos`, printing deviation
+stats, the first diverging frame, the worst DOFs, and a PASS/FAIL verdict
+(exit code 0/1). No hardware.
+
+```bash
+uv run python g3a_bench/scripts/live_bridge/verify_replay.py \
+    --dataset-dir out/demos/success/<timestamp> [--episode-index N] \
+    [--tol 1e-5] [--sync-start] [--csv drift.csv]
+```
+
+Frames are bitwise-compared: any nonzero deviation is real. Expect a bitwise
+match until the gripper first contacts an object; contact impulses on the GPU
+are where replay determinism is decided (see the script docstring for the
+comparison semantics and known caveats — done-frame qpos, unrecorded qvel,
+initial live arm pose). `--sim-replay-dir` instead diffs an existing
+record_replay.py output dataset offline against the original recording.

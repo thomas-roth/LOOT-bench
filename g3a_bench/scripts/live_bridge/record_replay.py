@@ -38,6 +38,7 @@ from mjlab.viewer import NativeMujocoViewer
 from mjlab.viewer.base import VerbosityLevel
 
 import g3a_bench  # noqa: F401
+from g3a_bench.scripts.live_bridge.live_record import apply_teleop_contact_stability
 from g3a_bench.scripts.live_bridge.mapper import lerobot_to_mjlab_raw_action
 from g3a_bench.scripts.live_bridge.reader import DatasetReader, ReaderFrame
 from g3a_bench.scripts.live_bridge.recorder import Recorder
@@ -86,6 +87,9 @@ def main():
     cfg.terminations.pop(
         "success", None
     )  # replay runs through the full episode uninterrupted
+    # Same finger-pad solref stabilization live_record applies — without it the
+    # replayed contact physics differs from the recording at first grip.
+    apply_teleop_contact_stability(cfg)
 
     # 2. Create environment.
     env = ManagerBasedRlEnv(cfg=cfg, device=device)

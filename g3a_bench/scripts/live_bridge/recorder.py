@@ -94,6 +94,15 @@ class Recorder:
         # Nothing is written to the dataset until then, enabling discard/redo.
         if robot_obs is None:
             robot_obs = np.zeros(7, dtype=np.float32)
+        # Deferred GPU tensors must be cloned NOW: mjlab reuses its
+        # reward/done buffers every step, so storing the view would make every
+        # buffered frame read the episode's *final* value at save time (this
+        # silently flattened next.reward to a constant per episode). clone()
+        # stays on-device — still no per-step CUDA sync.
+        if hasattr(reward, "detach"):
+            reward = reward.detach().clone()
+        if hasattr(done, "detach"):
+            done = done.detach().clone()
         frame = {
             "observation.state": obs_buf["actor"][0]
             .cpu()

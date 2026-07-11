@@ -145,6 +145,28 @@ ORBIT_CAM_AZIMUTH = 200.0
 ORBIT_CAM_ELEVATION = -35.0
 
 
+def apply_teleop_contact_stability(cfg) -> None:
+    """Keep the finger-pad contact solref stable for the play/teleop timestep.
+
+    Raises any robot collision solref timeconst below 2x the sim timestep (the
+    stability floor) to stop grip jitter. Shared with record_replay.py and
+    verify_replay.py — replayed physics must run with the exact same contact
+    parameters as the recording, or trajectories diverge at first contact.
+    """
+    min_solref_timeconst = 2.0 * cfg.sim.mujoco.timestep
+    for _coll in cfg.scene.entities["robot"].collisions:
+        solref = getattr(_coll, "solref", None) or {}
+        for _key, _ref in list(solref.items()):
+            _timeconst, _dampratio = _ref
+            if _timeconst < min_solref_timeconst:
+                solref[_key] = (min_solref_timeconst, _dampratio)
+                print(
+                    f"[INFO] contact-stability: raised solref timeconst for "
+                    f"'{_key}' {_timeconst:g}->{min_solref_timeconst:g} s "
+                    f"(>=2x timestep {cfg.sim.mujoco.timestep:g}) to stop grip jitter"
+                )
+
+
 def ask_operator() -> int:
     """Block until the user enters a valid operator number (1–4)."""
     while True:
@@ -303,6 +325,7 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeMujocoViewer):
         # per-frame MjData allocations that caused gradual FPS decay.
         self._vis_task: MujocoNativeDebugVisualizer | None = None
         self._vis_ghost: MujocoNativeDebugVisualizer | None = None
+        self._vis_wrist: MujocoNativeDebugVisualizer | None = None
         # Wrist-camera offscreen renderer (PiP window). Built by the caller
         # (main(), before the hw thread starts — see _build_wrist_pip) rather
         # than lazily here in setup()/__init__: constructing mujoco.Renderer's
@@ -345,6 +368,18 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeMujocoViewer):
         self._vis_ghost = MujocoNativeDebugVisualizer(
             self.viewer.user_scn, self.mjm, self.env_idx, self._show_all_envs
         )
+        # The wrist-cam PiP is a *separate* offscreen mujoco.Renderer with its
+        # own internal MjvScene — task-command debug_vis geoms (target marks)
+        # drawn into viewer.user_scn above never reach it. Give it its own
+        # cached visualizer bound to that renderer's scene, re-populated each
+        # PiP frame in _update_debug_visualizers (see there for why cached).
+        if self._wrist_renderer is not None and self._wrist_cam_id_pip >= 0:
+            self._vis_wrist = MujocoNativeDebugVisualizer(
+                self._wrist_renderer.scene,
+                self.mjm,
+                self.env_idx,
+                self._show_all_envs,
+            )
 
         # ── Ghost arm rendering (native-specific) ────────────────────────────────
 
@@ -391,6 +426,15 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeMujocoViewer):
                 self.mjd,
                 camera=self._wrist_cam_id_pip,
             )
+            # update_scene() rebuilds the renderer's scene from the model each
+            # call, so re-add the task's target markers (same debug_vis geoms
+            # drawn into the main viewer above) on top, every PiP frame.
+            if (
+                self._show_debug_vis
+                and self._vis_wrist is not None
+                and hasattr(self.env.unwrapped, "update_visualizers")
+            ):
+                self.env.unwrapped.update_visualizers(self._vis_wrist)
             img = self._wrist_renderer.render()
             QImage, QPixmap = _get_qimage_and_qpixmap()
             qimg = QImage(img.tobytes(), 320, 240, QImage.Format_RGB888).rgbSwapped()
@@ -621,19 +665,7 @@ def main():
     cfg = load_env_cfg(args.task, play=True)
     cfg.terminations["time_out"].time_out = False
 
-    # Keep the finger-pad contact solref stable for the play/teleop timestep
-    min_solref_timeconst = 2.0 * cfg.sim.mujoco.timestep
-    for _coll in cfg.scene.entities["robot"].collisions:
-        solref = getattr(_coll, "solref", None) or {}
-        for _key, _ref in list(solref.items()):
-            _timeconst, _dampratio = _ref
-            if _timeconst < min_solref_timeconst:
-                solref[_key] = (min_solref_timeconst, _dampratio)
-                print(
-                    f"[INFO] contact-stability: raised solref timeconst for "
-                    f"'{_key}' {_timeconst:g}->{min_solref_timeconst:g} s "
-                    f"(>=2x timestep {cfg.sim.mujoco.timestep:g}) to stop grip jitter"
-                )
+    apply_teleop_contact_stability(cfg)
     # 2. Create environment.
     env = ManagerBasedRlEnv(cfg=cfg, device=device)
     env = RslRlVecEnvWrapper(env)
