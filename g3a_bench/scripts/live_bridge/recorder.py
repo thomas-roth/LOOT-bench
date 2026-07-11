@@ -1,4 +1,5 @@
 import numpy as np
+import torch
 from lerobot.datasets.dataset_metadata import write_info
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
@@ -83,11 +84,11 @@ class Recorder:
         self,
         obs_buf: dict,
         action: np.ndarray,
-        reward: float,
-        done: bool,
+        reward: float | torch.Tensor,
+        done: bool | torch.Tensor,
         task: str = "",
         robot_obs: np.ndarray | None = None,
-        qpos: np.ndarray | None = None,
+        qpos: np.ndarray | torch.Tensor | None = None,
     ) -> None:
         # Buffer frames in memory until save_episode() is called with a label.
         # Nothing is written to the dataset until then, enabling discard/redo.
@@ -101,8 +102,8 @@ class Recorder:
             .astype(np.float32),
             "observation.robot_state": np.asarray(robot_obs, dtype=np.float32),
             "action": np.asarray(action, dtype=np.float32),
-            "next.reward": np.array([reward], dtype=np.float32),
-            "next.done": np.array([done], dtype=bool),
+            "next.reward": reward,  # deferred — may be GPU tensor
+            "next.done": done,  # deferred — may be GPU tensor
             "task": task,
         }
         if self._qpos_dim is not None:
@@ -133,13 +134,19 @@ class Recorder:
         dataset = self._get_dataset(success)
         for frame in self._pending:
             frame["success"] = label
-            if self._qpos_dim is not None:
-                # Deferred host copy: convert the (possibly on-device) qpos to a
-                # numpy array here, off the hot recording loop.
-                qpos = frame["observation.qpos"]
-                if hasattr(qpos, "detach"):
-                    qpos = qpos.detach().cpu().numpy()
-                frame["observation.qpos"] = np.asarray(qpos, dtype=np.float32)
+            # Deferred host copy: convert GPU tensors to numpy here, off the hot
+            # recording loop. This mirrors the pattern already used for qpos.
+            for key in ("next.reward", "next.done", "observation.qpos"):
+                val = frame[key]
+                if hasattr(val, "detach"):
+                    val = val.detach().cpu().numpy()
+                if key == "next.reward":
+                    val = np.array([float(val)], dtype=np.float32)
+                elif key == "next.done":
+                    val = np.array([bool(val)], dtype=bool)
+                else:
+                    val = np.asarray(val, dtype=np.float32)
+                frame[key] = val
             dataset.add_frame(frame)
         dataset.save_episode()
         self._pending = []

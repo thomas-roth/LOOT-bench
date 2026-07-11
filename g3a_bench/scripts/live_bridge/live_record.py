@@ -129,7 +129,7 @@ ORBIT_CAM_ELEVATION = -35.0
 def ask_operator() -> int:
     """Block until the user enters a valid operator number (1–4)."""
     while True:
-        raw = input("Operator (1 / 2 / 3 / 4): ").strip()
+        raw = input("Operator ( 1-Minh / 2-Darius / 3-Thomas / 4-Till ): ").strip()
         if raw in ("1", "2", "3", "4"):
             return int(raw)
         print(f"  Invalid: '{raw}'. Enter 1, 2, 3, or 4.")
@@ -275,6 +275,10 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeMujocoViewer):
         self._saved_cam: tuple | None = None
         # Snapshot of the intended MjvOption visualization flags
         self._baseline_visflags: np.ndarray | None = None
+        # Cached debug visualizers — constructed once in setup() to avoid
+        # per-frame MjData allocations that caused gradual FPS decay.
+        self._vis_task: MujocoNativeDebugVisualizer | None = None
+        self._vis_ghost: MujocoNativeDebugVisualizer | None = None
         super().__init__(
             env,
             policy,
@@ -288,6 +292,15 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeMujocoViewer):
         super().setup()
         assert self.viewer is not None
         self._baseline_visflags = self.viewer.opt.flags.copy()
+        assert self.mjm is not None
+        # Pre-construct both debug visualizers once, reusing the same MjData
+        # throughout the session instead of allocating a new one every frame.
+        self._vis_task = MujocoNativeDebugVisualizer(
+            self.viewer.user_scn, self.mjm, self.env_idx, self._show_all_envs
+        )
+        self._vis_ghost = MujocoNativeDebugVisualizer(
+            self.viewer.user_scn, self.mjm, self.env_idx, self._show_all_envs
+        )
 
     # ── Ghost arm rendering (native-specific) ────────────────────────────────
 
@@ -297,7 +310,13 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeMujocoViewer):
         marks). Uses the same DebugVisualizer.add_ghost_mesh technique as
         mjlab's own tracking task — see recording_mixin.build_ghost_model_and_qpos.
         """
-        super()._update_debug_visualizers(viewer)
+        viewer.user_scn.ngeom = 0
+        # Reuse the cached task visualizer instead of constructing a new one
+        # each frame — constructing MjData is expensive (~21,600 alloc/free
+        # over a 3 min session caused gradual FPS decay from 60 to 46).
+        if self._show_debug_vis and hasattr(self.env.unwrapped, "update_visualizers"):
+            assert self._vis_task is not None
+            self.env.unwrapped.update_visualizers(self._vis_task)
         # Re-assert the visualization-flag baseline every frame so the native
         # viewer's built-in single-key flag toggles can't alter the scene
         if viewer is not None and self._baseline_visflags is not None:
@@ -305,15 +324,14 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeMujocoViewer):
         if self._ghost_model is None or self._ghost_qpos is None:
             return
         assert self.mjm is not None
-        visualizer = MujocoNativeDebugVisualizer(
-            viewer.user_scn, self.mjm, self.env_idx, self._show_all_envs
-        )
         # Use feedback color (success/failure flash) if active, otherwise normal
         # ghost. The recolored model comes from the mixin's per-color cache — no
         # per-frame deepcopy (that cost ~5 FPS before).
         current_color = self._get_ghost_color()
         ghost_model = self._get_ghost_model_with_color(current_color)
-        visualizer.add_ghost_mesh(self._ghost_qpos, model=ghost_model, label="ghost")
+        self._vis_ghost.add_ghost_mesh(
+            self._ghost_qpos, model=ghost_model, label="ghost"
+        )
 
     def _exit_reset_phase(self) -> None:
         super()._exit_reset_phase()
@@ -322,8 +340,18 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeMujocoViewer):
     def start_episode_seeded_reset(self) -> None:
         """Reseed all RNGs and reset the env so this episode's object scatter
         and sampled goal can be reproduced at replay time from the saved seed."""
+
+        robot = self.env.env.scene["robot"]
+        live_joint_pos = robot.data.joint_pos.clone()
+
         self._current_ep_seed = int(np.random.randint(0, 2**31 - 1))
         self.env.env.reset(seed=self._current_ep_seed)
+
+        robot.write_joint_position_to_sim(live_joint_pos)
+        self.env.env.sim.forward()
+
+        # self._current_ep_seed = int(np.random.randint(0, 2**31 - 1))
+        # self.env.env.reset(seed=self._current_ep_seed)
 
     # ── Key handling ─────────────────────────────────────────────────────────
 
