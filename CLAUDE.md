@@ -39,11 +39,12 @@ uv run g3a-play  G3a-Cube-Stack3-Dk1_uni
 # Verification scripts (see tests/tasks/README.md), not installed as console scripts
 uv run python tests/tasks/build_sim_registered_tasks.py
 uv run python tests/tasks/check_success_reward.py
+uv run python tests/tasks/measure_viewer_fps.py   # needs a display, not for CI
 ```
 
 The pytest suite under `tests/tasks/` unit-tests the pure kernels in
 `tasks/common/` (`uv run pytest tests/tasks/`). See `tests/tasks/README.md` for
-what each verification script covers; both accept `--cpu` to force CPU-only
+what each verification script covers; all accept `--cpu` to force CPU-only
 execution.
 
 ## Architecture
