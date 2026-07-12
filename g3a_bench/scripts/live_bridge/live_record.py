@@ -101,9 +101,6 @@ USE_FOLLOWER_STATE_FOR_SIM = (
 # Ghost-arm colors, feedback timing, the rest-pose threshold and the recording
 # state machine all live in recording_mixin (shared with the Viser viewer).
 
-# Joint1 calibration offset between the raw leader frame and the sim frame
-LIVE_JOINT1_OFFSET = 0.0
-
 LIVE_REST_POSE: dict[str, float] = {
     "joint1": +0.1565,
     "joint2": +0.0015,
@@ -112,12 +109,10 @@ LIVE_REST_POSE: dict[str, float] = {
     "joint5": +0.0153,
     "joint6": +0.0276,
 }
-# Same rest pose mapped into the sim frame: joint1 carries the calibration
-# offset so the ghost/reset-check live in the same frame as the teleop'd arm
-# (LIVE_JOINT1_OFFSET is added to joint1 here AND in the action mapper below).
+# Same rest pose mapped into the sim frame — lives in the same frame as
+# the teleop'd arm and the action mapper.
 _SIM_REST_POSE: dict[str, float] = {
     **LIVE_REST_POSE,
-    "joint1": LIVE_REST_POSE["joint1"] + LIVE_JOINT1_OFFSET,
 }
 _LIVE_REST_POSE_REL = np.array(
     [_SIM_REST_POSE[f"joint{i}"] - _HOME_JOINT_POS[f"joint{i}"] for i in range(1, 7)],
@@ -259,10 +254,8 @@ class _LivePolicy:
         leader_action = self.action_list[0]
         if leader_action is not None:
             self.latest_leader_action = leader_action
-            action_with_offset = leader_action.copy()
-            action_with_offset[0] += LIVE_JOINT1_OFFSET
             raw_action = lerobot_to_mjlab_raw_action(
-                action_with_offset,
+                leader_action,
                 gravity_compensate=True,
             )
             self._last_raw_action = (

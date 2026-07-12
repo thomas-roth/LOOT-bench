@@ -69,7 +69,6 @@ from mjlab.tasks.registry import load_env_cfg
 
 import g3a_bench  # noqa: F401
 from g3a_bench.scripts.live_bridge.live_record import (
-    LIVE_JOINT1_OFFSET,
     apply_teleop_contact_stability,
 )
 from g3a_bench.scripts.live_bridge.mapper import lerobot_to_mjlab_raw_action
@@ -398,11 +397,7 @@ def resimulate_and_compare(args, ep: Episode) -> bool:
             else:
                 obs_dev = float("nan")
 
-            # Exactly the live_record action path: joint1 offset, then the
-            # gravity-compensated mapping (_LivePolicy.__call__).
-            a = ep.actions[i].copy()
-            a[0] += LIVE_JOINT1_OFFSET
-            raw = lerobot_to_mjlab_raw_action(a, gravity_compensate=True)
+            raw = lerobot_to_mjlab_raw_action(ep.actions[i], gravity_compensate=True)
             _, rew, _dones, _ = env.step(torch.from_numpy(raw).unsqueeze(0).to(device))
 
             qpos_sim = env.env.sim.data.qpos[0].cpu().numpy()
@@ -449,10 +444,8 @@ def diff_existing_replay(args, ep: Episode) -> bool:
     """Offline mode: diff a record_replay.py output dataset against the
     original recording. No sim is built.
 
-    Alignment note: record_replay captures qpos PRE-step while live_record
-    captures it POST-step, so replay qpos[i] corresponds to original
-    qpos[i-1]. This also naturally skips the original's final done-frame
-    (post-auto-reset) qpos.
+    Both live_record and record_replay capture qpos post-step, so replay
+    qpos[i] corresponds to original qpos[i] (1:1 alignment).
     """
     rep = load_episode(args.sim_replay_dir, 0)
     print(

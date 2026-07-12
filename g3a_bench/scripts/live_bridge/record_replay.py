@@ -338,10 +338,11 @@ class _RecordingViewer(NativeMujocoViewer):
         try:
             with torch.no_grad():
                 obs = self.env.get_observations()
-                # Ground-truth sim state, captured pre-step to align with obs.
-                qpos_np = self.env.env.sim.data.qpos[0].cpu().numpy().copy()
                 actions = self.policy(obs)
                 _obs_next, rew, dones, _extras = self.env.step(actions)
+                # Capture qpos AFTER step so it aligns with the recorded reward
+                # and done (same timing as live_record.py's _LiveRecordingViewer).
+                qpos_np = self.env.env.sim.data.qpos[0].cpu().numpy().copy()
 
                 # Notify the recording policy with step results.
                 record_fn = getattr(self.policy, "record_step_result", None)

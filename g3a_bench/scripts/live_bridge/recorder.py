@@ -14,6 +14,7 @@ class Recorder:
         failure_root: str | None = None,
         qpos_dim: int | None = None,
         device: str | None = None,
+        gravity_compensate: bool = True,
     ):
         features = {
             "observation.state": {
@@ -54,6 +55,7 @@ class Recorder:
         self._pending: list[dict] = []
         self._qpos_dim = qpos_dim
         self._device = device
+        self._gravity_compensate = gravity_compensate
         # Seeds and save-counts are tracked per dataset (success vs failure).
         # The success and failure datasets are indexed independently starting at
         # 0, and replay looks a seed up by that per-dataset --episode-index, so a
@@ -118,9 +120,11 @@ class Recorder:
         if self._qpos_dim is not None:
             if qpos is None:
                 qpos = np.zeros(self._qpos_dim, dtype=np.float32)
-            # Store as-is: qpos may be an on-device torch tensor. The GPU→CPU
-            # copy is deferred to save_episode() so the per-frame recording loop
-            # pays no CUDA sync (that stall dropped live fps from 60 to 45).
+            # Clone to avoid aliasing: MuJoCo/DM control reuse their internal
+            # qpos buffer across steps, so storing the view would make every
+            # buffered frame read the episode's *final* qpos at save time
+            # (same class of bug that flattened next.reward to a constant).
+            qpos = qpos.detach().clone() if hasattr(qpos, "detach") else qpos.copy()
             frame["observation.qpos"] = qpos
         self._pending.append(frame)
 
@@ -146,6 +150,8 @@ class Recorder:
             # Deferred host copy: convert GPU tensors to numpy here, off the hot
             # recording loop. This mirrors the pattern already used for qpos.
             for key in ("next.reward", "next.done", "observation.qpos"):
+                if key not in frame:
+                    continue
                 val = frame[key]
                 if hasattr(val, "detach"):
                     val = val.detach().cpu().numpy()
@@ -161,6 +167,7 @@ class Recorder:
         self._pending = []
         ep_index = self._episodes_saved[success]
         self._episodes_saved[success] += 1
+        dataset.meta.info["gravity_compensate"] = self._gravity_compensate
         if seed is not None:
             seeds = self._episode_seeds[success]
             seeds[str(ep_index)] = int(seed)
@@ -168,7 +175,7 @@ class Recorder:
             if self._device is not None:
                 # RNG streams differ between cuda and cpu — replay warns on mismatch.
                 dataset.meta.info["seed_device"] = self._device.split(":")[0]
-            write_info(dataset.meta.info, dataset.meta.root)
+        write_info(dataset.meta.info, dataset.meta.root)
 
     def discard_episode(self) -> None:
         """Drop the current episode without saving (operator rejected the demo)."""
