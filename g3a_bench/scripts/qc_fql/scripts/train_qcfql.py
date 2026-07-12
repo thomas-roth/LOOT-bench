@@ -120,7 +120,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--checkpoint-path",
         type=str,
-        default=None,
+        default="out/agent.pt",
         help="where to torch.save the trained agent's state_dict",
     )
     parser.add_argument(
@@ -140,11 +140,10 @@ def load_dataset(dataset_path: str) -> Dataset:
     return Dataset.create(**{k: raw[k] for k in _DATASET_KEYS})
 
 
-def _batch_to_torch(batch: dict[str, np.ndarray]) -> dict[str, torch.Tensor]:
-    # sample_sequence returns float64 for its computed arrays; the networks
-    # are float32, so convert at the boundary (the reference stays in JAX's
-    # default float32 throughout).
-    return {k: torch.from_numpy(v).float() for k, v in batch.items()}
+def _batch_to_torch(
+    batch: dict[str, np.ndarray], device: str = "cpu"
+) -> dict[str, torch.Tensor]:
+    return {k: torch.from_numpy(v).float().to(device) for k, v in batch.items()}
 
 
 def train_offline(
@@ -159,7 +158,7 @@ def train_offline(
         batch = dataset.sample_sequence(
             args.batch_size, args.horizon_length, args.discount
         )
-        info = agent.update(_batch_to_torch(batch))
+        info = agent.update(_batch_to_torch(batch, getattr(args, "device", "cpu")))
 
         if step % args.log_interval == 0:
             print(
@@ -204,7 +203,12 @@ def train_online(
 
     for step in range(1, args.online_steps + 1):
         if len(action_queue) == 0:
-            obs_t = torch.from_numpy(np.asarray(observation)).float().unsqueeze(0)
+            obs_t = (
+                torch.from_numpy(np.asarray(observation))
+                .float()
+                .to(args.device)
+                .unsqueeze(0)
+            )
             with torch.no_grad():
                 action_chunk = agent.sample_actions(obs_t).squeeze(0).cpu().numpy()
             action_queue.extend(action_chunk.reshape(-1, action_dim))
@@ -244,6 +248,7 @@ def train_online(
             batch = {
                 k: torch.from_numpy(v)
                 .float()
+                .to(args.device)
                 .reshape((args.utd_ratio, args.batch_size) + v.shape[1:])
                 for k, v in batch.items()
             }
@@ -298,6 +303,8 @@ def main() -> None:
             f"[INFO] Loaded checkpoint from {args.resume} — skipping offline training"
         )
 
+    agent = agent.to(args.device)
+
     action_dim = dataset.data["actions"].shape[-1]
 
     if args.online_steps > 0 or args.eval_interval:
@@ -308,7 +315,7 @@ def main() -> None:
         from g3a_bench.scripts.qc_fql.scripts.mjlab_env import MjlabSingleEnv
 
         eval_env = (
-            MjlabSingleEnv(args.task, device=args.device)
+            MjlabSingleEnv(args.task, device=args.device, play=False)
             if args.eval_interval
             else None
         )
@@ -332,7 +339,7 @@ def main() -> None:
             dict(dataset.data), size=max(args.buffer_size, dataset.size + 1)
         )
 
-        env = MjlabSingleEnv(args.task, device=args.device)
+        env = MjlabSingleEnv(args.task, device=args.device, play=False)
         train_online(
             agent, replay_buffer, env, args, action_dim=action_dim, eval_env=eval_env
         )

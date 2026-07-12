@@ -22,6 +22,7 @@ dependencies = [
 g3a-train = "g3a_bench.scripts.train:main"
 g3a-play = "g3a_bench.scripts.play:main"
 g3a-train-qcfql = "g3a_bench.scripts.qc_fql.scripts.train_qcfql:main"
+g3a-play-qcfql = "g3a_bench.scripts.qc_fql.scripts.play_qcfql:main"
 
 [build-system]
 requires = ["hatchling"]

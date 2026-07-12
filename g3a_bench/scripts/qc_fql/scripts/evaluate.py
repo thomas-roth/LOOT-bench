@@ -53,6 +53,7 @@ def evaluate(
     averaged in alongside `return`/`length` -- no key names are hardcoded.
     """
     stats: dict[str, list] = defaultdict(list)
+    device = next(agent.parameters()).device
 
     for _ in range(num_eval_episodes):
         observation, _info = env.reset()
@@ -65,7 +66,12 @@ def evaluate(
             # Refill only when the previous chunk is exhausted: the policy
             # runs once per H env steps.
             if len(action_queue) == 0:
-                obs_t = torch.from_numpy(np.asarray(observation)).float().unsqueeze(0)
+                obs_t = (
+                    torch.from_numpy(np.asarray(observation))
+                    .float()
+                    .to(device)
+                    .unsqueeze(0)
+                )
                 action = agent.sample_actions(obs_t).squeeze(0).cpu().numpy()
                 action = action.reshape(-1, action_dim)
                 action_queue.extend(action)
