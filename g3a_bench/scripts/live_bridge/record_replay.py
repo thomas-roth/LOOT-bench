@@ -33,13 +33,13 @@ import torch
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.rl import RslRlVecEnvWrapper
 from mjlab.tasks.registry import load_env_cfg
-from mjlab.viewer import NativeMujocoViewer
 from mjlab.viewer.base import VerbosityLevel
 
 import g3a_bench  # noqa: F401
 from g3a_bench.scripts.live_bridge.mapper import lerobot_to_mjlab_raw_action
 from g3a_bench.scripts.live_bridge.reader import DatasetReader, ReaderFrame
 from g3a_bench.scripts.live_bridge.recorder import Recorder
+from g3a_bench.scripts.native_viewer_close import SafeCloseNativeViewer
 
 LOGS_DIR = Path(__file__).resolve().parent / "logs"
 
@@ -239,7 +239,7 @@ class _ReplayAndRecord:
         self.recorder.close()
 
 
-class _RecordingViewer(NativeMujocoViewer):
+class _RecordingViewer(SafeCloseNativeViewer):
     """NativeMujocoViewer that records obs/action/reward/done per step."""
 
     def __init__(self, env, policy, **kwargs):

@@ -39,13 +39,17 @@ uv run g3a-play  G3a-Cube-Stack3-Dk1_uni
 # Verification scripts (see tests/tasks/README.md), not installed as console scripts
 uv run python tests/tasks/build_sim_registered_tasks.py
 uv run python tests/tasks/check_success_reward.py
-uv run python tests/tasks/measure_viewer_fps.py   # needs a display, not for CI
+
+# Native-viewer checks (see tests/viewer/README.md), need a display, not for CI
+uv run python tests/viewer/measure_viewer_fps.py
+uv run python tests/viewer/check_viewer_shutdown.py
 ```
 
 The pytest suite under `tests/tasks/` unit-tests the pure kernels in
 `tasks/common/` (`uv run pytest tests/tasks/`). See `tests/tasks/README.md` for
 what each verification script covers; all accept `--cpu` to force CPU-only
-execution.
+execution. `tests/viewer/` holds the manual native-viewer checks (FPS cap,
+shutdown segfault).
 
 ## Architecture
 

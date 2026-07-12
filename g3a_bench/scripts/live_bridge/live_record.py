@@ -60,7 +60,7 @@ import torch
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.rl import RslRlVecEnvWrapper
 from mjlab.tasks.registry import load_env_cfg
-from mjlab.viewer import NativeMujocoViewer, ViewerConfig
+from mjlab.viewer import ViewerConfig
 from mjlab.viewer.base import VerbosityLevel
 from mjlab.viewer.native.visualizer import MujocoNativeDebugVisualizer
 from mjlab.viewer.native.keys import KEY_KP_1, KEY_KP_2, KEY_KP_3, KEY_KP_4, KEY_W
@@ -72,6 +72,7 @@ from g3a_bench.scripts.live_bridge.mapper import (
 )
 from g3a_bench.scripts.live_bridge.recorder import Recorder
 from g3a_bench.scripts.live_bridge.recording_mixin import RecordingViewerMixin
+from g3a_bench.scripts.native_viewer_close import SafeCloseNativeViewer
 
 # Repo-root out/ directory (consistent with the out/<cat>_check render outputs).
 DEMOS_DIR = Path(__file__).resolve().parents[3] / "out" / "demos"
@@ -229,7 +230,7 @@ class _LivePolicy:
         return self._last_raw_action
 
 
-class _LiveRecordingViewer(RecordingViewerMixin, NativeMujocoViewer):
+class _LiveRecordingViewer(RecordingViewerMixin, SafeCloseNativeViewer):
     """NativeMujocoViewer with multi-episode recording and ghost-arm reset phase.
 
     The per-episode recording state machine (record → reset phase → collision

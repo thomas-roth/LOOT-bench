@@ -6,13 +6,13 @@ import time
 
 import mjlab.scripts.play as _mjlab_play
 import mujoco.viewer
-from mjlab.viewer import NativeMujocoViewer
 from mjlab.viewer.native.viewer import compute_viewports
 
 import g3a_bench  # noqa: F401  (registers benchmark tasks)
+from g3a_bench.scripts.native_viewer_close import SafeCloseNativeViewer
 
 
-class _ThrottledOverlayNativeViewer(NativeMujocoViewer):
+class _ThrottledOverlayNativeViewer(SafeCloseNativeViewer):
     """NativeMujocoViewer whose UI overlays can't throttle the main loop.
 
     Stock mjlab calls ``viewer.set_texts(...)`` on every rendered frame (and

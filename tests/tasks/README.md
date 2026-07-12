@@ -61,25 +61,3 @@ uv run python tests/tasks/check_success_reward.py
 uv run python tests/tasks/check_success_reward.py --cpu
 uv run python tests/tasks/check_success_reward.py --no-render
 ```
-
----
-
-## Native viewer FPS check (`measure_viewer_fps.py`)
-
-Measures the real frame rate of the native MuJoCo viewer (the one `g3a-play`
-uses) and prints the median. Needs a display; not for CI. Run it after touching
-`g3a_bench/scripts/play.py` or bumping mjlab, and on any machine where the
-viewer seems stuck at the monitor refresh rate (60 fps).
-
-It runs a 1-env zero-policy task at 1/32x slow-motion by default, so the render
-loop is not physics-bound even on CPU-only machines — it measures the renderer
-cap, not sim throughput. `--viewer stock` swaps in mjlab's unpatched viewer,
-which is expected to pin at the monitor refresh rate (that's the bug the play
-wrapper fixes); `--plots` exercises the reward-figures path, which has the same
-spin-wait coupling.
-
-```bash
-uv run python tests/tasks/measure_viewer_fps.py --min-fps 61   # expect >> 60
-uv run python tests/tasks/measure_viewer_fps.py --viewer stock # shows the 60 cap
-uv run python tests/tasks/measure_viewer_fps.py --plots --min-fps 61
-```

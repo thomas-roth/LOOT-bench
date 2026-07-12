@@ -6,10 +6,10 @@ slow-motion so the render loop is not physics-bound even on CPU-only machines
 — the point is to measure the *renderer* cap, not the sim throughput.
 
 Usage (from repo root):
-  uv run python tests/tasks/measure_viewer_fps.py                  # expect >> 60
-  uv run python tests/tasks/measure_viewer_fps.py --viewer stock   # shows 60 cap
-  uv run python tests/tasks/measure_viewer_fps.py --plots          # figures path
-  uv run python tests/tasks/measure_viewer_fps.py --frame-rate 20 --min-fps 0
+  uv run python tests/viewer/measure_viewer_fps.py                  # expect >> 60
+  uv run python tests/viewer/measure_viewer_fps.py --viewer stock   # shows 60 cap
+  uv run python tests/viewer/measure_viewer_fps.py --plots          # figures path
+  uv run python tests/viewer/measure_viewer_fps.py --frame-rate 20 --min-fps 0
 """
 
 import argparse
@@ -19,9 +19,9 @@ import torch
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.rl import RslRlVecEnvWrapper
 from mjlab.tasks.registry import load_env_cfg, load_rl_cfg
-from mjlab.viewer import NativeMujocoViewer
 
 import g3a_bench  # noqa: F401  (registers tasks)
+from g3a_bench.scripts.native_viewer_close import SafeCloseNativeViewer
 from g3a_bench.scripts.play import _ThrottledOverlayNativeViewer
 
 DEFAULT_TASK = "G3a-Cube-Stack3-Dk1_uni"
@@ -72,10 +72,12 @@ def main() -> int:
         del obs
         return torch.zeros(action_shape, device=env.unwrapped.device)
 
+    # "stock" keeps mjlab's unthrottled overlay/rendering behavior but still
+    # gets the safe close — the shutdown fix is orthogonal to what's measured.
     base_cls = (
         _ThrottledOverlayNativeViewer
         if args.viewer == "throttled"
-        else NativeMujocoViewer
+        else SafeCloseNativeViewer
     )
 
     samples: list[float] = []
