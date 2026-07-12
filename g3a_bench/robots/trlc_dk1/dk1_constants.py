@@ -19,6 +19,7 @@ from g3a_bench.robots.trlc_dk1.dk1_actuators import (
 from g3a_bench.robots.trlc_dk1.dk1_collision import (
     FULL_COLLISION,
     GRIPPER_ONLY_COLLISION,
+    GRIPPER_ONLY_WITH_SELF_COLLISION,
 )
 
 ##
@@ -185,7 +186,9 @@ def get_bimanual_dk1_robot_cfg(full_collision: bool = False) -> EntityCfg:
             joint_pos=joint_pos,
             joint_vel={".*": 0.0},
         ),
-        collisions=(FULL_COLLISION if full_collision else GRIPPER_ONLY_COLLISION,),
+        collisions=(
+            FULL_COLLISION if full_collision else GRIPPER_ONLY_WITH_SELF_COLLISION,
+        ),
         spec_fn=get_bimanual_spec,
         articulation=EntityArticulationInfoCfg(
             actuators=(

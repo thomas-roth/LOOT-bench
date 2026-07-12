@@ -45,8 +45,9 @@ uv run python tests/viewer/measure_viewer_fps.py
 uv run python tests/viewer/check_viewer_shutdown.py
 ```
 
-The pytest suite under `tests/tasks/` unit-tests the pure kernels in
-`tasks/common/` (`uv run pytest tests/tasks/`). See `tests/tasks/README.md` for
+The pytest suite (`uv run pytest tests/`) unit-tests the pure kernels in
+`tasks/common/` (`tests/tasks/`) and the DK1 collision contract on the
+compiled model (`tests/trlc_dk1/`). See `tests/tasks/README.md` for
 what each verification script covers; all accept `--cpu` to force CPU-only
 execution. `tests/viewer/` holds the manual native-viewer checks (FPS cap,
 shutdown segfault).
