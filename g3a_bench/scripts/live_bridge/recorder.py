@@ -34,12 +34,15 @@ class Recorder:
         self._success_root = success_root
         self._failure_root = failure_root
 
-        # Datasets are created lazily on the first save_episode() of each kind,
-        # so a session with only successes never leaves an empty failure dataset
-        # on disk (and vice versa).
+        # Datasets are created lazily on the first committed episode of each
+        # kind, so a session with only successes never leaves an empty failure
+        # dataset on disk (and vice versa).
         self.dataset_success: LeRobotDataset | None = None
         self.dataset_failure: LeRobotDataset | None = None
         self._pending: list[dict] = []
+        # Last saved episode, held back for single-level undo. Committed to
+        # the dataset when the next episode is saved or at close().
+        self._staged: tuple[list[dict], bool] | None = None
 
     def _get_dataset(self, success: bool) -> LeRobotDataset:
         if success:
@@ -93,26 +96,54 @@ class Recorder:
         return len(self._pending)
 
     def save_episode(self, success: bool) -> None:
-        """Flush buffered frames stamped with the operator's label, then persist.
+        """Stage the buffered episode under the given label.
 
-        Success episodes go to the success dataset, failures to the failure
-        dataset. No-op if nothing was buffered (avoids empty/garbage episodes).
+        The episode is NOT written yet: it is held back for single-level undo
+        and only committed when the next episode is saved or at close().
+        Saving commits the previously staged episode (making its undo window
+        end). No-op if nothing was buffered (avoids empty/garbage episodes).
         """
         if not self._pending:
             return
+        self._commit_staged()
+        self._staged = (self._pending, success)
+        self._pending = []
+
+    @property
+    def has_staged(self) -> bool:
+        return self._staged is not None
+
+    def undo_last_save(self) -> bool | None:
+        """Drop the staged (last saved, not yet committed) episode.
+
+        Returns the dropped episode's label, or None if nothing was staged
+        (undo is single-level: only the most recent save can be taken back).
+        """
+        if self._staged is None:
+            return None
+        _, success = self._staged
+        self._staged = None
+        return success
+
+    def _commit_staged(self) -> None:
+        """Write the staged episode to its dataset (point of no return)."""
+        if self._staged is None:
+            return
+        frames, success = self._staged
+        self._staged = None
         label = np.array([success], dtype=bool)
         dataset = self._get_dataset(success)
-        for frame in self._pending:
+        for frame in frames:
             frame["success"] = label
             dataset.add_frame(frame)
         dataset.save_episode()
-        self._pending = []
 
     def discard_episode(self) -> None:
         """Drop the current episode without saving (operator rejected the demo)."""
         self._pending = []
 
     def close(self, operator_id: int | None = None) -> None:
+        self._commit_staged()
         for dataset in (self.dataset_success, self.dataset_failure):
             if dataset is None:
                 continue

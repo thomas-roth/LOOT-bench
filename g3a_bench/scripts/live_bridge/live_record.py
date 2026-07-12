@@ -14,22 +14,30 @@ Architecture (decoupled threads):
       pop latest action → mapper → env.step() → recorder.add_frame()
 
 State machine (per episode):
-  RECORDING      normal step loop; done=True → _handle_done()
-  AWAITING_LABEL ground collision: sim frozen, waiting for numpad 2 (failure)
-                 or numpad 3 (discard)
-  RESET_PHASE    ghost arm visible at home; sim live (not recorded); arm moves to ghost
+  RECORDING         normal step loop; done=True → _handle_done()
+  AWAITING_DECISION non-success termination or manual end (E): sim frozen with
+                    no timeout, waiting for S (save as failure) or D (discard)
+  RESET_PHASE       ghost arm visible at home; sim live (not recorded); arm
+                    moves to ghost
+
+Episode labels come from the env termination: the success termination
+auto-saves as SUCCESS (wonky-but-successful included); anything else can only
+be saved as FAILURE or discarded. The last save is staged and can be taken
+back with U until the next episode ends (single-level undo).
 
 Key bindings:
-    Numpad 1  save episode as SUCCESS (also fires automatically on task completion)
-    Numpad 2  save episode as FAILURE  (required when collision prompt appears)
-    Numpad 3  discard episode
-    Numpad 4  stop session and finalize dataset
-    W         toggle viewer between orbit camera and the robot's wrist camera
-              (clearer gripper view while teleoperating demos)
+    E  end the current episode manually → save-or-discard prompt
+    S  save the ended episode as FAILURE (only in the prompt)
+    D  discard the current episode
+    U  undo the last saved episode (single-level)
+    Q  stop session and finalize dataset
+    W  toggle viewer between orbit camera and the robot's wrist camera
+       (clearer gripper view while teleoperating demos)
 
     Main-row digit keys are NOT usable here — MuJoCo's native viewer swallows
     them internally to toggle render-group visibility before they ever reach
-    this script's key handler.
+    this script's key handler. An on-screen HUD (bottom-left) shows the state,
+    saved counts and the currently valid keys.
 
 Usage:
     uv run python g3a_bench/scripts/live_bridge/live_record.py
@@ -53,6 +61,7 @@ import threading
 import time
 import traceback
 from pathlib import Path
+from types import SimpleNamespace
 
 import mujoco as _mujoco
 import numpy as np
@@ -63,7 +72,7 @@ from mjlab.tasks.registry import load_env_cfg
 from mjlab.viewer import ViewerConfig
 from mjlab.viewer.base import VerbosityLevel
 from mjlab.viewer.native.visualizer import MujocoNativeDebugVisualizer
-from mjlab.viewer.native.keys import KEY_KP_1, KEY_KP_2, KEY_KP_3, KEY_KP_4, KEY_W
+from mjlab.viewer.native.keys import KEY_D, KEY_E, KEY_Q, KEY_S, KEY_U, KEY_W
 
 import g3a_bench  # noqa: F401
 from g3a_bench.robots.trlc_dk1.dk1_constants import _HOME_JOINT_POS
@@ -107,10 +116,11 @@ _LIVE_REST_POSE_REL = np.array(
 )
 
 
-KEY_SAVE_SUCCESS = KEY_KP_1
-KEY_SAVE_FAILURE = KEY_KP_2
-KEY_DISCARD = KEY_KP_3
-KEY_QUIT = KEY_KP_4
+KEY_END_EPISODE = KEY_E
+KEY_SAVE_FAILURE = KEY_S
+KEY_DISCARD = KEY_D
+KEY_UNDO = KEY_U
+KEY_QUIT = KEY_Q
 KEY_WRIST_CAM = KEY_W
 
 # Name of the wrist camera in the DK1 MJCF. The compiled model prefixes entity
@@ -233,14 +243,15 @@ class _LivePolicy:
 class _LiveRecordingViewer(RecordingViewerMixin, SafeCloseNativeViewer):
     """NativeMujocoViewer with multi-episode recording and ghost-arm reset phase.
 
-    The per-episode recording state machine (record → reset phase → collision
-    label, plus ghost-color feedback) lives in RecordingViewerMixin. This
-    subclass only adds the native-specific rendering of the ghost arm and the wrist-camera toggle.
+    The per-episode recording state machine (record → decision prompt → reset
+    phase, plus ghost-color feedback and the HUD text) lives in
+    RecordingViewerMixin. This subclass only adds the native-specific rendering
+    of the ghost arm and HUD, and the wrist-camera toggle.
 
     State machine:
-      RECORDING        → normal step loop
-      AWAITING_LABEL   → collision fired; sim frozen; waiting for numpad 2/3
-      RESET_PHASE      → episode ended; ghost visible; waiting for arm at home
+      RECORDING         → normal step loop
+      AWAITING_DECISION → non-success end; sim frozen (no timeout); S/D decides
+      RESET_PHASE       → episode ended; ghost visible; waiting for arm at home
     """
 
     def __init__(
@@ -314,23 +325,50 @@ class _LiveRecordingViewer(RecordingViewerMixin, SafeCloseNativeViewer):
         ghost_model = self._get_ghost_model_with_color(current_color)
         visualizer.add_ghost_mesh(self._ghost_qpos, model=ghost_model, label="ghost")
 
+    # ── HUD (native-specific) ────────────────────────────────────────────────
+
+    def _set_status_overlay(self, viewer: "_mujoco.viewer.Handle") -> None:  # type: ignore[name-defined]
+        """Send the base status overlay AND the recording HUD in one
+        set_texts call — each call replaces all overlays from earlier calls,
+        so sending them separately would drop one of the two.
+
+        The base overlay text is captured through a shim (the base method's
+        only side effect is one ``set_texts(overlay)`` call) instead of being
+        rebuilt here, so it can't drift from mjlab's own status text.
+        """
+        captured: list = []
+        shim = SimpleNamespace(set_texts=captured.append)
+        super()._set_status_overlay(shim)  # type: ignore[arg-type]
+        labels, values = self._hud_text()
+        hud = (
+            _mujoco.mjtFontScale.mjFONTSCALE_150.value,
+            _mujoco.mjtGridPos.mjGRID_BOTTOMLEFT.value,
+            labels,
+            values,
+        )
+        viewer.set_texts(captured + [hud])
+
     # ── Key handling ─────────────────────────────────────────────────────────
 
     def _on_key(self, key: int) -> None:
         # Runs on the viewer thread → only enqueue; actions are processed on
         # the main thread in _handle_custom_action to avoid racing the step loop.
-        if key == KEY_SAVE_SUCCESS:
-            self.request_action("CUSTOM", "save_success")
+        if key == KEY_END_EPISODE:
+            self.request_action("CUSTOM", "end_episode")
         elif key == KEY_SAVE_FAILURE:
             self.request_action("CUSTOM", "save_failure")
         elif key == KEY_DISCARD:
             self.request_action("CUSTOM", "discard")
+        elif key == KEY_UNDO:
+            self.request_action("CUSTOM", "undo")
+        elif key == KEY_QUIT:
+            # Through the queue too: quitting must not bypass an open
+            # save-or-discard prompt (the un-decided episode would be lost).
+            self.request_action("CUSTOM", "quit")
         elif key == KEY_WRIST_CAM:
             # Only mutates the viewer's own camera (never env/sim), so it is
             # safe to handle directly on the viewer thread.
             self._toggle_wrist_cam()
-        elif key == KEY_QUIT:
-            self._interrupted = True
 
     def _toggle_wrist_cam(self) -> None:
         """Toggle the viewer between the orbit/free camera and the robot's
@@ -466,7 +504,7 @@ def main():
         "--num-episodes",
         type=int,
         default=0,
-        help="Stop after N saved episodes (0 = record until numpad 4 is pressed).",
+        help="Stop after N saved episodes (0 = record until Q is pressed).",
     )
     parser.add_argument(
         "--debug-timing",
@@ -582,15 +620,15 @@ def main():
 
     print("[INFO] Starting native MuJoCo viewer")
     print("[INFO] Move the leader arm to control the sim and follower")
-    print("[INFO] Keys (numpad):")
-    print("[INFO]   Numpad 1  → save current episode as SUCCESS")
-    print("[INFO]   Numpad 2  → save current episode as FAILURE")
-    print(
-        "[INFO]   Numpad 3  → discard/redo current episode "
-        "(also discards a collision within 2s)"
-    )
-    print("[INFO]   Numpad 4  → stop recording session")
-    print("[INFO]   W         → toggle wrist camera <-> orbit view")
+    print("[INFO] Keys (see also the HUD in the viewer):")
+    print("[INFO]   E → end current episode (opens save-or-discard prompt)")
+    print("[INFO]   S → save ended episode as FAILURE (in the prompt)")
+    print("[INFO]   D → discard/redo current episode")
+    print("[INFO]   U → undo last saved episode (single-level)")
+    print("[INFO]   Q → stop recording session")
+    print("[INFO]   W → toggle wrist camera <-> orbit view")
+    print("[INFO] Success episodes are auto-saved when the task's success")
+    print("[INFO] termination fires; other labels are decided in the prompt.")
     print("[INFO] === Episode 1 started — recording resumed ===")
 
     viewer: _LiveRecordingViewer | None = None

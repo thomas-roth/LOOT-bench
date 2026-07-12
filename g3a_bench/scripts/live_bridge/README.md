@@ -14,13 +14,17 @@ Teleop → sim mirroring → dataset recording for G3A benchmark. Records demons
 uv run python g3a_bench/scripts/live_bridge/live_record.py [--follower] [--leader-port PORT] [--follower-port PORT] [--num-episodes N] [--dataset-dir PATH]
 ```
 
-Asks for operator ID (1–4) at startup. **Numpad controls:**
-- `1`: Save episode as **success** → reset phase
-- `2`: Save as **failure** → reset phase  
-- `3`: **Discard** → reset phase → redo
-- `4`: Finalize dataset and quit
+Asks for operator ID (1–4) at startup. **Letter-key controls** (an on-screen HUD shows state, saved counts and the currently valid keys):
+- `E`: **End** episode manually → save-or-discard prompt
+- `S`: **Save** the ended episode as failure (only in the prompt)
+- `D`: **Discard** → reset phase → redo
+- `U`: **Undo** the last saved episode (single-level; the last save is staged and only committed when the next episode ends or at finalize)
+- `Q`: Finalize dataset and quit
+- `W`: Toggle wrist camera ↔ orbit view
 
-**State machine:** RECORDING → [auto-save on task success | collision prompt (AWAITING_LABEL) → operator labels | Numpad 1/2/3] → RESET_PHASE (ghost arm at rest pose, no recording) → back to RECORDING when sim arm near rest.
+Episode labels come from the env termination: the success termination auto-saves as **success** (wonky-but-successful included); any other termination — or `E` — freezes the sim into a no-timeout prompt (orange ghost) where the episode is saved as **failure** or discarded.
+
+**State machine:** RECORDING → [auto-save on task success | prompt (AWAITING_DECISION) → `S`/`D`] → RESET_PHASE (ghost arm at rest pose, no recording) → back to RECORDING when sim arm near rest.
 
 Output: `out/demos/success/<YYYY-MM-DD_HH-MM-SS>/` and `out/demos/failure/<YYYY-MM-DD_HH-MM-SS>/` at the repo root (timestamped, never overwrites). A directory is only created if at least one episode of that kind was saved.
 
