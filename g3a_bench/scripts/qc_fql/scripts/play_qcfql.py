@@ -15,7 +15,6 @@ Installed as g3a-play-qcfql (see pyproject.toml).
 
 import argparse
 
-import numpy as np
 import torch
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.rl import RslRlVecEnvWrapper
@@ -24,6 +23,7 @@ from mjlab.viewer import NativeMujocoViewer
 
 import g3a_bench  # noqa: F401  (registers tasks)
 from g3a_bench.scripts.live_bridge.mapper import ActionNormalizer
+from g3a_bench.scripts.qc_fql.agent.chunked_policy import ChunkedPolicy
 from g3a_bench.scripts.qc_fql.agent.config import QCFQLConfig
 from g3a_bench.scripts.qc_fql.agent.qcfql_agent import QCFQLAgent
 from g3a_bench.scripts.qc_fql.scripts.train_qcfql import (
@@ -33,34 +33,26 @@ from g3a_bench.scripts.qc_fql.scripts.train_qcfql import (
 
 
 class _QCFQLViewerPolicy:
-    """Policy wrapper for NativeMujocoViewer that runs a QC-FQL agent.
+    """Adapts a ChunkedPolicy to the NativeMujocoViewer contract.
 
-    Maintains an action chunk queue: the agent emits H actions at once
-    (config.horizon_length), and the viewer consumes one per env step.
+    Extracts the observation from the viewer's TensorDict and denormalizes the
+    policy's [-1, 1] action to raw space; the chunk queue lives in ChunkedPolicy.
     """
 
     def __init__(self, agent, action_dim: int, device: str):
-        self.agent = agent
-        self.action_dim = action_dim
         self.device = device
-        self.action_queue: list[np.ndarray] = []
+        self.policy = ChunkedPolicy(agent, action_dim, device)
         self.normalizer = ActionNormalizer.physical()
 
     def __call__(self, obs) -> torch.Tensor:
         """Called by viewer each step with obs → returns raw action tensor."""
-        if len(self.action_queue) == 0:
-            # obs is a TensorDict (not a plain dict) with keys "actor" and "critic".
-            if hasattr(obs, "keys") and "actor" in obs:
-                obs_np = obs["actor"][0].detach().cpu().numpy()
-            else:
-                obs_np = obs[0].detach().cpu().numpy()
-            obs_t = torch.from_numpy(obs_np).float().to(self.device).unsqueeze(0)
-            with torch.no_grad():
-                action_chunk = self.agent.sample_actions(obs_t).squeeze(0).cpu().numpy()
-            self.action_queue.extend(action_chunk.reshape(-1, self.action_dim))
-
+        # obs is a TensorDict (not a plain dict) with keys "actor" and "critic".
+        if hasattr(obs, "keys") and "actor" in obs:
+            obs_np = obs["actor"][0].detach().cpu().numpy()
+        else:
+            obs_np = obs[0].detach().cpu().numpy()
         # Denormalize [-1, 1] → raw action space (same as MjlabSingleEnv)
-        action_raw = self.normalizer.denormalize(self.action_queue.pop(0))
+        action_raw = self.normalizer.denormalize(self.policy.next_action(obs_np))
         return torch.from_numpy(action_raw).float().to(self.device).unsqueeze(0)
 
 

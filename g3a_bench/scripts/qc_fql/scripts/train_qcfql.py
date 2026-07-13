@@ -31,6 +31,7 @@ from dataclasses import fields
 import numpy as np
 import torch
 
+from g3a_bench.scripts.qc_fql.agent.chunked_policy import ChunkedPolicy
 from g3a_bench.scripts.qc_fql.agent.config import QCFQLConfig
 from g3a_bench.scripts.qc_fql.agent.qcfql_agent import QCFQLAgent
 from g3a_bench.scripts.qc_fql.data.dataset import Dataset
@@ -228,20 +229,10 @@ def train_online(
     must not start mid-chunk.
     """
     observation, _info = env.reset()
-    action_queue: list[np.ndarray] = []
+    policy = ChunkedPolicy(agent, action_dim, args.device)
 
     for step in range(1, args.online_steps + 1):
-        if len(action_queue) == 0:
-            obs_t = (
-                torch.from_numpy(np.asarray(observation))
-                .float()
-                .to(args.device)
-                .unsqueeze(0)
-            )
-            with torch.no_grad():
-                action_chunk = agent.sample_actions(obs_t).squeeze(0).cpu().numpy()
-            action_queue.extend(action_chunk.reshape(-1, action_dim))
-        action = action_queue.pop(0)
+        action = policy.next_action(observation)
 
         next_observation, reward, terminated, truncated, _info = env.step(
             np.clip(action, -1.0, 1.0)
@@ -263,7 +254,7 @@ def train_online(
 
         if done:
             observation, _info = env.reset()
-            action_queue = []
+            policy.reset()
         else:
             observation = next_observation
 

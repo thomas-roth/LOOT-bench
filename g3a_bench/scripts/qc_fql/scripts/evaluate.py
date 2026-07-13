@@ -25,6 +25,8 @@ from collections import defaultdict
 import numpy as np
 import torch
 
+from g3a_bench.scripts.qc_fql.agent.chunked_policy import ChunkedPolicy
+
 
 def _flatten(d: dict, parent_key: str = "", sep: str = ".") -> dict:
     """{'a': {'b': 1}} -> {'a.b': 1}; lets nested env info average per-key."""
@@ -54,30 +56,17 @@ def evaluate(
     """
     stats: dict[str, list] = defaultdict(list)
     device = next(agent.parameters()).device
+    policy = ChunkedPolicy(agent, action_dim, device)
 
     for _ in range(num_eval_episodes):
         observation, _info = env.reset()
+        policy.reset()  # fresh chunk per episode
         done = False
         step = 0
         episode_return = 0.0
-        action_queue: list[np.ndarray] = []
 
         while not done:
-            # Refill only when the previous chunk is exhausted: the policy
-            # runs once per H env steps.
-            if len(action_queue) == 0:
-                obs_t = (
-                    torch.from_numpy(np.asarray(observation))
-                    .float()
-                    .to(device)
-                    .unsqueeze(0)
-                )
-                action = agent.sample_actions(obs_t).squeeze(0).cpu().numpy()
-                action = action.reshape(-1, action_dim)
-                action_queue.extend(action)
-
-            action = action_queue.pop(0)
-
+            action = policy.next_action(observation)
             next_observation, reward, terminated, truncated, info = env.step(
                 np.clip(action, -1.0, 1.0)
             )
