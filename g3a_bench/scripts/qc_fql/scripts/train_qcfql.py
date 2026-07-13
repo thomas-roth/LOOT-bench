@@ -24,6 +24,9 @@ registry (this script trains exactly one agent).
 """
 
 import argparse
+import json
+import os
+from dataclasses import fields
 
 import numpy as np
 import torch
@@ -138,6 +141,32 @@ def build_arg_parser() -> argparse.ArgumentParser:
 def load_dataset(dataset_path: str) -> Dataset:
     raw = np.load(dataset_path)
     return Dataset.create(**{k: raw[k] for k in _DATASET_KEYS})
+
+
+def save_checkpoint(agent: QCFQLAgent, config: QCFQLConfig, path: str) -> None:
+    """Save weights + a config sidecar so play can rebuild the exact architecture."""
+    torch.save(agent.state_dict(), path)
+    # ob_dims/action_dim are re-inferred from data by create() → only init fields.
+    init = {f.name: getattr(config, f.name) for f in fields(config) if f.init}
+    with open(path + ".json", "w") as f:
+        json.dump(init, f, indent=2)
+
+
+def load_checkpoint_config(path: str) -> QCFQLConfig | None:
+    """Reconstruct the training config from the sidecar; None if it is absent."""
+    sidecar = path + ".json"
+    if not os.path.exists(sidecar):
+        return None
+    with open(sidecar) as f:
+        raw = json.load(f)
+    init_names = {f.name for f in fields(QCFQLConfig) if f.init}
+    # JSON arrays → tuples for the tuple-typed fields (actor_hidden_dims, ...).
+    kw = {
+        k: tuple(v) if isinstance(v, list) else v
+        for k, v in raw.items()
+        if k in init_names
+    }
+    return QCFQLConfig(**kw)  # pyright: ignore[reportArgumentType]  (json → typed)
 
 
 def _batch_to_torch(
@@ -326,7 +355,7 @@ def main() -> None:
         train_offline(agent, dataset, args, eval_env=eval_env, action_dim=action_dim)
 
     if args.checkpoint_path and not args.resume:
-        torch.save(agent.state_dict(), args.checkpoint_path)
+        save_checkpoint(agent, config, args.checkpoint_path)
         print(f"Saved checkpoint to {args.checkpoint_path}")
 
     if args.online_steps > 0:
@@ -346,7 +375,7 @@ def main() -> None:
         env.close()
 
         if args.checkpoint_path:
-            torch.save(agent.state_dict(), args.checkpoint_path)
+            save_checkpoint(agent, config, args.checkpoint_path)
             print(f"Saved online checkpoint to {args.checkpoint_path}")
 
     if eval_env is not None:

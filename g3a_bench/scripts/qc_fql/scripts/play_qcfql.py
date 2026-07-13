@@ -1,7 +1,8 @@
 """Play a trained QC-FQL agent with the MuJoCo viewer.
 
-Loads the dataset to reconstruct the agent config, loads the saved
-checkpoint, and runs it in the mjlab NativeMujocoViewer for visual inspection.
+Rebuilds the agent from the checkpoint's config sidecar (falls back to
+CLI/default config if absent), loads the weights, and runs it in the mjlab
+NativeMujocoViewer for visual inspection.
 
 Usage:
     uv run g3a-play-qcfql \
@@ -28,14 +29,17 @@ from g3a_bench.scripts.live_bridge.mapper import (
 )
 from g3a_bench.scripts.qc_fql.agent.config import QCFQLConfig
 from g3a_bench.scripts.qc_fql.agent.qcfql_agent import QCFQLAgent
-from g3a_bench.scripts.qc_fql.scripts.train_qcfql import load_dataset
+from g3a_bench.scripts.qc_fql.scripts.train_qcfql import (
+    load_checkpoint_config,
+    load_dataset,
+)
 
 
 class _QCFQLViewerPolicy:
     """Policy wrapper for NativeMujocoViewer that runs a QC-FQL agent.
 
     Maintains an action chunk queue: the agent emits H actions at once
-    (horizon_length=5), and the viewer consumes one per env step.
+    (config.horizon_length), and the viewer consumes one per env step.
     """
 
     def __init__(self, agent, action_dim: int, device: str):
@@ -84,6 +88,17 @@ def main() -> None:
         help="mjlab task id",
     )
     parser.add_argument("--device", default="cuda", help="torch device")
+    # Fallback config for checkpoints without a sidecar (older runs). New
+    # checkpoints carry <checkpoint>.json and ignore these.
+    parser.add_argument(
+        "--horizon-length", type=int, default=5, help="fallback H if no config sidecar"
+    )
+    parser.add_argument(
+        "--actor-type",
+        default="distill-ddpg",
+        choices=["distill-ddpg", "best-of-n"],
+        help="fallback actor type if no config sidecar",
+    )
     args = parser.parse_args()
 
     # Rebuild agent with same config and load weights
@@ -91,7 +106,16 @@ def main() -> None:
     ex_obs = dataset.data["observations"][0]
     ex_act = dataset.data["actions"][0]
 
-    config = QCFQLConfig(horizon_length=5)
+    config = load_checkpoint_config(args.checkpoint)
+    if config is None:
+        print(
+            f"[WARN] No config sidecar for {args.checkpoint}; using CLI/default config"
+        )
+        config = QCFQLConfig(
+            horizon_length=args.horizon_length, actor_type=args.actor_type
+        )
+    else:
+        print(f"Loaded agent config from {args.checkpoint}.json")
     agent = QCFQLAgent.create(config, ex_obs, ex_act)
     agent.load_state_dict(torch.load(args.checkpoint, map_location=args.device))
     agent = agent.to(args.device).eval()
