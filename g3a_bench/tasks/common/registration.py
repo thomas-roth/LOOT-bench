@@ -17,15 +17,6 @@ from g3a_bench.robots.interface import ManipulatorInterface
 from g3a_bench.tasks.common.manipulator_wiring import wire_manipulator_into_env
 from g3a_bench.tasks.common.rl_cfg import manipulation_ppo_runner_cfg
 
-REGULARIZATION_TERMS = frozenset(
-    ["action_rate_l2", "joint_pos_limits", "joint_vel_hinge"]
-)
-"""Reward terms that stay active in every reward mode.
-
-Keep in sync with the regularization reward block in
-``tasks/common/env_cfg.make_manipulation_env_cfg``.
-"""
-
 
 @dataclass(frozen=True)
 class TaskRecord:
@@ -75,6 +66,7 @@ def register_category(
                 grasp_obs_terms=grasp_obs_terms,
                 ee_contact_sensors=ee_contact_sensors,
             )
+
             play_env_cfg = make_env_cfg(variant, play=True)
             wire_manipulator_into_env(
                 play_env_cfg,
@@ -82,6 +74,7 @@ def register_category(
                 grasp_obs_terms=grasp_obs_terms,
                 ee_contact_sensors=ee_contact_sensors,
             )
+
             task_id = f"G3a-{category}-{variant.name}-{robot.name}"
             register_mjlab_task(
                 task_id=task_id,

@@ -1,11 +1,11 @@
-"""Success gating shared by all task categories.
+"""Success gating shared by all task categories
+
+Contains the :class:`SuccessGate` that combines a task's criterion with the
+universal at-rest + released conditions.
+Only tensor math (unit-tested in ``tests/tasks/test_success.py``), no mjlab imports.
 
 The category-specific success criteria (the pure placement tests) live in
-each category's ``mdp/success.py``; this module holds only what every
-category shares: the at-rest speed threshold and the :class:`SuccessGate`
-that combines a task's criterion with the universal at-rest + released
-conditions. No mjlab or environment imports — plain tensor math, unit-tested
-in ``tests/tasks/test_success.py``.
+each category's ``mdp/success.py``.
 """
 
 from __future__ import annotations
@@ -20,11 +20,15 @@ class SuccessGate:
     """At-rest + released gating with a per-episode success latch.
 
     ``update`` combines the task's success criterion with two universal
-    conditions — the scored objects have (nearly) stopped moving (speed at or
-    below ``vel_threshold``, inclusive) and the robot has let go — and
-    latches ``episode_success`` until :meth:`reset`. The release signal is
-    injected because it varies per category (gripper-joint opening vs.
-    ball-to-gripper distance).
+    conditions:
+    - the scored objects have (nearly) stopped moving (speed at or
+    below ``vel_threshold``, inclusive)
+    - the robot has let go
+
+    It latches ``episode_success`` until :meth:`reset`.
+
+    The release signal is injected because it varies per category
+    (gripper-joint opening vs. ball-to-gripper distance).
     """
 
     def __init__(

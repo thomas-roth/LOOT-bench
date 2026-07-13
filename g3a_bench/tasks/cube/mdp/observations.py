@@ -28,6 +28,7 @@ def pieces_rel_grasp(
     return rel.reshape(env.num_envs, -1)
 
 
+# TODO: how to do correctly for unordered?
 def slot_goal_deltas(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
     """Goal minus assigned-piece position per slot, flattened (E, G*3)."""
     command = _command(env, command_name)

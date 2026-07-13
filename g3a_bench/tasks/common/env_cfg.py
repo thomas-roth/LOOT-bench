@@ -14,6 +14,8 @@ wire_manipulator_into_env` with a concrete ``ManipulatorInterface`` before
 registering the task.
 """
 
+import copy
+
 from mjlab.entity import EntityCfg
 from mjlab.envs import ManagerBasedRlEnvCfg, mdp
 from mjlab.envs.mdp import dr
@@ -34,6 +36,24 @@ from mjlab.terrains import TerrainEntityCfg
 from mjlab.utils.noise import UniformNoiseCfg as Unoise
 from mjlab.viewer import ViewerConfig
 
+REGULARIZATION_TERMS = {
+    "action_rate_l2": RewardTermCfg(func=mdp.action_rate_l2, weight=-0.01),
+    "joint_pos_limits": RewardTermCfg(
+        func=mdp.joint_pos_limits,
+        weight=-10.0,
+        params={"asset_cfg": SceneEntityCfg("robot", joint_names=(".*",))},
+    ),
+    "joint_vel_hinge": RewardTermCfg(
+        func=manipulation_mdp.joint_velocity_hinge_penalty,
+        weight=-0.01,
+        params={
+            "max_vel": 0.5,
+            "asset_cfg": SceneEntityCfg("robot", joint_names=(".*",)),
+        },
+    ),
+}
+"""Regularization reward terms, stay active in every reward mode –> keep motions smooth and feasible."""
+
 
 def make_manipulation_env_cfg(
     *,
@@ -43,7 +63,6 @@ def make_manipulation_env_cfg(
     command_cfg: CommandTermCfg,
     task_obs_terms: dict[str, ObservationTermCfg],
     command_obs: bool = True,
-    trailing_obs_terms: dict[str, ObservationTermCfg] | None = None,
     task_rewards: dict[str, RewardTermCfg],
     task_terminations: dict[str, TerminationTermCfg],
     sensors: tuple[SensorCfg, ...] = (),
@@ -73,9 +92,6 @@ def make_manipulation_env_cfg(
             Disable when the task observations already encode the goal
             relative to the objects (the raw command would be redundant or
             constant).
-        trailing_obs_terms: observation terms appended *after* ``actions``
-            (layout-compatible late additions such as the two-sheet grasp
-            term).
         task_rewards: category reward terms, placed before the shared
             regularization terms.
         task_terminations: category terminations, placed after ``time_out``
@@ -102,7 +118,6 @@ def make_manipulation_env_cfg(
             else {}
         ),
         "actions": ObservationTermCfg(func=mdp.last_action),
-        **(trailing_obs_terms or {}),
     }
 
     observations = {
@@ -115,7 +130,6 @@ def make_manipulation_env_cfg(
             entity_name="robot",
             actuator_names=(".*",),
             scale=0.5,  # Set per-robot.
-            use_default_offset=True,
         )
     }
 
@@ -161,24 +175,9 @@ def make_manipulation_env_cfg(
         ),
     }
 
-    # Regularization (not task shaping): keep motions smooth and feasible.
-    # Term names are mirrored in registration.REGULARIZATION_TERMS — keep in sync.
     rewards = {
         **task_rewards,
-        "action_rate_l2": RewardTermCfg(func=mdp.action_rate_l2, weight=-0.01),
-        "joint_pos_limits": RewardTermCfg(
-            func=mdp.joint_pos_limits,
-            weight=-10.0,
-            params={"asset_cfg": SceneEntityCfg("robot", joint_names=(".*",))},
-        ),
-        "joint_vel_hinge": RewardTermCfg(
-            func=manipulation_mdp.joint_velocity_hinge_penalty,
-            weight=-0.01,
-            params={
-                "max_vel": 0.5,
-                "asset_cfg": SceneEntityCfg("robot", joint_names=(".*",)),
-            },
-        ),
+        **{name: copy.deepcopy(term) for name, term in REGULARIZATION_TERMS.items()},
     }
 
     terminations = {
@@ -186,6 +185,7 @@ def make_manipulation_env_cfg(
         **task_terminations,
     }
 
+    # TODO: do we need this with QC? (PPO specific?)
     curriculum = {
         "joint_vel_hinge_weight": CurriculumTermCfg(
             func=manipulation_mdp.reward_curriculum,

@@ -89,24 +89,13 @@ def make_insertion_env_cfg(
             params={"command_name": COMMAND_NAME},
         ),
     }
-    # Appended after "actions" to keep the two-sheet observation layout
-    # backward compatible.
-    trailing_obs_terms = (
-        {
-            "sheet_rel_grasp": ObservationTermCfg(
-                func=ins_mdp.sheet_rel_grasp,
-                params={"command_name": COMMAND_NAME, "asset_cfg": grasp_cfg},
-                noise=Unoise(n_min=-0.01, n_max=0.01),
-            )
-        }
-        if two_sheet
-        else None
-    )
+    if two_sheet:
+        task_obs_terms["sheet_rel_grasp"] = ObservationTermCfg(
+            func=ins_mdp.sheet_rel_grasp,
+            params={"command_name": COMMAND_NAME, "asset_cfg": grasp_cfg},
+            noise=Unoise(n_min=-0.01, n_max=0.01),
+        )
 
-    # Sparse reward design: the task signal is only the (near-)binary outcome of
-    # actually inserting pegs -- no dense distance/depth shaping. This is meant to
-    # be paired with a demonstration pipeline (GELLO teleop -> offline-to-online
-    # RL), which supplies the exploration that dense shaping previously provided.
     task_rewards = {
         "inserted_count": RewardTermCfg(
             func=ins_mdp.inserted_count_reward,
@@ -142,14 +131,10 @@ def make_insertion_env_cfg(
             debug_vis=True,
         ),
         task_obs_terms=task_obs_terms,
-        # Fixed boards make the raw command constant (mouths pinned to the env
-        # origin); only the sorter's moving mouths + target one-hot carry info.
         command_obs=sorter,
-        trailing_obs_terms=trailing_obs_terms,
         task_rewards=task_rewards,
         task_terminations=task_terminations,
         env_spacing=2.0,
-        # Sorter: one commanded insert but the cube may need reorienting first.
         episode_length_s=30.0 if sorter else 10.0 + 8.0 * variant.num_sockets,
         # Two-sheet: two 16-box rings stacked on top of each other need
         # extra contact/constraint headroom. Sorter: ~90 convex mesh parts

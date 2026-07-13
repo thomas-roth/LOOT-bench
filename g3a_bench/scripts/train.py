@@ -15,7 +15,8 @@ def _apply_reward_mode(task_id: str | None, mode: str) -> None:
     Loud by design: an unknown task id or an unrecorded mode aborts instead of
     silently training with untouched rewards.
     """
-    from g3a_bench.tasks.common.registration import REGULARIZATION_TERMS, TASK_TABLE
+    from g3a_bench.tasks.common.env_cfg import REGULARIZATION_TERMS
+    from g3a_bench.tasks.common.registration import TASK_TABLE
 
     if task_id is None:
         raise SystemExit("--reward-mode given but no task id on the command line")
@@ -31,7 +32,7 @@ def _apply_reward_mode(task_id: str | None, mode: str) -> None:
             f"--reward-mode: task {task_id!r} records no {mode!r} mode "
             f"(available: {', '.join(sorted(record.reward_mode_terms))})"
         )
-    active = terms | REGULARIZATION_TERMS
+    active = terms | REGULARIZATION_TERMS.keys()
     for name, term in record.env_cfg.rewards.items():
         if name not in active:
             term.weight = 0.0

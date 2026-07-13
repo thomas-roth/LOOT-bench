@@ -3,8 +3,7 @@
 Every category draws its goal markers in the target object's own color while
 pending, green once that object is at its goal, and a brighter, more opaque
 green once the command's full success (including the velocity / gripper /
-release gates) holds. Kept in one place so the three categories cannot drift
-apart in color semantics.
+release gates) holds.
 """
 
 Rgba = tuple[float, float, float, float]
