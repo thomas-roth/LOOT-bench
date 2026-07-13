@@ -28,6 +28,12 @@ QC_KEYS = [
 META_KEYS = ["episode_index", "frame_index", "timestamp", "success", "sim_done"]
 
 
+def _norm_method(value) -> str:
+    """Decode a stored action_norm_method (0-d/1-d numpy str array) to a plain str."""
+    # Not str(arr, "utf-8") — that decodes the raw UCS-4 buffer to mojibake.
+    return str(np.atleast_1d(np.asarray(value))[0])
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Merge multiple dataset .npz files")
     parser.add_argument("inputs", nargs="+", help=".npz files to merge")
@@ -37,9 +43,10 @@ def main() -> None:
     loaded = [np.load(f) for f in args.inputs]
 
     # Verify all use the same action_norm method
-    methods = {str(d.get("action_norm_method", b"physical"), "utf-8") for d in loaded}
+    methods = {_norm_method(d.get("action_norm_method", "physical")) for d in loaded}
     if len(methods) > 1:
         raise ValueError(f"Mixed action_norm methods: {methods} — cannot merge")
+    method = next(iter(methods))
 
     combined: dict[str, np.ndarray] = {}
 
@@ -61,9 +68,7 @@ def main() -> None:
     # Action norm metadata — same across all files, copy from first
     combined["action_min"] = loaded[0]["action_min"]
     combined["action_max"] = loaded[0]["action_max"]
-    combined["action_norm_method"] = np.atleast_1d(
-        np.array(str(loaded[0]["action_norm_method"]))
-    )
+    combined["action_norm_method"] = np.atleast_1d(np.array(method))
 
     np.savez(
         args.output,
@@ -88,7 +93,7 @@ def main() -> None:
     print(
         f"Merged {len(loaded)} files ({n_episodes} episodes, {n_frames} frames) → {args.output}"
     )
-    print(f"  action_norm: {methods.pop()!r}")
+    print(f"  action_norm: {method!r}")
 
 
 if __name__ == "__main__":
