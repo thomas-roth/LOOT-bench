@@ -23,10 +23,7 @@ from mjlab.tasks.registry import load_env_cfg
 from mjlab.viewer import NativeMujocoViewer
 
 import g3a_bench  # noqa: F401  (registers tasks)
-from g3a_bench.scripts.live_bridge.mapper import (
-    PHYSICAL_RAW_ACTION_MAX,
-    PHYSICAL_RAW_ACTION_MIN,
-)
+from g3a_bench.scripts.live_bridge.mapper import ActionNormalizer
 from g3a_bench.scripts.qc_fql.agent.config import QCFQLConfig
 from g3a_bench.scripts.qc_fql.agent.qcfql_agent import QCFQLAgent
 from g3a_bench.scripts.qc_fql.scripts.train_qcfql import (
@@ -47,6 +44,7 @@ class _QCFQLViewerPolicy:
         self.action_dim = action_dim
         self.device = device
         self.action_queue: list[np.ndarray] = []
+        self.normalizer = ActionNormalizer.physical()
 
     def __call__(self, obs) -> torch.Tensor:
         """Called by viewer each step with obs → returns raw action tensor."""
@@ -61,11 +59,8 @@ class _QCFQLViewerPolicy:
                 action_chunk = self.agent.sample_actions(obs_t).squeeze(0).cpu().numpy()
             self.action_queue.extend(action_chunk.reshape(-1, self.action_dim))
 
-        action = np.clip(self.action_queue.pop(0), -1.0, 1.0)
         # Denormalize [-1, 1] → raw action space (same as MjlabSingleEnv)
-        action_raw = (action + 1.0) / 2.0 * (
-            PHYSICAL_RAW_ACTION_MAX - PHYSICAL_RAW_ACTION_MIN
-        ) + PHYSICAL_RAW_ACTION_MIN
+        action_raw = self.normalizer.denormalize(self.action_queue.pop(0))
         return torch.from_numpy(action_raw).float().to(self.device).unsqueeze(0)
 
 

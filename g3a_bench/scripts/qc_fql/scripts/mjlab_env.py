@@ -40,10 +40,7 @@ import torch
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.tasks.registry import load_env_cfg
 
-from g3a_bench.scripts.live_bridge.mapper import (
-    PHYSICAL_RAW_ACTION_MAX,
-    PHYSICAL_RAW_ACTION_MIN,
-)
+from g3a_bench.scripts.live_bridge.mapper import ActionNormalizer
 
 
 class MjlabSingleEnv:
@@ -59,22 +56,15 @@ class MjlabSingleEnv:
         self.env = ManagerBasedRlEnv(cfg=env_cfg, device=device)
         self.obs_group = obs_group
         self._pending_reset_obs: np.ndarray | None = None
+        self._normalizer = ActionNormalizer.physical()
 
     def _extract_obs(self, obs_dict: dict) -> np.ndarray:
         # [0]: strip the num_envs=1 batch dim mjlab always keeps.
         return obs_dict[self.obs_group][0].detach().cpu().numpy()
 
-    @staticmethod
-    def _denormalize_action(action: np.ndarray) -> np.ndarray:
-        """Policy's [-1, 1] -> mjlab raw-action units over the DK1 joint range.
-
-        Clips first: a policy output beyond [-1, 1] must saturate at the
-        physical limit, not extrapolate past it.
-        """
-        clipped = np.clip(action, -1.0, 1.0)
-        return (clipped + 1.0) / 2.0 * (
-            PHYSICAL_RAW_ACTION_MAX - PHYSICAL_RAW_ACTION_MIN
-        ) + PHYSICAL_RAW_ACTION_MIN
+    def _denormalize_action(self, action: np.ndarray) -> np.ndarray:
+        """Policy's [-1, 1] -> mjlab raw-action units over the DK1 joint range."""
+        return self._normalizer.denormalize(action)
 
     def _get_success(self) -> float | None:
         # mjlab has no framework-level success flag; cube tasks track it on

@@ -68,6 +68,37 @@ PHYSICAL_RAW_ACTION_MAX: np.ndarray = (
 ) / ACTION_SCALE
 
 
+class ActionNormalizer:
+    """Maps raw actions to the policy's [-1, 1] and back over a fixed range.
+
+    One home for the convention previously duplicated across lerobot_to_qc
+    (normalize), mjlab_env and play_qcfql (denormalize). Defaults to the
+    physical DK1 joint range; construct from a dataset's stored action_min/max
+    to honour a data-normalized dataset.
+    """
+
+    def __init__(self, action_min: np.ndarray, action_max: np.ndarray):
+        self.action_min = np.asarray(action_min, dtype=np.float32)
+        self.action_max = np.asarray(action_max, dtype=np.float32)
+
+    @classmethod
+    def physical(cls) -> "ActionNormalizer":
+        return cls(PHYSICAL_RAW_ACTION_MIN, PHYSICAL_RAW_ACTION_MAX)
+
+    def normalize(self, raw_action: np.ndarray) -> np.ndarray:
+        """raw action → [-1, 1]. Guards zero-range (constant) dims against /0."""
+        span = self.action_max - self.action_min
+        rng = np.where(span > 1e-6, span, 1.0)
+        return 2.0 * (raw_action - self.action_min) / rng - 1.0
+
+    def denormalize(self, action: np.ndarray) -> np.ndarray:
+        """[-1, 1] → raw action. Clips first: policy output must saturate at
+        the physical limit, not extrapolate past it."""
+        clipped = np.clip(action, -1.0, 1.0)
+        span = self.action_max - self.action_min
+        return (clipped + 1.0) / 2.0 * span + self.action_min
+
+
 def lerobot_to_mjlab_ctrl(joint_pos: np.ndarray) -> np.ndarray:
     """Convert real-robot joint_pos (7,) → MJLab data.ctrl (7,).
 

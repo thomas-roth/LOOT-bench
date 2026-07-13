@@ -73,6 +73,7 @@ from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from g3a_bench.scripts.live_bridge.mapper import (
     PHYSICAL_RAW_ACTION_MAX,
     PHYSICAL_RAW_ACTION_MIN,
+    ActionNormalizer,
     lerobot_to_mjlab_raw_action,
 )
 
@@ -201,8 +202,7 @@ def convert(
     else:  # "data"
         a_min = sim_actions.min(axis=0)
         a_max = sim_actions.max(axis=0)
-    a_range = np.where(a_max - a_min > 1e-6, a_max - a_min, 1.0)
-    actions = (2.0 * (sim_actions - a_min) / a_range - 1.0).astype(np.float32)
+    actions = ActionNormalizer(a_min, a_max).normalize(sim_actions).astype(np.float32)
 
     # 5. Build next_observations — never cross episode boundaries.
     # For non-terminal rows whose next row is in the same episode: next_obs = obs[i+1].
