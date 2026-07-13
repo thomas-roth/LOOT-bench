@@ -42,6 +42,18 @@ def main() -> None:
 
     loaded = [np.load(f) for f in args.inputs]
 
+    # An empty file makes episode_index.max() below raise an opaque "zero-size
+    # array" error; reject up front
+    ref = (loaded[0]["observations"].shape[1:], loaded[0]["actions"].shape[1:])
+    for f, d in zip(args.inputs, loaded, strict=True):
+        if len(d["observations"]) == 0:
+            raise ValueError(f"{f} has no frames — cannot merge an empty dataset")
+        if (d["observations"].shape[1:], d["actions"].shape[1:]) != ref:
+            raise ValueError(
+                f"{f} obs/action dims {d['observations'].shape[1:]}/"
+                f"{d['actions'].shape[1:]} differ from {ref[0]}/{ref[1]}"
+            )
+
     # Verify all use the same action_norm method
     methods = {_norm_method(d.get("action_norm_method", "physical")) for d in loaded}
     if len(methods) > 1:
