@@ -477,6 +477,7 @@ def diff_existing_replay(args, ep: Episode) -> bool:
     per_dof_max = None
     labels: list[str] = []
     robot_mask = np.array([])
+    n_excluded_done = 0
     if ep.qpos is not None and rep.qpos is not None:
         # Need joint names for the breakdown → compile the model once, headless.
         device = "cuda:0" if torch.cuda.is_available() else "cpu"
@@ -485,8 +486,17 @@ def diff_existing_replay(args, ep: Episode) -> bool:
         env.close()
         robot_mask = np.array([lab.startswith("robot/") for lab in labels])
         per_dof_max = np.zeros(len(labels))
-        for i in range(1, n):
-            d = np.abs(rep.qpos[i] - ep.qpos[i - 1])  # pre-step vs post-step
+        for i in range(n):
+            # Terminal frame is post-auto-reset in both → qpos not comparable.
+            if bool(ep.done[i]):
+                n_excluded_done += 1
+                stats.append(
+                    FrameStats(
+                        i, float(obs_dev[i]), 0.0, 0.0, 0.0, "(done frame)", False
+                    )
+                )
+                continue
+            d = np.abs(rep.qpos[i] - ep.qpos[i])  # both post-step → 1:1
             per_dof_max = np.maximum(per_dof_max, d)
             stats.append(
                 FrameStats(
@@ -514,7 +524,7 @@ def diff_existing_replay(args, ep: Episode) -> bool:
         args.tol,
         args.settle_frames,
         False,
-        0,
+        n_excluded_done,
     )
     if args.csv:
         write_csv(args.csv, stats)
