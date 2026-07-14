@@ -387,6 +387,8 @@ def make_insertion_env_cfg(
             distance=1.5,
             elevation=-15.0,
             azimuth=150.0,
+            enable_shadows=False,
+            enable_reflections=False,
         ),
         sim=SimulationCfg(
             # explicitly increase for 2 sheets (2 rings (from 16 boxes) lying on top of each other)

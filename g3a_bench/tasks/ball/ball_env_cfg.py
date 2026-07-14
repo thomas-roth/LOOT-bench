@@ -259,6 +259,8 @@ def make_ball_env_cfg(
             distance=1.6,
             elevation=-20.0,
             azimuth=150.0,
+            enable_shadows=False,
+            enable_reflections=False,
         ),
         sim=SimulationCfg(
             nconmax=150,

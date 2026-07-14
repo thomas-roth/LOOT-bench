@@ -5,14 +5,15 @@ At every resample the command:
 1. samples goal poses for the arrangement (stack bases / domino row),
 2. scatters all pieces (goal pieces + distractors) over the workspace on a
    jittered grid (collision-free by construction),
-3. randomly re-assigns goal slots among interchangeable pieces (same form and
-   color), and
+3. resets the slot assignment to identity, and
 4. exposes the slot goal positions as the policy command.
 
 Terminology: a *slot* is one position in the goal arrangement (slot order is
 bottom-to-top within a stack, stacks concatenated; row order for dominos). A
-*piece* is a free-body scene entity. `piece_for_slot` maps slots to pieces and
-only differs from identity for interchangeable pieces.
+*piece* is a free-body scene entity. `piece_for_slot` maps slots to pieces; for
+interchangeable pieces (same form) it is re-matched by proximity every step in
+`_update_metrics`, so the order in which pieces are placed never affects
+success.
 """
 
 from __future__ import annotations
@@ -97,12 +98,15 @@ class PieceArrangementCommand(CommandTerm):
         )
         self._num_stacks = len(variant.stacks)
 
-        # Interchangeable groups: slots holding identical pieces.
+        # Interchangeable groups: slots holding pieces of the same form (equal
+        # height, hence geometrically swappable). Pieces within a group are
+        # matched to slots by proximity every step, so neither stacking order
+        # nor color order affects success.
         self._groups: list[torch.Tensor] = []
         if variant.interchangeable:
-            seen: dict[tuple, list[int]] = {}
+            seen: dict[str, list[int]] = {}
             for i, p in enumerate(variant.goal_pieces):
-                seen.setdefault((p.form, p.color), []).append(i)
+                seen.setdefault(p.form, []).append(i)
             for idx in seen.values():
                 if len(idx) > 1:
                     self._groups.append(torch.tensor(idx, device=dev, dtype=torch.long))
@@ -168,6 +172,12 @@ class PieceArrangementCommand(CommandTerm):
         self.piece_pos_w = torch.stack(
             [p.data.root_link_pos_w for p in self.pieces], dim=1
         )
+        # Order-free assignment: within each same-form group, match pieces to
+        # slots by proximity so the placement order never matters for success
+        # (or for the shaping/observation terms downstream).
+        for group in self._groups:
+            dist = torch.cdist(self.slot_goal_pos[:, group], self.piece_pos_w[:, group])
+            self.piece_for_slot[:, group] = group[self._greedy_match(dist)]
         slot_pos = self.slot_piece_pos()
         error = torch.norm(self.slot_goal_pos - slot_pos, dim=-1)
         at_goal = error < self.cfg.pos_threshold
@@ -252,12 +262,11 @@ class PieceArrangementCommand(CommandTerm):
 
         self.slot_goal_pos[env_ids] = goal + origins.unsqueeze(1)
 
-        # --- Slot assignment among interchangeable pieces. ---
-        assign = torch.arange(G, device=dev).unsqueeze(0).repeat(n, 1)
-        for group in self._groups:
-            perm = torch.argsort(torch.rand(n, group.shape[0], device=dev), dim=1)
-            assign[:, group] = group[perm]
-        self.piece_for_slot[env_ids] = assign
+        # --- Slot assignment: identity at reset; _update_metrics re-matches
+        # interchangeable pieces by proximity every step. ---
+        self.piece_for_slot[env_ids] = (
+            torch.arange(G, device=dev).unsqueeze(0).repeat(n, 1)
+        )
 
         # --- Scatter all pieces on distinct jittered grid cells. ---
         pick = torch.argsort(torch.rand(n, self._cells.shape[0], device=dev), dim=1)[
@@ -280,6 +289,29 @@ class PieceArrangementCommand(CommandTerm):
 
     def _update_command(self) -> None:
         pass
+
+    @staticmethod
+    def _greedy_match(dist: torch.Tensor) -> torch.Tensor:
+        """Greedy one-to-one matching for a batched square cost matrix.
+
+        ``dist`` is (E, k, k) with rows = slots and columns = candidate pieces;
+        returns the (E, k) column index per row. Greedy on the global minimum
+        recovers the perfect matching whenever one exists within
+        ``pos_threshold`` — pieces cannot overlap and neighboring slots are at
+        least one piece height apart, so no piece can satisfy two slots — which
+        is all the success metric needs.
+        """
+        num_envs, k, _ = dist.shape
+        cost = dist.clone()
+        assign = torch.zeros(num_envs, k, dtype=torch.long, device=dist.device)
+        env_idx = torch.arange(num_envs, device=dist.device)
+        for _ in range(k):
+            flat = cost.flatten(1).argmin(dim=1)
+            row, col = flat // k, flat % k
+            assign[env_idx, row] = col
+            cost[env_idx, row, :] = torch.inf
+            cost[env_idx, :, col] = torch.inf
+        return assign
 
     def _debug_vis_impl(self, visualizer: DebugVisualizer) -> None:
         env_indices = visualizer.get_env_indices(self.num_envs)

@@ -5,22 +5,13 @@ Unit and integration tests for the live-bridge pipeline
 
 ---
 
-## Prerequisites
-
-```bash
-# from repo root
-uv sync --extra cpu
-```
-
----
-
 ## Run all tests
 
 ```bash
 uv run pytest tests/live_bridge/ -v
 ```
 
-Expected output: all green, 30 tests (32 collected, 2 skipped = hardware/network), a few seconds.
+Expected output: all green, 32 passed (34 collected, 2 skipped = hardware/network), a few seconds.
 
 ---
 
@@ -58,7 +49,7 @@ Uses mocks and monkeypatching — no real serial ports or network needed.
 
 | Test | What it checks |
 |------|----------------|
-| `test_creation_with_all_fields` | all four fields (joint_pos, leader_action, cameras, timestamp) accepted |
+| `test_creation_with_all_fields` | joint_pos, leader_action, cameras, timestamp accepted (also has a `state` field, untested here, used by replay's drift metric) |
 | `test_default_fields` | only joint_pos required; leader_action=None, cameras={}, timestamp=0.0 |
 
 **`TestDatasetReader`** — offline replay from a mocked LeRobot dataset:
@@ -112,35 +103,23 @@ Tests `recorder.py`. Split into two parts:
 
 | Test | What it checks |
 |------|----------------|
-| `test_create_dataset` | `Recorder.__init__` calls `LeRobotDataset.create` with correct feature schema |
+| `test_create_dataset_lazily` | no dataset on init — `LeRobotDataset.create` happens on the first `save_episode()` of that kind |
 | `test_add_frame_buffers_until_save` | `add_frame()` holds frames in memory; dataset NOT written yet |
 | `test_save_episode_labels_frames_success` | `save_episode(True)` stamps `success=True` on every frame, then flushes |
 | `test_save_episode_labels_frames_failure` | `save_episode(False)` stamps `success=False` |
 | `test_save_episode_flushes_all_frames` | all buffered frames (not just the first) are written on save |
 | `test_discard_episode_drops_buffer` | `discard_episode()` clears buffer without writing anything |
-| `test_save_episode_empty_is_noop` | `save_episode()` with no frames buffered does not write an empty episode |
-| `test_close_finalizes_dataset` | `close()` calls `finalize()` on the underlying dataset |
+| `test_save_episode_empty_is_noop` | `save_episode()` with no frames buffered writes nothing and creates no dataset |
+| `test_close_finalizes_dataset` | `close()` calls `finalize()` on every dataset that was created |
 | `test_discard_then_save_new_episode` | after discard, a fresh episode can be buffered and saved normally |
 
-**Real round-trip test** (`test_recorder_real_roundtrip`) — writes an actual
-LeRobot dataset to a `tmp_path`, reads it back, checks shapes and the `success` column.
+**Real round-trip tests** — write actual LeRobot datasets to `tmp_path`, read back, check shapes.
 
-This is the most valuable test: if a future `lerobot` version changes the schema
-or the `add_frame` API, this test will catch it.
-
-Expected output:
-```
-tests/live_bridge/test_recorder.py::TestRecorder::test_create_dataset PASSED
-tests/live_bridge/test_recorder.py::TestRecorder::test_add_frame_buffers_until_save PASSED
-tests/live_bridge/test_recorder.py::TestRecorder::test_save_episode_labels_frames_success PASSED
-tests/live_bridge/test_recorder.py::TestRecorder::test_save_episode_labels_frames_failure PASSED
-tests/live_bridge/test_recorder.py::TestRecorder::test_save_episode_flushes_all_frames PASSED
-tests/live_bridge/test_recorder.py::TestRecorder::test_discard_episode_drops_buffer PASSED
-tests/live_bridge/test_recorder.py::TestRecorder::test_save_episode_empty_is_noop PASSED
-tests/live_bridge/test_recorder.py::TestRecorder::test_close_finalizes_dataset PASSED
-tests/live_bridge/test_recorder.py::TestRecorder::test_discard_then_save_new_episode PASSED
-tests/live_bridge/test_recorder.py::test_recorder_real_roundtrip PASSED
-```
+| Test | What it checks |
+|------|----------------|
+| `test_recorder_real_roundtrip` | obs/action shapes, success column persists after finalize; no failure dataset for a success-only session |
+| `test_close_stores_operator_id` | `close(operator_id=3)` → `meta.info["operator_id"] == 3` after re-open |
+| `test_close_without_operator_id_still_finalizes` | `close()` with no argument does not raise |
 
 ```bash
 uv run pytest tests/live_bridge/test_recorder.py -v
@@ -148,7 +127,24 @@ uv run pytest tests/live_bridge/test_recorder.py -v
 
 ---
 
-### `test_replay.py`
+### `test_live_record_helpers.py`
+
+Unit tests for `live_record.py` helper functions.
+No sim, no hardware, no I/O.
+
+**`live_record.py` helpers** (`ask_operator`):
+
+| Test | What it checks |
+|------|----------------|
+| `test_ask_operator_valid` | Returns int for valid input "2" |
+| `test_ask_operator_retries_on_bad_input` | Loops until valid input, ignores "0"/"5"/"abc"
+```bash
+uv run pytest tests/live_bridge/test_live_record_helpers.py -v
+```
+
+---
+
+### `manual_replay_demo.py`
 
 **Not a pytest test — an interactive script.** Opens a MuJoCo viewer window
 and replays `FabianKerj/corkinbox100-fullrel` through the sim. No recording,
@@ -157,7 +153,7 @@ no hardware.
 Use it to visually verify the dataset→sim pipeline end to end.
 
 ```bash
-uv run --extra cpu python tests/live_bridge/test_replay.py
+uv run python tests/live_bridge/manual_replay_demo.py
 ```
 
 **First run:** downloads ~655 MB from HuggingFace (cached after).

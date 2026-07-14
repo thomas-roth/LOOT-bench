@@ -1,7 +1,6 @@
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -39,6 +38,9 @@ class ReaderFrame:
     joint_pos: np.ndarray
     # (7,) same format as joint_pos — what the human commanded via leader arm
     leader_action: np.ndarray | None = None
+    # Full policy observation vector (sim actor obs) for datasets that store it;
+    # used by replay to measure drift vs the recording. None for live sources.
+    state: np.ndarray | None = None
     # dict of camera_name → raw image as (H, W, 3) uint8 numpy array
     cameras: dict[str, np.ndarray] = field(default_factory=dict)
     # seconds since epoch
@@ -68,10 +70,10 @@ class DatasetReader(Reader):
     and the rest of the pipeline processes it identically.
     """
 
-    def __init__(self, repo_id: str, episode_index: int = 0):
+    def __init__(self, repo_id: str, episode_index: int = 0, root: str | None = None):
         # LeRobotDataset wraps a HuggingFace dataset under the hood.
         # Episodes are contiguous blocks of rows; we find boundaries once.
-        self._ds = LeRobotDataset(repo_id)
+        self._ds = LeRobotDataset(repo_id, root=root)
         self._episode_index = episode_index
         self._frame_index = 0
         self._load_episode()
@@ -94,154 +96,34 @@ class DatasetReader(Reader):
         self._end = int(ends[self._episode_index])
         self._frame_index = 0
 
+    @property
+    def meta_info(self) -> dict:
+        """The dataset's info.json dict (episode_seeds, seed_device, operator_id, ...)."""
+        return self._ds.meta.info
+
     def read(self) -> ReaderFrame:
         if self._frame_index >= (self._end - self._start):
             raise StopIteration
         idx = self._start + self._frame_index
         self._frame_index += 1
         frame = self._ds[idx]
+        # joint_pos is the (7,) real-robot state; the recorder expects that shape.
+        # Fall back to zeros if the source dataset has no robot_state column.
+        robot_state = frame.get("observation.robot_state")
+        joint_pos = (
+            np.asarray(robot_state, dtype=np.float32)
+            if robot_state is not None
+            else np.zeros(7, dtype=np.float32)
+        )
         return ReaderFrame(
-            joint_pos=np.asarray(frame["observation.state"], dtype=np.float32),
+            joint_pos=joint_pos,
             leader_action=np.asarray(frame["action"], dtype=np.float32),
+            state=np.asarray(frame["observation.state"], dtype=np.float32),
             timestamp=float(frame["timestamp"]),
         )
 
     def close(self):
         pass
-
-
-# Substring hints (lowercase) used to classify enumerated serial ports.
-# Leader = GELLO / Dynamixel USB-serial adapter (FTDI/U2D2 -> ttyUSB on Linux,
-# usbserial on macOS). Follower = DM-motor CAN/CDC-ACM adapter (ttyACM on
-# Linux, usbmodem on macOS).
-_LEADER_PORT_HINTS = (
-    "gello",
-    "ftdi",
-    "u2d2",
-    "dynamixel",
-    "usb-serial",
-    "usb serial",
-    "usbserial",
-    "ttyusb",
-)
-_FOLLOWER_PORT_HINTS = ("can", "cdc", "ttyacm", "usbmodem")
-
-
-def _list_comports() -> list:
-    """Return available serial ports via pyserial (cross-platform).
-
-    Wrapped in its own function so it can be monkeypatched in tests and so a
-    missing/broken pyserial degrades to an empty list rather than raising.
-    """
-    try:
-        from serial.tools import list_ports
-
-        return list(list_ports.comports())
-    except Exception:
-        return []
-
-
-def _port_text(port) -> str:
-    parts = [
-        getattr(port, "device", "") or "",
-        getattr(port, "description", "") or "",
-        getattr(port, "manufacturer", "") or "",
-    ]
-    return " ".join(parts).lower()
-
-
-# USB vendor id that strongly identifies the leader regardless of OS-supplied
-# description text. The GELLO/Dynamixel U2D2 adapter is an FTDI device; the
-# DM-motor follower adapter is not, so an FTDI port is the leader.
-_FTDI_VID = 0x0403
-
-
-def _role_from_device_path(device: str) -> str | None:
-    """Linux /dev names are unambiguous: ttyUSB*=leader, ttyACM*=follower."""
-    d = device.lower()
-    if "ttyusb" in d:
-        return "leader"
-    if "ttyacm" in d:
-        return "follower"
-    return None
-
-
-def _find_ports() -> tuple[str | None, str | None]:
-    """Auto-detect (leader, follower) serial ports, cross-platform.
-
-    Classification is layered strongest-first so the result can't silently
-    swap roles:
-
-      1. Linux device path (``ttyUSB``=leader, ``ttyACM``=follower) — unambiguous.
-      2. FTDI USB vendor id → leader (the U2D2/GELLO adapter is FTDI; the DM-motor
-         follower adapter is not). This resolves Windows ``COMx`` ports where the
-         driver description is ambiguous.
-      3. Description/manufacturer substring hints (weak — a CDC follower often
-         reports "USB Serial Device", which collides with the leader hints).
-      4. Two-port elimination: if exactly one role is known and one port is left,
-         the leftover fills the other role.
-
-    When a role is resolved only by the weak steps (3/4), a warning is printed
-    because that path can mis-assign on Windows — pass explicit ports to be sure.
-    Falls back to Linux ``/dev`` globbing when enumeration yields nothing.
-    """
-    ports = _list_comports()
-    if not ports:
-        # Fallback: Linux /dev globbing (original behaviour).
-        tty_usb = sorted(Path("/dev").glob("ttyUSB*"))
-        tty_acm = sorted(Path("/dev").glob("ttyACM*"))
-        leader = str(tty_usb[0]) if tty_usb else None
-        follower = str(tty_acm[0]) if tty_acm else None
-        return leader, follower
-
-    leader: str | None = None
-    follower: str | None = None
-    unresolved: list = []
-    used_weak = False
-
-    # Pass 1 — strong signals: Linux device path, then FTDI vendor id (leader).
-    for p in ports:
-        device = getattr(p, "device", None)
-        role = _role_from_device_path(device or "")
-        if role is None and getattr(p, "vid", None) == _FTDI_VID:
-            role = "leader"
-        if role == "leader" and leader is None:
-            leader = device
-        elif role == "follower" and follower is None:
-            follower = device
-        else:
-            unresolved.append(p)
-
-    # Pass 2 — weak signals: description/manufacturer substring hints.
-    leftover: list[str | None] = []
-    for p in unresolved:
-        device = getattr(p, "device", None)
-        text = _port_text(p)
-        if leader is None and any(h in text for h in _LEADER_PORT_HINTS):
-            leader = device
-            used_weak = True
-        elif follower is None and any(h in text for h in _FOLLOWER_PORT_HINTS):
-            follower = device
-            used_weak = True
-        else:
-            leftover.append(device)
-
-    # Pass 3 — two-port elimination for a single remaining unclassified port.
-    if leader is None and follower is not None and len(leftover) == 1:
-        leader = leftover[0]
-        used_weak = True
-    elif follower is None and leader is not None and len(leftover) == 1:
-        follower = leftover[0]
-        used_weak = True
-
-    if used_weak:
-        print(
-            "[WARN] Serial ports auto-detected from ambiguous USB description "
-            "text (no Linux tty path or FTDI vendor id). On Windows this can "
-            "swap leader/follower — verify, or pass --follower-port / "
-            "--leader-port explicitly."
-        )
-    return leader, follower
 
 
 class LiveReader(Reader):
@@ -257,18 +139,34 @@ class LiveReader(Reader):
         follower_port: str | None = None,
         leader_port: str | None = None,
         connect_on_init: bool = True,
+        use_follower: bool = False,
     ):
-        if DK1Follower is None:
+        if DK1Leader is None:
             raise ImportError(
                 "lerobot_robot_trlc_dk1 not installed — cannot connect to real robot. "
                 "Run: uv pip install -e /path/to/trlc-dk1"
             )
-        assert DK1Follower is not None
-        # Auto-detect any unspecified ports
-        if follower_port is None or leader_port is None:
-            auto_leader, auto_follower = _find_ports()
-            leader_port = leader_port or auto_leader
-            follower_port = follower_port or auto_follower
+        import sys
+
+        self.use_follower = use_follower
+        if use_follower:
+            assert DK1Follower is not None
+            # Only provide Linux defaults; require explicit ports elsewhere.
+            if follower_port is None or leader_port is None:
+                if sys.platform.startswith("linux"):
+                    leader_port = leader_port or "/dev/ttyACM0"
+                    follower_port = follower_port or "/dev/ttyACM1"
+                else:
+                    raise ValueError(
+                        "leader_port/follower_port must be provided when not on Linux"
+                    )
+        else:
+            if leader_port is None:
+                if sys.platform.startswith("linux"):
+                    leader_port = "/dev/ttyACM0"
+                else:
+                    raise ValueError("leader_port must be provided when not on Linux")
+            follower_port = None
         self.follower_port = follower_port
         self.leader_port = leader_port
         self._follower: DK1Follower | None = None  # type: ignore
@@ -277,52 +175,63 @@ class LiveReader(Reader):
             self.connect()
 
     def connect(self):
-        """Open serial connections to both leader and follower."""
-        self._follower = DK1Follower(DK1FollowerConfig(port=self.follower_port))
-        self._follower.connect()
+        """Open serial connection(s) to the leader, and the follower if enabled."""
+        if self.use_follower:
+            self._follower = DK1Follower(DK1FollowerConfig(port=self.follower_port))
+            self._follower.connect()
         if self.leader_port:
             self._leader = DK1Leader(DK1LeaderConfig(port=self.leader_port))
             self._leader.connect()
 
     def read(self) -> ReaderFrame:
-        if self._follower is None:
+        if self.use_follower and self._follower is None:
             raise RuntimeError("Follower not connected. Call .connect() first.")
-        obs = self._follower.get_observation()
-        # Build joint_pos array in standard real-robot order
-        joint_pos = np.array(
-            [
-                obs["joint_1.pos"],
-                obs["joint_2.pos"],
-                obs["joint_3.pos"],
-                obs["joint_4.pos"],
-                obs["joint_5.pos"],
-                obs["joint_6.pos"],
-                obs["gripper.pos"],
-            ],
-            dtype=np.float32,
-        )
-        # Extract camera images if available
-        cameras = {}
-        for cam_name in ("context", "wrist"):
-            if cam_name in obs:
-                cameras[cam_name] = obs[cam_name]
-        # Get leader action if connected. get_action() returns a dict
-        # {joint_1.pos..joint_6.pos, gripper.pos}; unpack in fixed order.
-        leader_action = None
-        if self._leader is not None:
-            la = self._leader.get_action()
-            leader_action = np.array(
+        if self._leader is None:
+            raise RuntimeError("Leader not connected. Call .connect() first.")
+
+        cameras: dict[str, np.ndarray] = {}
+        joint_pos: np.ndarray | None = None
+        if self._follower is not None:
+            obs = self._follower.get_observation()
+            # Build joint_pos array in standard real-robot order
+            joint_pos = np.array(
                 [
-                    la["joint_1.pos"],
-                    la["joint_2.pos"],
-                    la["joint_3.pos"],
-                    la["joint_4.pos"],
-                    la["joint_5.pos"],
-                    la["joint_6.pos"],
-                    la["gripper.pos"],
+                    obs["joint_1.pos"],
+                    obs["joint_2.pos"],
+                    obs["joint_3.pos"],
+                    obs["joint_4.pos"],
+                    obs["joint_5.pos"],
+                    obs["joint_6.pos"],
+                    obs["gripper.pos"],
                 ],
                 dtype=np.float32,
             )
+            # Extract camera images if available
+            for cam_name in ("context", "wrist"):
+                if cam_name in obs:
+                    cameras[cam_name] = obs[cam_name]
+
+        # get_action() returns a dict {joint_1.pos..joint_6.pos, gripper.pos};
+        # unpack in fixed order.
+        la = self._leader.get_action()
+        leader_action = np.array(
+            [
+                la["joint_1.pos"],
+                la["joint_2.pos"],
+                la["joint_3.pos"],
+                la["joint_4.pos"],
+                la["joint_5.pos"],
+                la["joint_6.pos"],
+                la["gripper.pos"],
+            ],
+            dtype=np.float32,
+        )
+
+        if joint_pos is None:
+            # No follower connected — the leader's own reading is the only
+            # physical arm state available, so it doubles as joint_pos.
+            joint_pos = leader_action.copy()
+
         return ReaderFrame(
             joint_pos=joint_pos,
             leader_action=leader_action,

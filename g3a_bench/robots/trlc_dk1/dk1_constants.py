@@ -39,7 +39,13 @@ assert _DK1_XML.exists()
 
 
 def get_unimanual_spec() -> mujoco.MjSpec:
-    return mujoco.MjSpec.from_file(str(_DK1_XML))
+    spec = mujoco.MjSpec.from_file(str(_DK1_XML))
+    # base/link1-2 mesh surfaces interpenetrate slightly at rest (joint1's own
+    # axis). MuJoCo's default parent-child contact filter doesn't catch this
+    # pair for some reason, so the resulting contact force fights the joint1
+    # actuator and effectively locks the base rotation. Exclude explicitly.
+    spec.add_exclude(bodyname1="base", bodyname2="link1-2")
+    return spec
 
 
 ##

@@ -16,7 +16,7 @@
    ```powershell
    ./install.ps1
    ```
-   These scripts automatically install the appropriate PyTorch build based on the `nvidia-smi` CUDA version. Supported options are: `cu128` or `cpu`.
+   The PyTorch build is selected automatically by platform (see `[tool.uv.sources]` in `pyproject.toml`): `cu128` on Linux/Windows, `cpu` on macOS.
 
 ## Code Quality Checks
 The project uses [Ruff](https://www.astral.sh/ruff) for linting and formatting and [Pyright](https://microsoft.github.io/pyright) for type checking.

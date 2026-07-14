@@ -51,6 +51,7 @@ class TestDatasetReader:
         def make_frame(i):
             return {
                 "observation.state": np.full(7, 0.1 * (i + 1), dtype=np.float32),
+                "observation.robot_state": np.full(7, 0.5 * (i + 1), dtype=np.float32),
                 "action": np.full(7, 0.01 * (i + 1), dtype=np.float32),
                 "timestamp": np.float32(i * 0.033),
             }
@@ -68,12 +69,16 @@ class TestDatasetReader:
         frame = reader.read()
         assert isinstance(frame, ReaderFrame)
         assert frame.joint_pos.shape == (7,)
-        assert np.allclose(frame.joint_pos, 0.1)
+        # joint_pos maps from observation.robot_state (the 7-dim robot state),
+        # while state carries the full observation.state vector for drift checks.
+        assert np.allclose(frame.joint_pos, 0.5)
+        assert frame.state is not None
+        assert np.allclose(frame.state, 0.1)
         assert frame.leader_action is not None
         assert np.allclose(frame.leader_action, 0.01)
 
         frame2 = reader.read()
-        assert np.allclose(frame2.joint_pos, 0.2)
+        assert np.allclose(frame2.joint_pos, 1.0)
         reader.close()
 
     @patch("g3a_bench.scripts.live_bridge.reader.LeRobotDataset")
@@ -136,6 +141,7 @@ class TestLiveReader:
             follower_port="/dev/null",
             leader_port="/dev/null",
             connect_on_init=False,
+            use_follower=True,
         )
         assert reader.follower_port == "/dev/null"
         assert reader.leader_port == "/dev/null"
@@ -166,6 +172,7 @@ class TestLiveReader:
             follower_port="/dev/ttyACM_test",
             leader_port="/dev/ttyUSB_test",
             connect_on_init=True,
+            use_follower=True,
         )
         mock_follower_cls.assert_called_once()
         mock_follower_cls.return_value.connect.assert_called_once()
@@ -223,6 +230,7 @@ class TestLiveReader:
             follower_port="/dev/ttyACM_test",
             leader_port="/dev/ttyUSB_test",
             connect_on_init=True,
+            use_follower=True,
         )
         frame = reader.read()
         assert isinstance(frame, ReaderFrame)
@@ -260,6 +268,7 @@ class TestLiveReader:
             follower_port="/dev/ttyACM_test",
             leader_port="/dev/ttyUSB_test",
             connect_on_init=True,
+            use_follower=True,
         )
         reader.close()
         mock_follower.disconnect.assert_called_once()
@@ -290,6 +299,7 @@ class TestLiveReader:
             follower_port="/dev/ttyACM_test",
             leader_port="/dev/ttyUSB_test",
             connect_on_init=True,
+            use_follower=True,
         )
 
         action_np = np.array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7], dtype=np.float32)
@@ -353,6 +363,46 @@ class TestLiveReader:
         reader.close()
 
     @patch(
+        "g3a_bench.scripts.live_bridge.reader.DK1LeaderConfig", return_value=MagicMock()
+    )
+    @patch("g3a_bench.scripts.live_bridge.reader.DK1Follower")
+    @patch("g3a_bench.scripts.live_bridge.reader.DK1Leader")
+    def test_use_follower_false_never_touches_follower(
+        self, mock_leader_cls, mock_follower_cls, mock_leader_cfg_cls
+    ):
+        """Leader-only mode: no follower connect, joint_pos mirrors leader_action."""
+        from g3a_bench.scripts.live_bridge.reader import LiveReader
+
+        mock_leader = MagicMock()
+        mock_leader.get_action.return_value = {
+            "joint_1.pos": 0.1,
+            "joint_2.pos": 0.2,
+            "joint_3.pos": 0.3,
+            "joint_4.pos": 0.4,
+            "joint_5.pos": 0.5,
+            "joint_6.pos": 0.6,
+            "gripper.pos": 0.7,
+        }
+        mock_leader_cls.return_value = mock_leader
+
+        reader = LiveReader(leader_port="/dev/ttyACM_test", use_follower=False)
+        mock_follower_cls.assert_not_called()
+
+        frame = reader.read()
+        np.testing.assert_allclose(
+            frame.joint_pos, [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7], rtol=1e-6
+        )
+        assert frame.leader_action is not None
+        np.testing.assert_allclose(frame.leader_action, frame.joint_pos, rtol=1e-6)
+        assert frame.cameras == {}
+
+        with pytest.raises(RuntimeError, match="not connected"):
+            reader.send_action(np.zeros(7))
+
+        reader.close()
+        mock_leader.disconnect.assert_called_once()
+
+    @patch(
         "g3a_bench.scripts.live_bridge.reader.DK1FollowerConfig",
         return_value=MagicMock(),
     )
@@ -377,63 +427,3 @@ class TestLiveReader:
         )
         with pytest.raises(RuntimeError, match="not connected"):
             reader.send_action(np.zeros(7))
-
-
-class _FakePort:
-    """Minimal stand-in for a pyserial ListPortInfo (device/description/vid)."""
-
-    def __init__(self, device, desc="", vid=None):
-        self.device = device
-        self.description = desc
-        self.vid = vid
-
-
-def test_find_ports_uses_pyserial(monkeypatch):
-    """_find_ports() classifies leader/follower from pyserial's enumeration
-    (cross-platform), not from Linux-only /dev globbing."""
-    import g3a_bench.scripts.live_bridge.reader as reader_mod
-
-    fake = [
-        _FakePort("COM3", "USB Serial (GELLO)"),
-        _FakePort("COM4", "DM CAN follower"),
-    ]
-    monkeypatch.setattr(reader_mod, "_list_comports", lambda: fake, raising=False)
-
-    leader, follower = reader_mod._find_ports()
-    assert leader == "COM3"
-    assert follower == "COM4"
-
-
-def test_find_ports_prefers_device_path(monkeypatch):
-    """Linux tty paths are unambiguous and must win over description text, so
-    role assignment never depends on enumeration order."""
-    import g3a_bench.scripts.live_bridge.reader as reader_mod
-
-    # Deliberately list the follower first to prove ordering doesn't matter.
-    fake = [
-        _FakePort("/dev/ttyACM0", "some adapter"),
-        _FakePort("/dev/ttyUSB0", "some adapter"),
-    ]
-    monkeypatch.setattr(reader_mod, "_list_comports", lambda: fake, raising=False)
-
-    leader, follower = reader_mod._find_ports()
-    assert leader == "/dev/ttyUSB0"
-    assert follower == "/dev/ttyACM0"
-
-
-def test_find_ports_ftdi_vid_identifies_leader(monkeypatch):
-    """The Windows-swap fix: when both ports report ambiguous "USB Serial
-    Device" text, the FTDI vendor id pins the leader and the other port
-    becomes the follower by elimination (instead of a silent swap)."""
-    import g3a_bench.scripts.live_bridge.reader as reader_mod
-
-    # Follower listed first, both with leader-colliding description text.
-    fake = [
-        _FakePort("COM7", "USB Serial Device", vid=0x0483),  # STM CDC follower
-        _FakePort("COM5", "USB Serial Device", vid=reader_mod._FTDI_VID),  # leader
-    ]
-    monkeypatch.setattr(reader_mod, "_list_comports", lambda: fake, raising=False)
-
-    leader, follower = reader_mod._find_ports()
-    assert leader == "COM5"
-    assert follower == "COM7"
