@@ -19,10 +19,10 @@ import torch
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.rl import RslRlVecEnvWrapper
 from mjlab.tasks.registry import load_env_cfg, load_rl_cfg
+from mjlab.viewer import NativeMujocoViewer
 
 import g3a_bench  # noqa: F401  (registers tasks)
-from g3a_bench.scripts.native_viewer_close import SafeCloseNativeViewer
-from g3a_bench.scripts.play import _ThrottledOverlayNativeViewer
+from g3a_bench.scripts.viewer_wrapper import NativeViewerWrapper
 
 DEFAULT_TASK = "G3a-Cube-Stack3-Dk1_uni"
 
@@ -72,13 +72,7 @@ def main() -> int:
         del obs
         return torch.zeros(action_shape, device=env.unwrapped.device)
 
-    # "stock" keeps mjlab's unthrottled overlay/rendering behavior but still
-    # gets the safe close — the shutdown fix is orthogonal to what's measured.
-    base_cls = (
-        _ThrottledOverlayNativeViewer
-        if args.viewer == "throttled"
-        else SafeCloseNativeViewer
-    )
+    base_cls = NativeViewerWrapper if args.viewer == "throttled" else NativeMujocoViewer
 
     samples: list[float] = []
 

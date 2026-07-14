@@ -69,7 +69,7 @@ import torch
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.rl import RslRlVecEnvWrapper
 from mjlab.tasks.registry import load_env_cfg
-from mjlab.viewer import ViewerConfig
+from mjlab.viewer import NativeMujocoViewer, ViewerConfig
 from mjlab.viewer.base import VerbosityLevel
 from mjlab.viewer.native.visualizer import MujocoNativeDebugVisualizer
 from mjlab.viewer.native.keys import KEY_D, KEY_E, KEY_Q, KEY_S, KEY_U, KEY_W
@@ -81,7 +81,7 @@ from g3a_bench.scripts.live_bridge.mapper import (
 )
 from g3a_bench.scripts.live_bridge.recorder import Recorder
 from g3a_bench.scripts.live_bridge.recording_mixin import RecordingViewerMixin
-from g3a_bench.scripts.native_viewer_close import SafeCloseNativeViewer
+from g3a_bench.scripts.viewer_wrapper import NativeViewerWrapper
 
 # Repo-root out/ directory (consistent with the out/<cat>_check render outputs).
 DEMOS_DIR = Path(__file__).resolve().parents[3] / "out" / "demos"
@@ -240,7 +240,7 @@ class _LivePolicy:
         return self._last_raw_action
 
 
-class _LiveRecordingViewer(RecordingViewerMixin, SafeCloseNativeViewer):
+class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
     """NativeMujocoViewer with multi-episode recording and ghost-arm reset phase.
 
     The per-episode recording state machine (record → decision prompt → reset
@@ -335,10 +335,20 @@ class _LiveRecordingViewer(RecordingViewerMixin, SafeCloseNativeViewer):
         The base overlay text is captured through a shim (the base method's
         only side effect is one ``set_texts(overlay)`` call) instead of being
         rebuilt here, so it can't drift from mjlab's own status text.
+
+        Overrides the inherited throttle (NativeViewerWrapper) with
+        our own check — we MUST skip set_texts entirely when throttled,
+        otherwise the spin-wait in set_texts keeps the frame loop capped at
+        the monitor refresh rate (~60 Hz) regardless of VIEWER_FPS.
         """
+        now = time.perf_counter()
+        if now - self._last_overlay_time < self.OVERLAY_INTERVAL:
+            return
+        self._last_overlay_time = now
+
         captured: list = []
         shim = SimpleNamespace(set_texts=captured.append)
-        super()._set_status_overlay(shim)  # type: ignore[arg-type]
+        NativeMujocoViewer._set_status_overlay(self, shim)  # type: ignore[arg-type]
         labels, values = self._hud_text()
         hud = (
             _mujoco.mjtFontScale.mjFONTSCALE_150.value,

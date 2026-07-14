@@ -19,7 +19,7 @@ from mjlab.tasks.registry import load_env_cfg
 import g3a_bench  # noqa: F401 — registers benchmark tasks in mjlab registry
 from g3a_bench.scripts.live_bridge.mapper import lerobot_to_mjlab_raw_action
 from g3a_bench.scripts.live_bridge.reader import DatasetReader
-from g3a_bench.scripts.native_viewer_close import SafeCloseNativeViewer
+from g3a_bench.scripts.viewer_wrapper import NativeViewerWrapper
 
 
 def main():
@@ -68,7 +68,7 @@ def main():
     # ------------------------------------------------------------------
     print("[INFO] Starting Native MuJoCo viewer")
     print("[INFO] Press Ctrl+C in terminal or close the window to stop")
-    SafeCloseNativeViewer(env=env, policy=ReplayPolicy()).run()
+    NativeViewerWrapper(env=env, policy=ReplayPolicy()).run()
 
     # ------------------------------------------------------------------
     # 6. Cleanup.

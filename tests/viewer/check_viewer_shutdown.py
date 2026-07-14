@@ -2,7 +2,7 @@
 (needs a display; not for CI).
 
 Regression check for the Ctrl+C shutdown crash — see the module docstring of
-``g3a_bench/scripts/native_viewer_close.py`` for the full diagnosis. The
+``g3a_bench/scripts/viewer_wrapper.py`` for the full diagnosis. The
 child process below opens a tiny passive viewer, closes it, and exits
 immediately — the exact race. The parent asserts a clean, prompt exit.
 
@@ -39,8 +39,8 @@ for _ in range(60):
     time.sleep(0.005)
 v.close()
 if "--safe" in sys.argv:
-    from g3a_bench.scripts.native_viewer_close import (
-        wait_for_passive_viewer_teardown,
+    from g3a_bench.scripts.viewer_wrapper import (
+        _wait_for_passive_viewer_teardown as wait_for_passive_viewer_teardown,
     )
     wait_for_passive_viewer_teardown(v)
 # interpreter exits here; without the wait the GLFW thread is still
