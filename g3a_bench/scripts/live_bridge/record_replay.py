@@ -262,7 +262,11 @@ class _ReplayAndRecord:
         return torch.from_numpy(raw_action).unsqueeze(0).to(self.device)
 
     def record_step_result(
-        self, rew: float, done: bool, qpos: np.ndarray | None = None
+        self,
+        rew: float,
+        done: bool,
+        qpos: np.ndarray | None = None,
+        qvel: np.ndarray | None = None,
     ):
         """Called by the custom viewer after env.step()."""
         if self.recording_finished:
@@ -286,6 +290,7 @@ class _ReplayAndRecord:
             task=self.task,
             robot_obs=self._last_robot_obs,
             qpos=qpos,
+            qvel=qvel,
         )
         self.frames_recorded += 1
         if self.frames_recorded % 100 == 0:
@@ -343,11 +348,12 @@ class _RecordingViewer(NativeMujocoViewer):
                 # Capture qpos AFTER step so it aligns with the recorded reward
                 # and done (same timing as live_record.py's _LiveRecordingViewer).
                 qpos_np = self.env.env.sim.data.qpos[0].cpu().numpy().copy()
+                qvel_np = self.env.env.sim.data.qvel[0].cpu().numpy().copy()
 
                 # Notify the recording policy with step results.
                 record_fn = getattr(self.policy, "record_step_result", None)
                 if record_fn is not None:
-                    record_fn(float(rew[0]), bool(dones[0]), qpos_np)
+                    record_fn(float(rew[0]), bool(dones[0]), qpos_np, qvel_np)
 
                 self._step_count += 1
                 self._stats_steps += 1

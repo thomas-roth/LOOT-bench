@@ -81,6 +81,7 @@ class Episode:
     actions: np.ndarray  # (N, 7) raw leader actions as recorded
     state: np.ndarray  # (N, obs_dim) pre-step actor obs
     qpos: np.ndarray | None  # (N, nq) post-step sim qpos (ground truth)
+    qvel: np.ndarray | None  # (N, nv) post-step sim qvel (ground truth)
     done: np.ndarray  # (N,) bool
     reward: np.ndarray  # (N,) float32
     seed: int | None
@@ -129,6 +130,7 @@ def load_episode(dataset_dir: str, episode_index: int) -> Episode:
     actions = col("action", np.float32)
     state = col("observation.state", np.float32)
     qpos = col("observation.qpos", np.float32)
+    qvel = col("observation.qvel", np.float32)
     done = col("next.done", bool)
     reward = col("next.reward", np.float32)
     assert actions is not None and state is not None
@@ -139,6 +141,7 @@ def load_episode(dataset_dir: str, episode_index: int) -> Episode:
         actions=actions,
         state=state,
         qpos=qpos,
+        qvel=qvel,
         done=done.reshape(len(actions)),
         reward=reward.reshape(len(actions)),
         seed=int(seed_val) if seed_val is not None else None,

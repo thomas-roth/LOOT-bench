@@ -267,6 +267,7 @@ class RecordingViewerMixin:
                     # copy is deferred to save time so this loop pays no extra
                     # CUDA sync (that stall dropped live fps from 60 to 45).
                     qpos_t = self.env.env.sim.data.qpos[0].clone()
+                    qvel_t = self.env.env.sim.data.qvel[0].clone()
                     # rew[0] and dones[0] are GPU tensors — defer .item() to
                     # save_episode() to avoid per-step CUDA syncs.
                     self._recorder.add_frame(
@@ -277,6 +278,7 @@ class RecordingViewerMixin:
                         task=self._task,
                         robot_obs=robot_obs,
                         qpos=qpos_t,
+                        qvel=qvel_t,
                     )
                 t4 = time.perf_counter()
 

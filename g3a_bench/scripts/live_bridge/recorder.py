@@ -42,6 +42,14 @@ class Recorder:
                 "shape": (qpos_dim,),
                 "names": None,
             }
+            # Full sim qvel per frame — needed for state-set replay (set qpos+
+            # qvel each frame, call mj_forward, render — no physics integration,
+            # no drift).
+            features["observation.qvel"] = {
+                "dtype": "float32",
+                "shape": (qpos_dim,),
+                "names": None,
+            }
         self._features = features
         self._success_root = success_root
         self._failure_root = failure_root
@@ -54,6 +62,7 @@ class Recorder:
 
         self._pending: list[dict] = []
         self._qpos_dim = qpos_dim
+        self._qvel_dim = qpos_dim  # same shape as qpos in MuJoCo
         self._device = device
         self._gravity_compensate = gravity_compensate
         # Seeds and save-counts are tracked per dataset (success vs failure).
@@ -91,6 +100,7 @@ class Recorder:
         task: str = "",
         robot_obs: np.ndarray | None = None,
         qpos: np.ndarray | torch.Tensor | None = None,
+        qvel: np.ndarray | torch.Tensor | None = None,
     ) -> None:
         # Buffer frames in memory until save_episode() is called with a label.
         # Nothing is written to the dataset until then, enabling discard/redo.
@@ -126,6 +136,11 @@ class Recorder:
             # (same class of bug that flattened next.reward to a constant).
             qpos = qpos.detach().clone() if hasattr(qpos, "detach") else qpos.copy()
             frame["observation.qpos"] = qpos
+        if self._qvel_dim is not None:
+            if qvel is None:
+                qvel = np.zeros(self._qvel_dim, dtype=np.float32)
+            qvel = qvel.detach().clone() if hasattr(qvel, "detach") else qvel.copy()
+            frame["observation.qvel"] = qvel
         self._pending.append(frame)
 
     @property
@@ -149,7 +164,12 @@ class Recorder:
             frame["success"] = label
             # Deferred host copy: convert GPU tensors to numpy here, off the hot
             # recording loop. This mirrors the pattern already used for qpos.
-            for key in ("next.reward", "next.done", "observation.qpos"):
+            for key in (
+                "next.reward",
+                "next.done",
+                "observation.qpos",
+                "observation.qvel",
+            ):
                 if key not in frame:
                     continue
                 val = frame[key]
