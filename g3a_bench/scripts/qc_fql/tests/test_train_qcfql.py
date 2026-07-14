@@ -102,34 +102,36 @@ def _build_agent(args):
     ex_obs = dataset.data["observations"][0]
     ex_act = dataset.data["actions"][0]
     agent = QCFQLAgent.create(config, ex_obs, ex_act)
-    return agent, dataset
+    return agent, dataset, config
 
 
 def test_train_offline_runs_and_produces_finite_losses():
     args = _make_args()
-    agent, dataset = _build_agent(args)
+    agent, dataset, config = _build_agent(args)
 
-    train_offline(agent, dataset, args)  # no eval_env -- must not require one
+    train_offline(agent, dataset, args, config)  # no eval_env -- must not require one
 
 
 def test_train_offline_with_eval_runs():
     args = _make_args(eval_interval=2, offline_steps=3)
-    agent, dataset = _build_agent(args)
+    agent, dataset, config = _build_agent(args)
     eval_env = _FakeEnv(OBS_DIM, episode_length=4)
 
-    train_offline(agent, dataset, args, eval_env=eval_env, action_dim=ACTION_DIM)
+    train_offline(
+        agent, dataset, args, config, eval_env=eval_env, action_dim=ACTION_DIM
+    )
 
 
 def test_train_online_fills_replay_buffer_and_updates():
     args = _make_args(online_steps=8, start_training=2, utd_ratio=1, batch_size=2)
-    agent, dataset = _build_agent(args)
+    agent, dataset, config = _build_agent(args)
     replay_buffer = ReplayBuffer.create_from_initial_dataset(
         dict(dataset.data), size=max(args.buffer_size, dataset.size + 1)
     )
     env = _FakeEnv(OBS_DIM, episode_length=4)
 
     critic_before = [p.clone() for p in agent.critic.parameters()]
-    train_online(agent, replay_buffer, env, args, action_dim=ACTION_DIM)
+    train_online(agent, replay_buffer, env, args, config, action_dim=ACTION_DIM)
 
     assert replay_buffer.size == dataset.size + args.online_steps
     assert any(
@@ -143,13 +145,13 @@ def test_train_online_masks_use_terminated_not_done():
     args = _make_args(
         online_steps=4, start_training=1000
     )  # start_training high: no updates, just fill buffer
-    agent, dataset = _build_agent(args)
+    agent, dataset, config = _build_agent(args)
     replay_buffer = ReplayBuffer.create_from_initial_dataset(
         dict(dataset.data), size=max(args.buffer_size, dataset.size + 1)
     )
     env = _FakeEnv(OBS_DIM, episode_length=2)  # terminates every 2 steps
 
-    train_online(agent, replay_buffer, env, args, action_dim=ACTION_DIM)
+    train_online(agent, replay_buffer, env, args, config, action_dim=ACTION_DIM)
 
     added_masks = replay_buffer["masks"][
         dataset.size : dataset.size + args.online_steps

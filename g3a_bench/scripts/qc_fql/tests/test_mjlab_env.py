@@ -23,20 +23,22 @@ def test_denormalize_action_maps_to_physical_limits():
     from g3a_bench.scripts.live_bridge.mapper import (
         PHYSICAL_RAW_ACTION_MAX,
         PHYSICAL_RAW_ACTION_MIN,
+        ActionNormalizer,
     )
 
+    normalizer = ActionNormalizer.physical()
     action_dim = PHYSICAL_RAW_ACTION_MIN.shape[0]
 
-    low = MjlabSingleEnv._denormalize_action(-np.ones(action_dim))
-    high = MjlabSingleEnv._denormalize_action(np.ones(action_dim))
-    mid = MjlabSingleEnv._denormalize_action(np.zeros(action_dim))
+    low = normalizer.denormalize(-np.ones(action_dim))
+    high = normalizer.denormalize(np.ones(action_dim))
+    mid = normalizer.denormalize(np.zeros(action_dim))
 
     assert np.allclose(low, PHYSICAL_RAW_ACTION_MIN)
     assert np.allclose(high, PHYSICAL_RAW_ACTION_MAX)
     assert np.allclose(mid, (PHYSICAL_RAW_ACTION_MIN + PHYSICAL_RAW_ACTION_MAX) / 2.0)
 
     # Out-of-range policy output must still clip to the physical bounds, not extrapolate.
-    beyond = MjlabSingleEnv._denormalize_action(np.full(action_dim, 2.0))
+    beyond = normalizer.denormalize(np.full(action_dim, 2.0))
     assert np.allclose(beyond, PHYSICAL_RAW_ACTION_MAX)
 
 

@@ -26,6 +26,7 @@ registry (this script trains exactly one agent).
 import argparse
 import json
 import os
+import time
 from dataclasses import fields
 
 import numpy as np
@@ -128,6 +129,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="where to torch.save the trained agent's state_dict",
     )
     parser.add_argument(
+        "--save-interval",
+        type=int,
+        default=1,
+        help="number of evenly-spaced checkpoints to save during each phase (0 disables)",
+    )
+    parser.add_argument(
         "--resume",
         type=str,
         default=None,
@@ -135,6 +142,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
             "path to agent.pt checkpoint — skip offline training and resume"
             " from this policy (requires --online-steps and --task)"
         ),
+    )
+    parser.add_argument(
+        "--wandb",
+        action="store_true",
+        help="enable wandb logging (entity: uesma-karlsruhe-institute-of-technology, project: G3a)",
     )
     return parser
 
@@ -180,10 +192,20 @@ def train_offline(
     agent: QCFQLAgent,
     dataset: Dataset,
     args: argparse.Namespace,
+    config: QCFQLConfig,
     eval_env=None,
     action_dim: int | None = None,
-) -> None:
-    """Phase 1: gradient steps on demo chunk windows; optional periodic eval."""
+    save_dir: str = "",
+) -> str | None:
+    """Phase 1: gradient steps on demo chunk windows; optional periodic eval.
+
+    Returns the path to the best checkpoint (highest eval return), or the
+    last checkpoint if no eval was performed.
+    """
+    save_interval = getattr(args, "save_interval", 3)
+    best_return = -float("inf")
+    best_ckpt: str | None = None
+
     for step in range(1, args.offline_steps + 1):
         batch = dataset.sample_sequence(
             args.batch_size, args.horizon_length, args.discount
@@ -194,7 +216,23 @@ def train_offline(
             print(
                 f"[offline {step}] " + " ".join(f"{k}={v:.4f}" for k, v in info.items())
             )
+            if getattr(args, "wandb", False):
+                import wandb
 
+                wandb.log({"offline/" + k: v for k, v in info.items()}, step=step)
+
+        # --- periodic checkpoint saving ---
+        if save_dir and save_interval > 0:
+            save_every = max(args.offline_steps // save_interval, 1)
+            if step % save_every == 0 or step == args.offline_steps:
+                ckpt_idx = min(step // save_every, save_interval) - 1
+                if step == args.offline_steps:
+                    ckpt_idx = save_interval - 1
+                ckpt_path = os.path.join(save_dir, f"offline_{ckpt_idx}.pt")
+                save_checkpoint(agent, config, ckpt_path)
+                print(f"[checkpoint] Saved offline_{ckpt_idx}.pt at step {step}")
+
+        # --- eval ---
         if (
             eval_env is not None
             and args.eval_interval
@@ -211,6 +249,23 @@ def train_offline(
                 f"[eval (offline) {step}] "
                 + " ".join(f"{k}={v:.4f}" for k, v in eval_info.items())
             )
+            if getattr(args, "wandb", False):
+                import wandb
+
+                wandb.log(
+                    {"offline_eval/" + k: v for k, v in eval_info.items()}, step=step
+                )
+            if eval_info["return"] > best_return:
+                best_return = eval_info["return"]
+                best_ckpt = os.path.join(save_dir, "offline_best.pt")
+                save_checkpoint(agent, config, best_ckpt)
+                print(f"[checkpoint] New best offline (return={best_return:.2f})")
+
+    # If no eval happened, best is the last regular checkpoint
+    if best_ckpt is None and save_dir and save_interval > 0:
+        best_ckpt = os.path.join(save_dir, f"offline_{save_interval - 1}.pt")
+
+    return best_ckpt
 
 
 def train_online(
@@ -218,18 +273,27 @@ def train_online(
     replay_buffer: ReplayBuffer,
     env,
     args: argparse.Namespace,
+    config: QCFQLConfig,
     action_dim: int,
     eval_env=None,
-) -> None:
+    save_dir: str = "",
+) -> str | None:
     """Phase 2: interleave env stepping and replay-buffer updates.
 
     Env contract is the same gym-style one as `evaluate` (see
     `scripts/mjlab_env.py` for the real adapter). Chunks are executed to
     completion, and the queue is dropped on episode end -- a fresh episode
     must not start mid-chunk.
+
+    Returns the path to the best checkpoint (highest eval return), or the
+    last checkpoint if no eval was performed.
     """
     observation, _info = env.reset()
     policy = ChunkedPolicy(agent, action_dim, args.device)
+
+    save_interval = getattr(args, "save_interval", 3)
+    best_return = -float("inf")
+    best_ckpt: str | None = None
 
     for step in range(1, args.online_steps + 1):
         action = policy.next_action(observation)
@@ -279,7 +343,23 @@ def train_online(
                     f"[online {step}] "
                     + " ".join(f"{k}={v:.4f}" for k, v in info.items())
                 )
+                if getattr(args, "wandb", False):
+                    import wandb
 
+                    wandb.log({"online/" + k: v for k, v in info.items()}, step=step)
+
+        # --- periodic checkpoint saving ---
+        if save_dir and save_interval > 0:
+            save_every = max(args.online_steps // save_interval, 1)
+            if step % save_every == 0 or step == args.online_steps:
+                ckpt_idx = min(step // save_every, save_interval) - 1
+                if step == args.online_steps:
+                    ckpt_idx = save_interval - 1
+                ckpt_path = os.path.join(save_dir, f"online_{ckpt_idx}.pt")
+                save_checkpoint(agent, config, ckpt_path)
+                print(f"[checkpoint] Saved online_{ckpt_idx}.pt at step {step}")
+
+        # --- eval ---
         if (
             eval_env is not None
             and args.eval_interval
@@ -295,12 +375,50 @@ def train_online(
                 f"[eval (online) {step}] "
                 + " ".join(f"{k}={v:.4f}" for k, v in eval_info.items())
             )
+            if getattr(args, "wandb", False):
+                import wandb
+
+                wandb.log(
+                    {"online_eval/" + k: v for k, v in eval_info.items()}, step=step
+                )
+            if eval_info["return"] > best_return:
+                best_return = eval_info["return"]
+                best_ckpt = os.path.join(save_dir, "online_best.pt")
+                save_checkpoint(agent, config, best_ckpt)
+                print(f"[checkpoint] New best online (return={best_return:.2f})")
+
+    # If no eval happened, best is the last regular checkpoint
+    if best_ckpt is None and save_dir and save_interval > 0:
+        best_ckpt = os.path.join(save_dir, f"online_{save_interval - 1}.pt")
+
+    return best_ckpt
 
 
 def main() -> None:
     args = build_arg_parser().parse_args()
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
+
+    timestamp = time.strftime("%Y-%m-%d_%H-%M-%S")
+
+    # Create checkpoint directory
+    save_dir = os.path.join("out", "agents", timestamp)
+    if args.save_interval > 0:
+        os.makedirs(save_dir, exist_ok=True)
+        print(f"Checkpoints will be saved to {save_dir}/")
+    else:
+        save_dir = ""
+
+    # wandb
+    if args.wandb:
+        import wandb
+
+        wandb.init(
+            entity="uesma-karlsruhe-institute-of-technology",
+            project="G3a",
+            name=timestamp,
+            config=vars(args),
+        )
 
     dataset = load_dataset(args.dataset_path)
     # Unbatched examples on purpose -- see QCFQLAgent.create.
@@ -343,7 +461,18 @@ def main() -> None:
         eval_env = None
 
     if not args.resume:
-        train_offline(agent, dataset, args, eval_env=eval_env, action_dim=action_dim)
+        best_ckpt = train_offline(
+            agent,
+            dataset,
+            args,
+            config,
+            eval_env=eval_env,
+            action_dim=action_dim,
+            save_dir=save_dir,
+        )
+        if best_ckpt:
+            print(f"Loading best offline checkpoint: {best_ckpt}")
+            agent.load_state_dict(torch.load(best_ckpt, map_location=args.device))
 
     if args.checkpoint_path and not args.resume:
         save_checkpoint(agent, config, args.checkpoint_path)
@@ -360,10 +489,21 @@ def main() -> None:
         )
 
         env = MjlabSingleEnv(args.task, device=args.device, play=False)
-        train_online(
-            agent, replay_buffer, env, args, action_dim=action_dim, eval_env=eval_env
+        best_ckpt = train_online(
+            agent,
+            replay_buffer,
+            env,
+            args,
+            config,
+            action_dim=action_dim,
+            eval_env=eval_env,
+            save_dir=save_dir,
         )
         env.close()
+
+        if best_ckpt:
+            print(f"Loading best online checkpoint: {best_ckpt}")
+            agent.load_state_dict(torch.load(best_ckpt, map_location=args.device))
 
         if args.checkpoint_path:
             save_checkpoint(agent, config, args.checkpoint_path)
@@ -371,6 +511,11 @@ def main() -> None:
 
     if eval_env is not None:
         eval_env.close()
+
+    if args.wandb:
+        import wandb
+
+        wandb.finish()
 
 
 if __name__ == "__main__":
