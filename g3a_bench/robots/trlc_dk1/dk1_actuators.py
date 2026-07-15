@@ -1,8 +1,10 @@
 """TRLC-DK1 actuator configuration.
 
 Motor specs (DAMIAO DM4340 / DM4310), effective inertias, arm/gripper
-actuator builders, and action-scale computation. All taken from official
-trlc_dk1_control config.py in order to match the real-world controller.
+actuator builders, and action-scale computation. Motor specs and arm gains
+are taken from the official trlc_dk1_control config.py to match the
+real-world controller. The gripper uses a sim-specific soft tuning (see the
+gripper section below).
 """
 
 import math
@@ -73,11 +75,14 @@ def get_arm_actuators(prefix: str = "") -> tuple[BuiltinPositionActuatorCfg, ...
 ##
 # Gripper transmission and control parameters.
 #
-# Unlike the arm's MIT PD, the real-life gripper runs the DM4310's internal
-# (unpublished) position loop, meaning grip forces come from the torque cap
-# instead of the gains. To mimic this behavior, a PD controller is used which
-# is stiff enough to saturate after a small position error, and critically
-# damped so contact settles without bounce.
+# The real-life gripper runs the DM4310's internal (unpublished) position loop
+# with grip forces coming from the torque cap: a servo that saturates its
+# force cap after a small position error. The sim gripper keeps that shape
+# (stiffness = cap / saturation error) but lowers the cap from the rated
+# 114 N to 20 N: at the rated force, sim-stiffness contacts let the pads sink
+# ~4.5 mm into task pieces and eject them from the grip, while 20 N holds
+# them with sub-millimeter penetration (tests/trlc_dk1/test_dk1_grasp.py).
+# Overdamped so the impact transient settles without bounce.
 ##
 
 GRIPPER_MECHANICAL_RANGE = {"open": 0.001, "closed": -0.045}
@@ -102,14 +107,22 @@ GRIPPER_COMMAND_RANGE = {
 """[m], real-robot controller's calibrated command range of gripper."""
 _GRIPPER_MAX_TORQUE = 1.0
 "[Nm], max_gripper_torque_n in official config.py."
-_GRIPPER_EFFORT_LIMIT = _GRIPPER_MAX_TORQUE / _GRIPPER_PINION_RADIUS
-"[N], derived from max torque and pinion radius."
-_GRIPPER_SATURATION_ERROR = 0.005
+_GRIPPER_RATED_FORCE = _GRIPPER_MAX_TORQUE / _GRIPPER_PINION_RADIUS
+"[N], real gripper force. Derived from max torque and pinion radius."
+_GRIPPER_EFFORT_LIMIT = 20.0
+"[N], sim grip-force cap, lowered from the rated ~114 N (see section comment)."
+_GRIPPER_SATURATION_ERROR = 0.0035
 "[m], position error that yields full force."
 _GRIPPER_STIFFNESS = _GRIPPER_EFFORT_LIMIT / _GRIPPER_SATURATION_ERROR
-"[N/m], stiffness that yields full grip force at saturation error."
-_GRIPPER_DAMPING = 2.0 * math.sqrt(_GRIPPER_STIFFNESS * _ARMATURE_DM_4310_LINEAR)
-"[kg/s], critical damping of stiffness-spring-mass system."
+"[N/m], stiffness that yields the capped grip force at saturation error."
+_GRIPPER_DAMPING_RATIO = 2.0
+"Overdamped so the contact impact settles without bounce."
+_GRIPPER_DAMPING = (
+    _GRIPPER_DAMPING_RATIO
+    * 2.0
+    * math.sqrt(_GRIPPER_STIFFNESS * _ARMATURE_DM_4310_LINEAR)
+)
+"[kg/s], damping of the stiffness-spring-mass system."
 
 
 ##
