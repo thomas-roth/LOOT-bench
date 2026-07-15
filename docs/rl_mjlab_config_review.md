@@ -160,7 +160,7 @@ values identical to the YAM asset. `soft_joint_pos_limit_factor=0.9` matches
 YAM.
 
 The gripper-open success gate is a benchmark-wide convention
-(`GRIPPER_OPEN_FRACTION = 2/3` of joint stroke) that each robot converts to a
+(`_GRIPPER_OPEN_FRACTION = 2/3` of joint stroke in `robots/interface.py`) that each robot converts to a
 threshold from its own joint range.
 
 ---

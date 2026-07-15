@@ -40,10 +40,10 @@
     <geom name="floor" type="plane" size="2 2 0.1" material="grid" />
   </worldbody>
 
-  <include file="../../g3a_bench/robots/trlc_dk1/xmls/dk1.xml" />
+  <include file="../../g3a_bench/robots/trlc_dk1/xml/dk1.xml" />
 
   <!-- meshdir must come after the include and point at the robot's assets
        relative to this file: it overrides dk1.xml's own `meshdir="assets"`,
        which would otherwise resolve against this scene's directory and fail. -->
-  <compiler meshdir="../../g3a_bench/robots/trlc_dk1/xmls/assets" />
+  <compiler meshdir="../../g3a_bench/robots/trlc_dk1/xml/assets" />
 </mujoco>

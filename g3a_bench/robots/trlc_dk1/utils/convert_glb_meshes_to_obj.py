@@ -30,7 +30,7 @@ LINKS = [
     "finger_right",
 ]
 
-ASSETS_DIR = Path(__file__).resolve().parent.parent / "xmls" / "assets"
+ASSETS_DIR = Path(__file__).resolve().parent.parent / "xml" / "assets"
 
 
 def linear_to_srgb(c: float) -> float:

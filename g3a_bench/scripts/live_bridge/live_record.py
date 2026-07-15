@@ -75,7 +75,7 @@ from mjlab.viewer.native.visualizer import MujocoNativeDebugVisualizer
 from mjlab.viewer.native.keys import KEY_D, KEY_E, KEY_Q, KEY_S, KEY_U, KEY_W
 
 import g3a_bench  # noqa: F401
-from g3a_bench.robots.trlc_dk1.dk1_constants import _HOME_JOINT_POS
+from g3a_bench.robots.trlc_dk1.dk1_constants import HOME_JOINT_POS
 from g3a_bench.scripts.live_bridge.mapper import (
     lerobot_to_mjlab_raw_action,
 )
@@ -111,7 +111,7 @@ _SIM_REST_POSE: dict[str, float] = {
     "joint1": LIVE_REST_POSE["joint1"] + LIVE_JOINT1_OFFSET,
 }
 _LIVE_REST_POSE_REL = np.array(
-    [_SIM_REST_POSE[f"joint{i}"] - _HOME_JOINT_POS[f"joint{i}"] for i in range(1, 7)],
+    [_SIM_REST_POSE[f"joint{i}"] - HOME_JOINT_POS[f"joint{i}"] for i in range(1, 7)],
     dtype=np.float32,
 )
 
@@ -277,7 +277,7 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
             num_episodes=num_episodes,
             debug_timing=debug_timing,
             sim_rest_pose=_SIM_REST_POSE,
-            home_joint_pos=_HOME_JOINT_POS,
+            home_joint_pos=HOME_JOINT_POS,
         )
         # Wrist-cam toggle (W): resolved lazily once the viewer/model exist.
         self._wrist_cam_on = False

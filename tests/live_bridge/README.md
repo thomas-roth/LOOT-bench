@@ -129,19 +129,8 @@ uv run pytest tests/live_bridge/test_recorder.py -v
 
 ### `test_live_record_helpers.py`
 
-Unit tests for the ghost arm spec and `live_record.py` helper functions.
+Unit tests for `live_record.py` helper functions (`ask_operator`).
 No sim, no hardware, no I/O.
-
-**Ghost arm spec** (`test_ghost_spec_*`):
-
-| Test | What it checks |
-|------|----------------|
-| `test_ghost_spec_joint_names_prefixed` | Every joint in the compiled ghost spec starts with `ghost_` |
-| `test_ghost_spec_geoms_non_colliding` | All ghost geoms have `contype=0` and `conaffinity=0` |
-| `test_ghost_spec_geoms_start_invisible` | All ghost geoms start with `alpha=0` |
-| `test_ghost_spec_arm_joints_spring_at_home` | Arm joints have `stiffness>0` and `springref` matching home pose |
-
-**`live_record.py` helpers** (`ask_operator`):
 
 | Test | What it checks |
 |------|----------------|

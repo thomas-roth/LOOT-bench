@@ -119,14 +119,14 @@ instance — the env cfgs read everything they need from it.
 
 ### DK1 robot asset
 The TRLC-DK1 has no public MJCF; it was converted from the official URDF
-(github.com/robot-learning-co/trlc-dk1) into `robots/trlc_dk1/xmls/dk1.xml`
+(github.com/robot-learning-co/trlc-dk1) into `robots/trlc_dk1/xml/dk1.xml`
 (hand-written) plus per-color OBJ visual meshes split out of the source GLBs by
 `robots/trlc_dk1/utils/convert_glb_meshes_to_obj.py` (a one-time tool, not part
 of the runtime). `dk1_constants.py` exposes `get_unimanual_dk1_robot_cfg()` /
 `get_bimanual_dk1_robot_cfg()` and the action scales. Home pose q2=1.7, q3=1.7,
 q4=-1.5708 puts the downward gripper at ≈(0.30, 0, 0.20); the gripper is a
 rack-and-pinion pair coupled by an equality constraint (only `gripper_left`
-actuated). `dk1_constants.py` carries `# pyright: reportAttributeAccessIssue=false`.
+actuated).
 
 ## Conventions and gotchas
 

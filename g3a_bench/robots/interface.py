@@ -13,19 +13,16 @@ from dataclasses import dataclass
 
 from mjlab.entity import EntityCfg
 
-GRIPPER_OPEN_FRACTION = 2 / 3
-"""Fraction of a gripper joint's stroke above which it counts as open.
-
-One benchmark-wide convention so "released" means the same thing on every
-robot; robots derive their ``gripper_open_threshold`` from their joint range
-via :func:`gripper_open_threshold`.
-"""
+_GRIPPER_OPEN_FRACTION = 2 / 3
+"Fraction of the gripper joint stroke beyond which the gripper counts as open."
 
 
-def gripper_open_threshold(joint_range: tuple[float, float]) -> float:
-    """Threshold for a gripper joint that is open at its *upper* limit."""
-    lo, hi = joint_range
-    return lo + GRIPPER_OPEN_FRACTION * (hi - lo)
+def gripper_open_threshold(joint_range: dict[str, float]) -> float:
+    """Joint position ``_GRIPPER_OPEN_FRACTION`` of the way from ``closed``
+    to ``open`` in ``joint_range``."""
+    return joint_range["closed"] + _GRIPPER_OPEN_FRACTION * (
+        joint_range["open"] - joint_range["closed"]
+    )
 
 
 @dataclass(frozen=True)
