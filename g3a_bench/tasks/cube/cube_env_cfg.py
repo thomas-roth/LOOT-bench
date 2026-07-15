@@ -110,8 +110,6 @@ def make_cube_env_cfg(
         njmax=600 + 100 * num_pieces + 2 * maze_ncon,
         play=play,
     )
-    # Better box-to-box collisions between pieces.
-    cfg.sim.mujoco.disableflags = ("nativeccd",)
 
     if play:
         # live_bridge demo playback needs episodes to actually terminate on

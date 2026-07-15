@@ -248,6 +248,9 @@ def make_manipulation_env_cfg(
                 ls_iterations=solver_ls_iterations,
                 impratio=10,
                 cone="elliptic",
+                disableflags=(
+                    "nativeccd",
+                ),  # Better box-to-box collisions between pieces.
             ),
         ),
         decimation=4,
