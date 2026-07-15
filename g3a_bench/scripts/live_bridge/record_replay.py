@@ -154,6 +154,7 @@ def main():
     # correctly-shaped dataset.
     obs_dim = int(env.get_observations()["actor"].shape[-1])
     qpos_dim = int(env.env.sim.data.qpos.shape[-1])
+    qvel_dim = int(env.env.sim.data.qvel.shape[-1])
     recorder = Recorder(
         repo_id=repo_id_out,
         fps=50,
@@ -161,6 +162,7 @@ def main():
         success_root=str(Path(out_root) / "success"),
         failure_root=str(Path(out_root) / "failure"),
         qpos_dim=qpos_dim,
+        qvel_dim=qvel_dim,
         device=device,
     )
     print(f"[INFO] Recording to {out_root}")

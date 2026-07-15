@@ -13,6 +13,7 @@ class Recorder:
         success_root: str | None = None,
         failure_root: str | None = None,
         qpos_dim: int | None = None,
+        qvel_dim: int | None = None,
         device: str | None = None,
         gravity_compensate: bool = True,
     ):
@@ -42,12 +43,16 @@ class Recorder:
                 "shape": (qpos_dim,),
                 "names": None,
             }
+            if qvel_dim is None:
+                qvel_dim = qpos_dim
             # Full sim qvel per frame — needed for state-set replay (set qpos+
             # qvel each frame, call mj_forward, render — no physics integration,
-            # no drift).
+            # no drift). Note: qvel may differ from qpos when the model has
+            # free/ball joints (quaternions in qpos vs angular velocities in
+            # qvel), so caller must provide the actual dim.
             features["observation.qvel"] = {
                 "dtype": "float32",
-                "shape": (qpos_dim,),
+                "shape": (qvel_dim,),
                 "names": None,
             }
         self._features = features
@@ -62,7 +67,7 @@ class Recorder:
 
         self._pending: list[dict] = []
         self._qpos_dim = qpos_dim
-        self._qvel_dim = qpos_dim  # same shape as qpos in MuJoCo
+        self._qvel_dim = qvel_dim
         self._device = device
         self._gravity_compensate = gravity_compensate
         # Seeds and save-counts are tracked per dataset (success vs failure).

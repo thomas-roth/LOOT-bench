@@ -696,6 +696,7 @@ def main():
     # 5. Set up recorder.
     obs_dim = int(env.get_observations()["actor"].shape[-1])
     qpos_dim = int(env.env.sim.data.qpos.shape[-1])
+    qvel_dim = int(env.env.sim.data.qvel.shape[-1])
     recorder = Recorder(
         repo_id="live_record",
         fps=50,
@@ -703,11 +704,12 @@ def main():
         success_root=str(success_root),
         failure_root=str(failure_root),
         qpos_dim=qpos_dim,
+        qvel_dim=qvel_dim,
         device=device,
     )
     print(
         f"[INFO] Recording to {base_dir}/{{success,failure}}/{stamp} "
-        f"(obs_dim={obs_dim}, qpos_dim={qpos_dim})"
+        f"(obs_dim={obs_dim}, qpos_dim={qpos_dim}, qvel_dim={qvel_dim})"
     )
 
     # 6. Shared single-element lists (GIL-safe last-writer-wins).
