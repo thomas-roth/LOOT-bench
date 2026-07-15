@@ -173,6 +173,11 @@ class _StateReplayViewer(NativeMujocoViewer):
             self.env.env.sim.data.qvel[0] = torch.from_numpy(qvel_np).to(self._device)
             self.env.env.sim.forward()
 
+            # Refresh scene entities and command metrics so the debug
+            # visualizer reflects success status (green target spheres).
+            self.env.env.scene.update(dt=0.0)
+            self.env.env.command_manager.compute(dt=0.0)
+
             self._frame += 1
             if self._frame % 100 == 0:
                 print(f"[INFO] Frame {self._frame}/{self._n}")
