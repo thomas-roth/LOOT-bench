@@ -19,7 +19,7 @@ def ball_rel_grasp(
     command_name: str,
     asset_cfg: SceneEntityCfg,
 ) -> torch.Tensor:
-    """Ball position relative to the grasp site (E, 3)."""
+    """Ball position relative to the EEF position (E, 3)."""
     command = _command(env, command_name)
     robot: Entity = env.scene[asset_cfg.name]
     ee_pos = robot.data.site_pos_w[:, asset_cfg.site_ids].squeeze(1)

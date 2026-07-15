@@ -66,9 +66,7 @@ def make_cube_env_cfg(
         ),
         "success": RewardTermCfg(
             func=cube_mdp.success_reward,
-            # TODO: insertion/ball weight success at 5.0; untested whether
-            # 2.0 here (plus placed_slots=2.0 shaping) is equivalent.
-            weight=2.0,
+            weight=5.0,
             params={"command_name": COMMAND_NAME},
         ),
     }
@@ -78,9 +76,6 @@ def make_cube_env_cfg(
             func=cube_mdp.arrangement_complete,
             params={"command_name": COMMAND_NAME},
         ),
-        # No EE-ground termination: pieces rest on the terrain plane (table
-        # is visual-only, see tasks/common/table.py), so near-terrain EE
-        # height is routine here, not a collision to guard against.
     }
 
     num_pieces = len(variant.pieces)

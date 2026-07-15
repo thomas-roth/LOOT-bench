@@ -54,13 +54,7 @@ def make_ball_env_cfg(
         ),
     }
 
-    # Sparse reward design: the task signal is only the (near-)binary outcome of
-    # the ball reaching the target -- no dense distance/strike/reach/push shaping.
-    # This is meant to be paired with a demonstration pipeline (GELLO teleop ->
-    # offline-to-online RL), which supplies the exploration that dense shaping
-    # previously provided.
     task_rewards = {
-        # Sparse task signal: only fires while the ball is at the target.
         "success": RewardTermCfg(
             func=ball_mdp.success_reward,
             weight=5.0,
@@ -88,9 +82,6 @@ def make_ball_env_cfg(
             func=ball_mdp.ball_hits_wall,
             params={"command_name": COMMAND_NAME},
         )
-    # No EE-ground termination: the ball rests on the terrain plane (table
-    # is visual-only, see tasks/common/table.py), so near-terrain EE height
-    # is routine here, not a collision to guard against.
 
     # push must guide the ball the full distance (target_x up to 0.68m, near
     # the ~0.74m reach) and retreat -- longer than golf/throw's one strike.

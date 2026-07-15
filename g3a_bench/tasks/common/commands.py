@@ -1,13 +1,10 @@
 """Command-term helpers shared by the task categories.
 
 The success metrics of the object-arrangement categories (cube, insertion)
-share a "gripper released the object" gate on the robot's gripper joints. It
-lives here so the categories cannot drift apart; the robot-specific values
-come from the :class:`~g3a_bench.robots.interface.ManipulatorInterface` via
-``manipulator_wiring.wire_manipulator_into_env``. (The jittered-grid reset
-scatter they also share is :class:`~g3a_bench.tasks.common.scatter.
-ScatterGrid`; the shared success gating is in ``success.py``, the
-category-specific success criteria in each category's ``mdp/success.py``.)
+share a "gripper released the object" gate on the robot's gripper joints.
+
+The robot-specific values come from the :class:`~g3a_bench.robots.interface.ManipulatorInterface` via
+``manipulator_wiring.wire_manipulator_into_env``.
 """
 
 from __future__ import annotations
