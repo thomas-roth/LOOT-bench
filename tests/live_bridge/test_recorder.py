@@ -6,20 +6,24 @@ import torch
 from g3a_bench.scripts.live_bridge.recorder import Recorder
 
 
+def _add_dummy_frame(rec: Recorder, reward: float = 0.0, done: bool = False) -> None:
+    rec.add_frame({"actor": torch.zeros(1, 10)}, np.zeros(7, np.float32), reward, done)
+
+
 class TestRecorder:
     @patch("g3a_bench.scripts.live_bridge.recorder.write_info")
     @patch("g3a_bench.scripts.live_bridge.recorder.LeRobotDataset")
     def test_create_dataset_lazily(self, mock_dataset_cls, _mock_write_info):
-        """No dataset is created on init — only on the first save_episode(),
-        so a session never leaves empty success/failure datasets on disk."""
+        """No dataset is created on init or on staging — only when a staged
+        episode is committed, so an all-undone session leaves nothing on disk."""
         mock_ds = MagicMock()
         mock_dataset_cls.create.return_value = mock_ds
         rec = Recorder(repo_id="test/ds", fps=30, obs_dim=10)
         mock_dataset_cls.create.assert_not_called()
-        rec.add_frame(
-            {"actor": torch.zeros(1, 10)}, np.zeros(7, np.float32), 0.0, False
-        )
+        _add_dummy_frame(rec)
         rec.save_episode(success=True)
+        mock_dataset_cls.create.assert_not_called()
+        rec.close()
         mock_dataset_cls.create.assert_called_once()
         assert rec.dataset_success is mock_ds
         assert rec.dataset_failure is None
@@ -48,18 +52,33 @@ class TestRecorder:
 
     @patch("g3a_bench.scripts.live_bridge.recorder.write_info")
     @patch("g3a_bench.scripts.live_bridge.recorder.LeRobotDataset")
-    def test_save_episode_labels_frames_success(
+    def test_save_episode_stages_without_writing(
         self, mock_dataset_cls, _mock_write_info
     ):
-        """save_episode(True) flushes every buffered frame stamped success=True,
-        then saves -- that label is what training filters on."""
+        """save_episode() only stages the episode — nothing hits the dataset
+        until the next episode ends or the session finalizes, enabling undo."""
         mock_ds = MagicMock()
         mock_dataset_cls.create.return_value = mock_ds
         rec = Recorder(repo_id="test/ds", fps=30, obs_dim=10)
-        rec.add_frame(
-            {"actor": torch.zeros(1, 10)}, np.zeros(7, np.float32), 0.0, False
-        )
+        _add_dummy_frame(rec)
         rec.save_episode(success=True)
+        mock_ds.add_frame.assert_not_called()
+        mock_ds.save_episode.assert_not_called()
+        assert rec.has_staged
+        assert rec.num_frames_in_episode == 0
+
+    @patch("g3a_bench.scripts.live_bridge.recorder.write_info")
+    @patch("g3a_bench.scripts.live_bridge.recorder.LeRobotDataset")
+    def test_next_save_commits_staged(self, mock_dataset_cls, _mock_write_info):
+        """Staging episode 2 commits episode 1 with its original label."""
+        mock_ds = MagicMock()
+        mock_dataset_cls.create.return_value = mock_ds
+        rec = Recorder(repo_id="test/ds", fps=30, obs_dim=10)
+        _add_dummy_frame(rec)
+        rec.save_episode(success=True)
+        _add_dummy_frame(rec)
+        rec.save_episode(success=False)
+        # Episode 1 (success) committed; episode 2 (failure) still staged.
         assert mock_ds.add_frame.call_count == 1
         flushed = mock_ds.add_frame.call_args[0][0]
         assert flushed["success"].dtype == bool
@@ -69,20 +88,21 @@ class TestRecorder:
 
     @patch("g3a_bench.scripts.live_bridge.recorder.write_info")
     @patch("g3a_bench.scripts.live_bridge.recorder.LeRobotDataset")
-    def test_save_episode_labels_frames_failure(
-        self, mock_dataset_cls, _mock_write_info
-    ):
-        """save_episode(False) stamps success=False so failures are kept separate."""
+    def test_close_commits_staged(self, mock_dataset_cls, _mock_write_info):
+        """close() commits the still-staged last episode before finalizing."""
         mock_ds = MagicMock()
         mock_dataset_cls.create.return_value = mock_ds
         rec = Recorder(repo_id="test/ds", fps=30, obs_dim=10)
-        rec.add_frame(
-            {"actor": torch.zeros(1, 10)}, np.zeros(7, np.float32), 0.0, False
-        )
+        _add_dummy_frame(rec)
         rec.save_episode(success=False)
+        rec.close()
+        assert mock_ds.add_frame.call_count == 1
         flushed = mock_ds.add_frame.call_args[0][0]
         assert bool(flushed["success"][0]) is False
+        mock_ds.save_episode.assert_called_once()
+        mock_ds.finalize.assert_called_once()
 
+    @patch("g3a_bench.scripts.live_bridge.recorder.write_info")
     @patch("g3a_bench.scripts.live_bridge.recorder.LeRobotDataset")
     def test_undo_drops_staged_episode(self, mock_dataset_cls, _mock_write_info):
         """undo_last_save() drops the staged episode and reports its label —
@@ -90,12 +110,11 @@ class TestRecorder:
         mock_ds = MagicMock()
         mock_dataset_cls.create.return_value = mock_ds
         rec = Recorder(repo_id="test/ds", fps=30, obs_dim=10)
-        rec.add_frame(
-            {"actor": torch.zeros(1, 10)}, np.zeros(7, np.float32), 0.0, False
-        )
+        _add_dummy_frame(rec)
         rec.save_episode(success=True)
         assert rec.undo_last_save() is True
         assert not rec.has_staged
+        rec.close()
         mock_dataset_cls.create.assert_not_called()
         mock_ds.add_frame.assert_not_called()
         mock_ds.save_episode.assert_not_called()
@@ -105,92 +124,74 @@ class TestRecorder:
         """Single-level undo: a second undo has nothing to drop."""
         rec = Recorder(repo_id="test/ds", fps=30, obs_dim=10)
         assert rec.undo_last_save() is None
-        rec.add_frame(
-            {"actor": torch.zeros(1, 10)}, np.zeros(7, np.float32), 0.0, False
-        )
+        _add_dummy_frame(rec)
         rec.save_episode(success=False)
         assert rec.undo_last_save() is False
         assert rec.undo_last_save() is None
 
+    @patch("g3a_bench.scripts.live_bridge.recorder.write_info")
     @patch("g3a_bench.scripts.live_bridge.recorder.LeRobotDataset")
-    def test_undo_is_single_level(self, mock_dataset_cls):
+    def test_undo_is_single_level(self, mock_dataset_cls, _mock_write_info):
         """Only the last save is undoable: staging episode 2 committed episode 1,
         so undo drops only episode 2."""
         mock_ds = MagicMock()
         mock_dataset_cls.create.return_value = mock_ds
         rec = Recorder(repo_id="test/ds", fps=30, obs_dim=10)
-        rec.add_frame(
-            {"actor": torch.zeros(1, 10)}, np.zeros(7, np.float32), 0.0, False
-        )
+        _add_dummy_frame(rec)
         rec.save_episode(success=True)
-        rec.add_frame(
-            {"actor": torch.zeros(1, 10)}, np.zeros(7, np.float32), 0.0, False
-        )
+        _add_dummy_frame(rec)
         rec.save_episode(success=True)
         assert rec.undo_last_save() is True
+        rec.close()
         # Episode 1 was committed and stays; episode 2 was dropped.
         assert mock_ds.save_episode.call_count == 1
 
     @patch("g3a_bench.scripts.live_bridge.recorder.write_info")
     @patch("g3a_bench.scripts.live_bridge.recorder.LeRobotDataset")
     def test_save_episode_flushes_all_frames(self, mock_dataset_cls, _mock_write_info):
-        """Every buffered frame is flushed on save, not just the first."""
+        """Every buffered frame of a committed episode is flushed, not just
+        the first."""
         mock_ds = MagicMock()
         mock_dataset_cls.create.return_value = mock_ds
         rec = Recorder(repo_id="test/ds", fps=30, obs_dim=10)
         for _ in range(3):
-            rec.add_frame(
-                {"actor": torch.zeros(1, 10)}, np.zeros(7, np.float32), 0.0, False
-            )
+            _add_dummy_frame(rec)
         rec.save_episode(success=True)
+        rec.close()
         assert mock_ds.add_frame.call_count == 3
 
     @patch("g3a_bench.scripts.live_bridge.recorder.write_info")
     @patch("g3a_bench.scripts.live_bridge.recorder.LeRobotDataset")
-    def test_discard_episode_drops_buffer(self, mock_dataset_cls, _mock_write_info):
-        """discard_episode() throws away the current episode without saving --
-        the operator must be able to reject a botched demo."""
+    def test_discard_episode_drops_buffer_not_staged(
+        self, mock_dataset_cls, _mock_write_info
+    ):
+        """discard_episode() throws away the in-progress episode only — a
+        previously staged episode survives and commits at close."""
         mock_ds = MagicMock()
         mock_dataset_cls.create.return_value = mock_ds
         rec = Recorder(repo_id="test/ds", fps=30, obs_dim=10)
-        rec.add_frame(
-            {"actor": torch.zeros(1, 10)}, np.zeros(7, np.float32), 0.0, False
-        )
+        _add_dummy_frame(rec)
         rec.save_episode(success=True)
-        rec.add_frame(
-            {"actor": torch.zeros(1, 10)}, np.zeros(7, np.float32), 0.0, False
-        )
+        _add_dummy_frame(rec)
         rec.discard_episode()
         assert rec.num_frames_in_episode == 0
         assert rec.has_staged
+        rec.close()
         assert mock_ds.save_episode.call_count == 1
 
     @patch("g3a_bench.scripts.live_bridge.recorder.write_info")
     @patch("g3a_bench.scripts.live_bridge.recorder.LeRobotDataset")
     def test_save_episode_empty_is_noop(self, mock_dataset_cls, _mock_write_info):
-        """Saving with nothing buffered must not write an empty episode —
+        """Saving with nothing buffered must not stage an empty episode —
         and must not even create a dataset directory."""
         mock_ds = MagicMock()
         mock_dataset_cls.create.return_value = mock_ds
         rec = Recorder(repo_id="test/ds", fps=30, obs_dim=10)
         rec.save_episode(success=True)
         assert not rec.has_staged
+        rec.close()
         mock_dataset_cls.create.assert_not_called()
         mock_ds.save_episode.assert_not_called()
-
-    @patch("g3a_bench.scripts.live_bridge.recorder.write_info")
-    @patch("g3a_bench.scripts.live_bridge.recorder.LeRobotDataset")
-    def test_close_finalizes_dataset(self, mock_dataset_cls, _mock_write_info):
-        """close() calls finalize() on every dataset that was created."""
-        mock_ds = MagicMock()
-        mock_dataset_cls.create.return_value = mock_ds
-        rec = Recorder(repo_id="test/ds", fps=30, obs_dim=10)
-        rec.add_frame(
-            {"actor": torch.zeros(1, 10)}, np.zeros(7, np.float32), 0.0, False
-        )
-        rec.save_episode(success=True)
-        rec.close()
-        mock_ds.finalize.assert_called_once()
 
     @patch("g3a_bench.scripts.live_bridge.recorder.write_info")
     @patch("g3a_bench.scripts.live_bridge.recorder.LeRobotDataset")
@@ -199,12 +200,11 @@ class TestRecorder:
         mock_ds = MagicMock()
         mock_dataset_cls.create.return_value = mock_ds
         rec = Recorder(repo_id="test/ds", fps=30, obs_dim=10)
-        rec.add_frame(
-            {"actor": torch.zeros(1, 10)}, np.zeros(7, np.float32), 0.0, False
-        )
+        _add_dummy_frame(rec)
         rec.discard_episode()
-        rec.add_frame({"actor": torch.zeros(1, 10)}, np.zeros(7, np.float32), 1.0, True)
+        _add_dummy_frame(rec, reward=1.0, done=True)
         rec.save_episode(success=True)
+        rec.close()
         assert mock_ds.add_frame.call_count == 1
         mock_ds.save_episode.assert_called_once()
 
@@ -281,11 +281,7 @@ def test_recorder_real_undo_roundtrip(tmp_path):
 
 def test_close_stores_operator_id(tmp_path):
     """operator_id passed to close() must appear in dataset info after finalize."""
-    import numpy as np
-    import torch
     from lerobot.datasets.lerobot_dataset import LeRobotDataset
-
-    from g3a_bench.scripts.live_bridge.recorder import Recorder
 
     root = tmp_path / "ds_op" / "success"
     rec = Recorder(repo_id="test_op", fps=50, obs_dim=53, success_root=str(root))
@@ -305,8 +301,6 @@ def test_close_stores_operator_id(tmp_path):
 
 def test_close_without_operator_id_still_finalizes(tmp_path):
     """close() with no operator_id must not crash (backwards compat)."""
-    from g3a_bench.scripts.live_bridge.recorder import Recorder
-
     root = tmp_path / "ds_noop" / "success"
     rec = Recorder(repo_id="test_noop", fps=50, obs_dim=53, success_root=str(root))
     rec.close()  # no argument, nothing recorded — must not raise

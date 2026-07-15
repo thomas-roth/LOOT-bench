@@ -63,4 +63,8 @@ dev = [
 filterwarnings = [
     # mjlab decorates its math helpers with torch.jit.script, which newer torch deprecates.
     "ignore:.*torch\\.jit\\.script.* is deprecated.*:DeprecationWarning",
+    # lerobot's stats histograms coerce our (intentional) bool success/done features.
+    "ignore:Converting input from bool to <class 'numpy.uint8'> for compatibility:RuntimeWarning",
+    # hf datasets calls float() on (1,)-shaped scalar features (numpy>=1.25 deprecation, upstream code).
+    "ignore:Conversion of an array with ndim > 0 to a scalar is deprecated:DeprecationWarning",
 ]

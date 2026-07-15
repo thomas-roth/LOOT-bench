@@ -1,5 +1,6 @@
-"""Viewer-agnostic recording state machine (record → decision prompt → reset phase).
-Only viewer-specific drawing differs; everything else here to avoid drift."""
+"""Viewer-agnostic recording state machine (record → provisional failure →
+reset phase). Only viewer-specific drawing differs; everything else here to
+avoid drift."""
 
 import copy
 import time
@@ -15,7 +16,6 @@ GHOST_COLOR = (0.5, 0.6, 0.9, 0.5)  # translucent blue, the neutral/reset-target
 GHOST_COLOR_SUCCESS = (0.3, 0.9, 0.3, 0.8)  # bright green for success feedback
 GHOST_COLOR_FAILURE = (0.9, 0.3, 0.3, 0.8)  # bright red for failure feedback
 GHOST_COLOR_PROMPT = (0.95, 0.6, 0.1, 0.8)  # orange during the save-or-discard window
-FEEDBACK_COLOR_DURATION = 1.5  # seconds to show success/failure color
 RESET_THRESHOLD_RAD = 0.2  # all 6 arm joints must be within this many rad of home
 
 
@@ -59,8 +59,7 @@ class RecordingViewerMixin:
         self._saved_failure = 0
         self._in_reset_phase = False
         self._feedback_color: tuple[float, float, float, float] | None = None
-        self._feedback_color_start_time = 0.0
-        # Auto-save failure after ~2s if user doesn't press N (discard) first
+        # Auto-save failure after ~2s if user doesn't press D (discard) first
         self._provisional_failure = False
         self._provisional_failure_time = 0.0
         self._current_ep_seed: int | None = None
@@ -155,8 +154,14 @@ class RecordingViewerMixin:
             self._feedback_color = GHOST_COLOR_FAILURE
             self._enter_reset_phase()
         elif payload == "undo":
+            if self._provisional_failure:
+                print("[INFO] Undo is ignored while an episode awaits save/discard")
+                return True
             self._undo_last_save()
         elif payload == "quit":
+            if self._provisional_failure:
+                print("[INFO] Decide the pending episode first (F/D/V), then quit")
+                return True
             self._interrupted = True
         else:
             # Delegate to concrete viewer (checkpoint, GUI-reset, etc.)
@@ -195,7 +200,6 @@ class RecordingViewerMixin:
         )
 
         self._feedback_color = GHOST_COLOR_SUCCESS if success else GHOST_COLOR_FAILURE
-        self._feedback_color_start_time = time.perf_counter()
 
         folder = "success" if success else "failure"
         print(f"[{color_label}] Episode saved to {folder}/ folder (U undoes)")
