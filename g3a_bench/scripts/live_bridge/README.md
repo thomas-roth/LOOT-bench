@@ -16,15 +16,17 @@ uv run python g3a_bench/scripts/live_bridge/live_record.py [--follower] [--leade
 
 Asks for operator ID (1–4) at startup. **Letter-key controls** (an on-screen HUD shows state, saved counts and the currently valid keys):
 - `E`: **End** episode manually → save-or-discard prompt
-- `S`: **Save** the ended episode as failure (only in the prompt)
+- `F`: **Save** the ended episode as failure (only in the prompt)
 - `D`: **Discard** → reset phase → redo
 - `U`: **Undo** the last saved episode (single-level; the last save is staged and only committed when the next episode ends or at finalize)
 - `Q`: Finalize dataset and quit
-- `W`: Toggle wrist camera ↔ orbit view
+- `C`: Toggle wrist camera ↔ orbit view
+
+`S`/`W` are deliberately not used: MuJoCo's native viewer hard-codes those keys to the Shadow/Wireframe render toggles at the compiled-viewer level, which can't be intercepted or reset from Python (unlike the visualization-flag keys E/D/U/Q/C, which `_update_debug_visualizers` resets to baseline every frame).
 
 Episode labels come from the env termination: the success termination auto-saves as **success** (wonky-but-successful included); any other termination — or `E` — freezes the sim into a no-timeout prompt (orange ghost) where the episode is saved as **failure** or discarded.
 
-**State machine:** RECORDING → [auto-save on task success | prompt (AWAITING_DECISION) → `S`/`D`] → RESET_PHASE (ghost arm at rest pose, no recording) → back to RECORDING when sim arm near rest.
+**State machine:** RECORDING → [auto-save on task success | prompt (AWAITING_DECISION) → `F`/`D`] → RESET_PHASE (ghost arm at rest pose, no recording) → back to RECORDING when sim arm near rest.
 
 Output: `out/demos/success/<YYYY-MM-DD_HH-MM-SS>/` and `out/demos/failure/<YYYY-MM-DD_HH-MM-SS>/` at the repo root (timestamped, never overwrites). A directory is only created if at least one episode of that kind was saved.
 

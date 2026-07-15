@@ -146,7 +146,7 @@ class RecordingViewerMixin:
             if self._awaiting_decision:
                 self._end_episode(success=False)
             else:
-                print("[INFO] S only acts in the save-or-discard prompt — ignored")
+                print("[INFO] F only acts in the save-or-discard prompt — ignored")
         elif payload == "discard":
             if self._in_reset_phase:
                 print("[INFO] Nothing to discard in the reset phase — ignored")
@@ -159,12 +159,12 @@ class RecordingViewerMixin:
             self._enter_reset_phase()
         elif payload == "undo":
             if self._awaiting_decision:
-                print("[INFO] Decide first (S save / D discard) — undo ignored")
+                print("[INFO] Decide first (F save / D discard) — undo ignored")
                 return True
             self._undo_last_save()
         elif payload == "quit":
             if self._awaiting_decision:
-                print("[WARN] Decide first (S save / D discard), then Q quits")
+                print("[WARN] Decide first (F save / D discard), then Q quits")
                 return True
             self._interrupted = True
         else:
@@ -187,7 +187,7 @@ class RecordingViewerMixin:
         self._awaiting_decision = True
         print(
             f"[INFO] {reason} — sim frozen. "
-            "S saves the episode as FAILURE, D discards it (no timeout)."
+            "F saves the episode as FAILURE, D discards it (no timeout)."
         )
         self.verbosity = VerbosityLevel.INFO
 
@@ -265,13 +265,13 @@ class RecordingViewerMixin:
         state, saved counts, staged/undo info, and the currently valid keys."""
         if self._awaiting_decision:
             state = "SAVE OR DISCARD?"
-            keys = "S save failure   D discard   W wrist cam"
+            keys = "F save failure   D discard   C wrist cam"
         elif self._in_reset_phase:
             state = f"RESET  align arm with ghost (ep {self.episodes_saved + 1})"
-            keys = "U undo   Q quit   W wrist cam"
+            keys = "U undo   Q quit   C wrist cam"
         else:
             state = f"RECORDING  episode {self.episodes_saved + 1}"
-            keys = "E end episode   D discard   U undo   Q quit   W wrist cam"
+            keys = "E end episode   D discard   U undo   Q quit   C wrist cam"
         staged = "last save undoable (U)" if self._recorder.has_staged else "-"
         labels = "State\nSaved\nUndo\nKeys"
         values = (

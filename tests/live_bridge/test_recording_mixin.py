@@ -145,7 +145,7 @@ class TestTerminationHandling:
 
 class TestPromptActions:
     def test_save_in_prompt_stages_failure(self):
-        """S in the prompt: the episode is staged as failure (label comes from
+        """F in the prompt: the episode is staged as failure (label comes from
         the termination, never from the operator)."""
         h, rec = make_harness()
         h._handle_done(is_success=False)
@@ -164,7 +164,7 @@ class TestPromptActions:
         assert h._in_reset_phase
 
     def test_save_outside_prompt_is_ignored(self):
-        """S only acts inside the prompt — a stray press mid-episode must not
+        """F only acts inside the prompt — a stray press mid-episode must not
         end or mislabel the recording."""
         h, rec = make_harness()
         assert h._handle_custom_action("CUSTOM", "save_failure")
@@ -251,7 +251,7 @@ class TestHud:
         h, _ = make_harness()
         h._handle_done(is_success=False)
         _, values = h._hud_text()
-        assert "S save failure" in values
+        assert "F save failure" in values
         assert "D discard" in values
         assert "RECORDING" not in values
         # Keys the prompt does not accept must not be advertised.
