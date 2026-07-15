@@ -13,6 +13,17 @@ from dataclasses import dataclass
 
 from mjlab.entity import EntityCfg
 
+_GRIPPER_OPEN_FRACTION = 2 / 3
+"Fraction of the gripper joint stroke beyond which the gripper counts as open."
+
+
+def gripper_open_threshold(joint_range: dict[str, float]) -> float:
+    """Joint position ``_GRIPPER_OPEN_FRACTION`` of the way from ``closed``
+    to ``open`` in ``joint_range``."""
+    return joint_range["closed"] + _GRIPPER_OPEN_FRACTION * (
+        joint_range["open"] - joint_range["closed"]
+    )
+
 
 @dataclass(frozen=True)
 class ManipulatorInterface:
@@ -24,22 +35,16 @@ class ManipulatorInterface:
     """Per-actuator (or scalar) scale for the joint-position action."""
     grasp_site: str
     """Site between the fingertips; used for reach rewards/observations."""
+    gripper_joints: tuple[str, ...]
+    """Gripper joint(s) gating task success: all must exceed
+    ``gripper_open_threshold`` for the object to count as released."""
+    gripper_open_threshold: float
+    """Joint position above which a gripper joint counts as open. Derive it
+    from the joint range with :func:`gripper_open_threshold` so a merely
+    loosened grip does not count."""
     ee_subtree: str
     """Body name whose subtree is monitored for illegal ground contact."""
     finger_pad_geoms: str
     """Regex matching the fingertip pad geoms (friction domain randomization)."""
     viewer_body: str
     """Body the viewer camera tracks."""
-    arm_actuators: tuple[str, ...] = (".*",)
-    """Actuator name expressions for the arm joints, driven by the task-space
-    (EEF / differential-IK) action. Excludes the gripper. Defaults to all
-    actuators; set explicitly on grippered manipulators so the IK controller
-    only moves the arm."""
-    gripper_actuators: tuple[str, ...] = ()
-    """Actuator name expressions for the gripper, driven by a direct joint
-    action alongside the EEF controller. Empty means no separate gripper action
-    (only used in the ``"eef"`` action mode)."""
-    camera_name: str | None = None
-    """Name of an existing MJCF camera to use for vision observations (prefixed,
-    e.g. ``"robot/head_camera"``). ``None`` means the robot has no camera wired,
-    so the ``"camera"`` observation mode is unavailable for it."""

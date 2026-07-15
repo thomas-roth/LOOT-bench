@@ -1,8 +1,29 @@
 # Registered-task verification
 
-Two scripts verify changes to task code; run both from the **repo root**.
-Neither is a console script — invoke with `uv run python`.
-Both accept `--cpu` to force CPU-only execution and `--no-render` to skip image output.
+The scripts and pytest suite here verify changes to task code; run everything from the **repo root**.
+
+---
+
+## Unit tests for the pure task logic (`test_success.py`, `test_scatter.py`)
+
+Pytest suites for the simulator-free task logic:
+
+- `test_success.py` — the per-category success criteria in each
+  `tasks/<cat>/mdp/success.py` (`domino_upright_aligned`, `peg_inserted`,
+  `peg_axial_lateral`, `ball_in_target_zone`, `SorterLatch`) plus the shared
+  gates: `SuccessGate` from `common/success.py` and `GripperOpenGate` from
+  `common/commands.py`.
+- `test_scatter.py` — the `ScatterGrid` spawn sampler and `random_yaw` in
+  `common/scatter.py` (cell layout, jitter bounds, distinct-cells-per-env property).
+
+Run them after touching a category's `mdp/success.py`, `tasks/common/success.py`,
+or `tasks/common/scatter.py`.
+
+```bash
+uv run pytest tests/tasks/ -v    # test all pytest suites inside
+uv run pytest tests/tasks/test_success.py -v
+uv run pytest tests/tasks/test_scatter.py -v
+```
 
 ---
 
@@ -26,7 +47,8 @@ uv run python tests/tasks/build_sim_registered_tasks.py --no-render
 
 ## Success-metric check (`check_success_reward.py`)
 
-Teleports objects to their goals for one representative task per category, plus structurally unusual variants (Domino5, Sorter4, TwoSheet, GolfHole, PushHole, PegCylinderH), and checks that the command term's success metric fires.
+Teleports objects to their goals for one representative task per category, plus structurally unusual variants (Domino5, Push3, Sorter3, Sorter6, TwoSheet, GolfHole, PushHole, PegCylinderH), and checks that the command term's success metric fires.
+The sorter check reorients the free cube so the target hole faces up, then drives the target piece through the mouth in two stations so the latched outside-to-inside crossing fires.
 This confirms the metric *can* fire when objects are placed correctly; it does not verify that reward shaping guides a policy there.
 Run it after touching a category's `mdp/commands.py` or success-metric logic.
 

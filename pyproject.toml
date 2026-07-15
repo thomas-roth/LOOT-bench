@@ -16,6 +16,7 @@ dependencies = [
     "ruff>=0.15.15",
     "lerobot-robot-trlc-dk1",
     "snakeviz>=2.2.2",
+    "pyqt5>=5.15.11",
 ]
 
 [project.scripts]
@@ -56,4 +57,10 @@ lerobot-robot-trlc-dk1 = { git = "https://github.com/robot-learning-co/trlc-dk1"
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
+]
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    # mjlab decorates its math helpers with torch.jit.script, which newer torch deprecates.
+    "ignore:.*torch\\.jit\\.script.* is deprecated.*:DeprecationWarning",
 ]

@@ -15,22 +15,26 @@ Architecture (decoupled threads):
 
 State machine (per episode):
   RECORDING            normal step loop; done=True → _handle_done()
-  PROVISIONAL_FAILURE  ground collision: stepping paused, auto-saves as
-                       FAILURE after a 2s grace period unless numpad 2
-                       (save now) or numpad 3 (discard) is pressed first
-  RESET_PHASE          ghost arm visible at home; sim live (not recorded); arm moves to ghost
+  PROVISIONAL_FAILURE  non-success termination (out of bounds, collision,
+                       timeout): stepping paused, auto-saves as FAILURE after a
+                       2s grace period unless F (save now as failure),
+                       D (discard) or V (override to success) is pressed first
+  RESET_PHASE          ghost arm visible at home; sim live (not recorded)
 
 Key bindings:
-    Numpad 1  save episode as SUCCESS (also fires automatically on task completion)
-    Numpad 2  save episode as FAILURE  (also fires automatically ~2s after a collision)
-    Numpad 3  discard episode
-    Numpad 4  stop session and finalize dataset
-    W         toggle viewer between orbit camera and the robot's wrist camera
+    V  save episode as SUCCESS (also fires automatically on task
+       completion)
+    F  save episode as FAILURE  (also fires automatically ~2s after a collision)
+    D  discard episode
+    U  undo the last saved episode
+    Q  stop session and finalize dataset
+    C         toggle viewer between orbit camera and the robot's wrist camera
               (clearer gripper view while teleoperating demos)
 
     Main-row digit keys are NOT usable here — MuJoCo's native viewer swallows
     them internally to toggle render-group visibility before they ever reach
-    this script's key handler.
+    this script's key handler. An on-screen HUD (bottom-left) shows the state,
+    saved counts and the currently valid keys.
 
 Usage:
     uv run python g3a_bench/scripts/live_bridge/live_record.py
@@ -55,6 +59,7 @@ import time
 import traceback
 from pathlib import Path
 from typing import TYPE_CHECKING
+from types import SimpleNamespace
 
 import mujoco as _mujoco
 
@@ -68,16 +73,17 @@ from mjlab.rl import RslRlVecEnvWrapper
 from mjlab.tasks.registry import load_env_cfg
 from mjlab.viewer import NativeMujocoViewer, ViewerConfig
 from mjlab.viewer.base import VerbosityLevel
-from mjlab.viewer.native.keys import KEY_KP_1, KEY_KP_2, KEY_KP_3, KEY_KP_4, KEY_W
+from mjlab.viewer.native.keys import KEY_C, KEY_D, KEY_F, KEY_Q, KEY_U, KEY_V
 from mjlab.viewer.native.visualizer import MujocoNativeDebugVisualizer
 
 import g3a_bench  # noqa: F401
-from g3a_bench.robots.trlc_dk1.dk1_constants import _HOME_JOINT_POS
+from g3a_bench.robots.trlc_dk1.dk1_constants import HOME_JOINT_POS
 from g3a_bench.scripts.live_bridge.mapper import (
     lerobot_to_mjlab_raw_action,
 )
 from g3a_bench.scripts.live_bridge.recorder import Recorder
 from g3a_bench.scripts.live_bridge.recording_mixin import RecordingViewerMixin
+from g3a_bench.scripts.utils.viewer_wrapper import NativeViewerWrapper
 
 
 def _get_pip_app() -> "QApplication":
@@ -115,16 +121,17 @@ _SIM_REST_POSE: dict[str, float] = {
     **LIVE_REST_POSE,
 }
 _LIVE_REST_POSE_REL = np.array(
-    [_SIM_REST_POSE[f"joint{i}"] - _HOME_JOINT_POS[f"joint{i}"] for i in range(1, 7)],
+    [_SIM_REST_POSE[f"joint{i}"] - HOME_JOINT_POS[f"joint{i}"] for i in range(1, 7)],
     dtype=np.float32,
 )
 
 
-KEY_SAVE_SUCCESS = KEY_KP_1
-KEY_SAVE_FAILURE = KEY_KP_2
-KEY_DISCARD = KEY_KP_3
-KEY_QUIT = KEY_KP_4
-KEY_WRIST_CAM = KEY_W
+KEY_SAVE_SUCCESS = KEY_V
+KEY_SAVE_FAILURE = KEY_F
+KEY_DISCARD = KEY_D
+KEY_UNDO = KEY_U
+KEY_QUIT = KEY_Q
+KEY_WRIST_CAM = KEY_C
 
 # Name of the wrist camera in the DK1 MJCF. The compiled model prefixes entity
 # cameras (e.g. "robot/wrist_camera"), so it is matched by suffix — see
@@ -133,7 +140,7 @@ WRIST_CAMERA_NAME = "wrist_camera"
 
 
 # Default orbit/free-camera framing for the teleop viewer (the view you start in,
-# before pressing W for the wrist cam). Positioned above and behind the robot
+# before pressing C for the wrist cam). Positioned above and behind the robot
 ORBIT_CAM_LOOKAT = (0.20, 0.0, 0.15)  # world point the camera aims at (≈ workspace)
 ORBIT_CAM_DISTANCE = 1.3
 ORBIT_CAM_AZIMUTH = 200.0
@@ -264,17 +271,18 @@ class _LivePolicy:
         return self._last_raw_action
 
 
-class _LiveRecordingViewer(RecordingViewerMixin, NativeMujocoViewer):
-    """NativeMujocoViewer with multi-episode recording and ghost-arm reset phase.
+class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
+    """NativeViewerWrapper with multi-episode recording and ghost-arm reset phase.
 
-    The per-episode recording state machine (record → reset phase → collision
-    label, plus ghost-color feedback) lives in RecordingViewerMixin. This
-    subclass only adds the native-specific rendering of the ghost arm and the wrist-camera toggle.
+    The per-episode recording state machine (record → decision prompt → reset
+    phase, plus ghost-color feedback and the HUD text) lives in
+    RecordingViewerMixin. This subclass only adds the native-specific rendering
+    of the ghost arm and HUD, and the wrist-camera toggle.
 
     State machine:
       RECORDING            → normal step loop
       PROVISIONAL_FAILURE  → collision fired; stepping paused; auto-saves as
-                             failure after a 2s grace period unless numpad 2/3
+                             failure after a 2s grace period unless keys F/D
       RESET_PHASE          → episode ended; ghost visible; waiting for arm at home
     """
 
@@ -306,9 +314,9 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeMujocoViewer):
             num_episodes=num_episodes,
             debug_timing=debug_timing,
             sim_rest_pose=_SIM_REST_POSE,
-            home_joint_pos=_HOME_JOINT_POS,
+            home_joint_pos=HOME_JOINT_POS,
         )
-        # Wrist-cam toggle (W): resolved lazily once the viewer/model exist.
+        # Wrist-cam toggle (C): resolved lazily once the viewer/model exist.
         self._wrist_cam_on = False
         self._wrist_cam_id = -1
         self._saved_cam: tuple | None = None
@@ -374,7 +382,25 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeMujocoViewer):
                 self._show_all_envs,
             )
 
-        # ── Ghost arm rendering (native-specific) ────────────────────────────────
+    # ── Ghost arm rendering (native-specific) ────────────────────────────────
+
+    def _reset_visflags(self) -> None:
+        """Re-assert the visualization-flag baseline (Camera/Equality/Actuator/
+        Static-Body/... toggles that share letters with our recording keys).
+
+        Called from two places because they close different windows:
+        - here, synchronously from _on_key (viewer/render thread) — closes the
+          gap between a keypress and the native render thread's OWN redraws,
+          which run independently of our env-sync cadence. Without this, e.g.
+          Q's built-in Camera-frustum toggle stays visible for a burst of
+          native frames (worse still while frozen in the decision prompt,
+          where env-sync all but stops).
+        - per-frame in _update_debug_visualizers, as a fallback for any toggle
+          that arrives outside our own key handler (mjlab's base key_callback
+          also shares some of these letters, e.g. A/P).
+        """
+        if self.viewer is not None and self._baseline_visflags is not None:
+            self.viewer.opt.flags[:] = self._baseline_visflags
 
     def _update_debug_visualizers(self, viewer: "_mujoco.viewer.Handle") -> None:  # type: ignore[name-defined]
         """Draw the ghost-at-home overlay every frame, on top of whatever the
@@ -393,6 +419,7 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeMujocoViewer):
         # viewer's built-in single-key flag toggles can't alter the scene
         if viewer is not None and self._baseline_visflags is not None:
             viewer.opt.flags[:] = self._baseline_visflags
+        self._reset_visflags()
         if self._ghost_model is None or self._ghost_qpos is None:
             return
         assert self.mjm is not None
@@ -454,17 +481,51 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeMujocoViewer):
         # self._current_ep_seed = int(np.random.randint(0, 2**31 - 1))
         # self.env.env.reset(seed=self._current_ep_seed)
 
+    # ── HUD (native-specific) ────────────────────────────────────────────────
+
+    def _set_status_overlay(self, viewer: "_mujoco.viewer.Handle") -> None:  # type: ignore[name-defined]
+        """Send the base status overlay AND the recording HUD in one
+        set_texts call — each call replaces all overlays from earlier calls,
+        so sending them separately would drop one of the two.
+
+        The base overlay text is captured through a shim (the base method's
+        only side effect is one ``set_texts(overlay)`` call) instead of being
+        rebuilt here, so it can't drift from mjlab's own status text.
+
+        Overrides the inherited throttle (NativeViewerWrapper) with
+        our own check — we MUST skip set_texts entirely when throttled,
+        otherwise the spin-wait in set_texts keeps the frame loop capped at
+        the monitor refresh rate (~60 Hz) regardless of VIEWER_FPS.
+        """
+        now = time.perf_counter()
+        if now - self._last_overlay_time < self.OVERLAY_INTERVAL:
+            return
+        self._last_overlay_time = now
+
+        captured: list = []
+        shim = SimpleNamespace(set_texts=captured.append)
+        NativeMujocoViewer._set_status_overlay(self, shim)  # type: ignore[arg-type]
+        labels, values = self._hud_text()
+        hud = (
+            _mujoco.mjtFontScale.mjFONTSCALE_150.value,
+            _mujoco.mjtGridPos.mjGRID_BOTTOMLEFT.value,
+            labels,
+            values,
+        )
+        viewer.set_texts(captured + [hud])
+
     # ── Key handling ─────────────────────────────────────────────────────────
 
     def _on_key(self, key: int) -> None:
-        # Runs on the viewer thread → only enqueue; actions are processed on
-        # the main thread in _handle_custom_action to avoid racing the step loop.
+        self._reset_visflags()
         if key == KEY_SAVE_SUCCESS:
             self.request_action("CUSTOM", "save_success")
         elif key == KEY_SAVE_FAILURE:
             self.request_action("CUSTOM", "save_failure")
         elif key == KEY_DISCARD:
             self.request_action("CUSTOM", "discard")
+        elif key == KEY_UNDO:
+            self.request_action("CUSTOM", "undo")
         elif key == KEY_WRIST_CAM:
             # Only mutates the viewer's own camera (never env/sim), so it is
             # safe to handle directly on the viewer thread.
@@ -477,7 +538,7 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeMujocoViewer):
         wrist camera. Seeing the live wrist view makes gripper alignment much
         easier to judge while teleoperating demos.
 
-        Toggling back restores the exact orbit framing the operator had, so W
+        Toggling back restores the exact orbit framing the operator had, so C
         is non-destructive to whatever view they set up.
         """
         v = self.viewer
@@ -488,7 +549,7 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeMujocoViewer):
             if self._wrist_cam_id < 0:
                 print(
                     f"[WARN] No '{WRIST_CAMERA_NAME}' camera in model — "
-                    "W toggle disabled"
+                    "C toggle disabled"
                 )
                 return
         if not self._wrist_cam_on:
@@ -504,7 +565,7 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeMujocoViewer):
             v.cam.type = _mujoco.mjtCamera.mjCAMERA_FIXED.value
             v.cam.fixedcamid = self._wrist_cam_id
             self._wrist_cam_on = True
-            print("[INFO] Wrist camera ON (press W to return to orbit view)")
+            print("[INFO] Wrist camera ON (press C to return to orbit view)")
         else:
             if self._saved_cam is not None:
                 ctype, fcam, tbody, lookat, dist, azi, elev = self._saved_cam
@@ -635,7 +696,7 @@ def main():
         "--num-episodes",
         type=int,
         default=0,
-        help="Stop after N saved episodes (0 = record until numpad 4 is pressed).",
+        help="Stop after N saved episodes (0 = record until Q is pressed).",
     )
     parser.add_argument(
         "--debug-timing",
@@ -754,15 +815,16 @@ def main():
 
     print("[INFO] Starting native MuJoCo viewer")
     print("[INFO] Move the leader arm to control the sim and follower")
-    print("[INFO] Keys (numpad):")
-    print("[INFO]   Numpad 1  → save current episode as SUCCESS")
-    print("[INFO]   Numpad 2  → save current episode as FAILURE")
+    print("[INFO] Keys (see also the HUD in the viewer):")
+    print("[INFO]   V → save current episode as SUCCESS")
+    print("[INFO]   F → save current episode as FAILURE")
     print(
-        "[INFO]   Numpad 3  → discard/redo current episode "
+        "[INFO]   D → discard/redo current episode "
         "(also discards a collision within 2s)"
     )
-    print("[INFO]   Numpad 4  → stop recording session")
-    print("[INFO]   W         → toggle wrist camera <-> orbit view")
+    print("[INFO]   U → undo last saved episode (single-level)")
+    print("[INFO]   Q → stop recording session")
+    print("[INFO]   C → toggle wrist camera <-> orbit view")
     print("[INFO] === Episode 1 started — recording resumed ===")
 
     viewer: _LiveRecordingViewer | None = None

@@ -1,6 +1,10 @@
-# TRLC-DK1 visual scene checks
+# TRLC-DK1 checks
 
-Two ways to eyeball the DK1 robot on a floor with a skybox. Run both from the **repo root** so the relative mesh paths resolve.
+Two ways to eyeball the DK1 robot on a floor with a skybox, plus the pytest
+collision contract (`test_dk1_collision.py`: the gripper-only mode collides
+exactly the wrist/finger/pad geoms on the compiled model, and the pads keep
+their tuned contact parameters).
+Run everything from the **repo root** so the relative mesh paths resolve.
 
 ---
 

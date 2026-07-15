@@ -11,41 +11,39 @@ from pathlib import Path
 import mujoco
 from mjlab.entity import EntityArticulationInfoCfg, EntityCfg
 
+from g3a_bench.robots.interface import gripper_open_threshold
 from g3a_bench.robots.trlc_dk1.dk1_actuators import (
+    GRIPPER_MECHANICAL_RANGE,
     get_arm_actuators,
     get_gripper_actuator,
 )
 from g3a_bench.robots.trlc_dk1.dk1_collision import (
     FULL_COLLISION,
     GRIPPER_ONLY_COLLISION,
+    GRIPPER_ONLY_WITH_SELF_COLLISION,
 )
 
 ##
-# Interface identifiers (consumed by get_unimanual_dk1_interface or get_bimanual_dk1_interface).
+# Interface identifiers
+#
+# Consumed by get_unimanual_dk1_interface or get_bimanual_dk1_interface.
 ##
 
-DK1_UNIMANUAL_NAME = "Dk1_uni"
-DK1_BIMANUAL_NAME = "Dk1_bi"
+DK1_NAME_UNIMANUAL = "Dk1_uni"
+DK1_NAME_BIMANUAL = "Dk1_bi"
 DK1_GRASP_SITE = "grasp_site"
 DK1_EE_SUBTREE = "link6-7"
 DK1_VIEWER_BODY = "base"
+DK1_GRIPPER_JOINTS_UNIMANUAL = ("gripper_left",)
+DK1_GRIPPER_JOINTS_BIMANUAL = ("left_gripper_left", "right_gripper_left")
+DK1_GRIPPER_OPEN_THRESHOLD = gripper_open_threshold(GRIPPER_MECHANICAL_RANGE)
 
 ##
-# MJCF and assets.
+# MJCF.
 ##
 
-_DK1_XML: Path = Path(__file__).resolve().parent / "xmls" / "dk1.xml"
-assert _DK1_XML.exists()
-
-
-def get_unimanual_spec() -> mujoco.MjSpec:
-    spec = mujoco.MjSpec.from_file(str(_DK1_XML))
-    # base/link1-2 mesh surfaces interpenetrate slightly at rest (joint1's own
-    # axis). MuJoCo's default parent-child contact filter doesn't catch this
-    # pair for some reason, so the resulting contact force fights the joint1
-    # actuator and effectively locks the base rotation. Exclude explicitly.
-    spec.add_exclude(bodyname1="base", bodyname2="link1-2")
-    return spec
+_DK1_XML_PATH: Path = Path(__file__).resolve().parent / "xml" / "dk1.xml"
+assert _DK1_XML_PATH.exists()
 
 
 ##
@@ -54,7 +52,7 @@ def get_unimanual_spec() -> mujoco.MjSpec:
 
 # Ready pose: gripper pointing straight down (q2 - q3 - q4 = pi/2), grasp site
 # hovering at roughly (0.30, 0.0, 0.20) in the base frame, fingers open.
-_HOME_JOINT_POS: dict[str, float] = {
+HOME_JOINT_POS: dict[str, float] = {
     "joint1": 0.0,
     "joint2": 1.7,
     "joint3": 1.7,
@@ -69,14 +67,26 @@ _HOME_JOINT_POS: dict[str, float] = {
 def _home_keyframe(prefix: str = "") -> EntityCfg.InitialStateCfg:
     return EntityCfg.InitialStateCfg(
         pos=(0.0, 0.0, 0.0),
-        joint_pos={f"{prefix}{k}": v for k, v in _HOME_JOINT_POS.items()},
+        joint_pos={f"{prefix}{k}": v for k, v in HOME_JOINT_POS.items()},
         joint_vel={".*": 0.0},
     )
 
 
 ##
-# Single-arm config.
+# Unimanual config: single DK1 arm.
 ##
+
+
+def get_unimanual_spec() -> mujoco.MjSpec:
+    spec = mujoco.MjSpec.from_file(str(_DK1_XML_PATH))
+    # base/link1-2 mesh surfaces interpenetrate slightly at rest (joint1's own
+    # axis). MuJoCo's default parent-child contact filter doesn't catch this
+    # pair for some reason, so the resulting contact force fights the joint1
+    # actuator and effectively locks the base rotation. Exclude explicitly.
+    spec.add_exclude(
+        bodyname1="base", bodyname2="link1-2"
+    )  # TODO: check if actually needed
+    return spec
 
 
 def get_unimanual_dk1_robot_cfg(full_collision: bool = False) -> EntityCfg:
@@ -92,10 +102,11 @@ def get_unimanual_dk1_robot_cfg(full_collision: bool = False) -> EntityCfg:
 
 
 ##
-# Bimanual variant: two DK1 arms on a shared mount, facing +x.
+# Bimanual config: two DK1 arms on a shared mount, facing +x.
 ##
 
-_BIMANUAL_ARM_SEPARATION = 0.4  # [m] distance between the two base centers.
+_BIMANUAL_ARM_SEPARATION = 0.4
+"[m], distance between the two base centers."
 
 
 def get_bimanual_spec(
@@ -126,14 +137,16 @@ def get_bimanual_spec(
 def get_bimanual_dk1_robot_cfg(full_collision: bool = False) -> EntityCfg:
     joint_pos: dict[str, float] = {}
     for prefix in ("left_", "right_"):
-        joint_pos.update({f"{prefix}{k}": v for k, v in _HOME_JOINT_POS.items()})
+        joint_pos.update({f"{prefix}{k}": v for k, v in HOME_JOINT_POS.items()})
     return EntityCfg(
         init_state=EntityCfg.InitialStateCfg(
             pos=(0.0, 0.0, 0.0),
             joint_pos=joint_pos,
             joint_vel={".*": 0.0},
         ),
-        collisions=(FULL_COLLISION if full_collision else GRIPPER_ONLY_COLLISION,),
+        collisions=(
+            FULL_COLLISION if full_collision else GRIPPER_ONLY_WITH_SELF_COLLISION,
+        ),
         spec_fn=get_bimanual_spec,
         articulation=EntityArticulationInfoCfg(
             actuators=(

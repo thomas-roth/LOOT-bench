@@ -18,20 +18,22 @@ ball is moved) with a **target** (where it must end up).
 
 ## Hit vs. push (soft)
 
-The golf/push distinction is shaped through rewards, not hard-gated. `golf`
-rewards forward ball velocity (`strike_reward`) and lightly rewards reaching
-the ball, but **penalises sustained gripper-ball proximity** (`contact_time`)
-so the policy hits once instead of dragging the ball. `push` instead uses a
-staged `reaching * (1 + bringing)` reward that keeps the gripper on the ball as
-it nears the goal. Success in both cases only requires the ball to come to rest
-in the target.
+The golf/push distinction is **not** in the reward (the task is sparse — see
+Rewards): both share the same `success` signal. What differs is the field
+layout — `golf` places the target out of reach so the ball must roll there
+after a strike, while `push` keeps it within reach so the robot can guide the
+ball all the way — together with the demonstrations that bootstrap each
+behaviour. Success in both cases only requires the ball to come to rest in the
+target.
 
 ## Success
 
 The ball is *at target* when it is within the target radius and on the surface
-(for `hole`, when it has dropped below the platform surface). An episode
-terminates successfully when the ball stays at target and at rest for
-`hold_time` (0.3 s); it also terminates if the ball leaves the workspace.
+(for `hole`, when it has dropped below the platform surface). Success also
+requires the ball to be at rest and released from the gripper — the
+termination, the `success` reward, and the `episode_success` metric all use
+this same condition. The episode also terminates if the ball leaves the
+workspace.
 
 ## Observations (state-based)
 
@@ -43,11 +45,13 @@ terminates successfully when the ball stays at target and at rest for
 
 ## Rewards
 
-- shared: `ball_distance` (Gaussian on ball-to-target), `success`, and the
-  standard action-rate / joint-limit / joint-velocity-hinge penalties
-- `golf`: `strike` + small `reach` − `contact_time`
-- `push`: `push_guide` (reach × bring)
-- `throw`: `reach` + `throw_height` (raise the ball to clear the wall)
+Sparse by design, to pair with a demonstration pipeline (GELLO teleop →
+offline-to-online RL) that supplies the exploration dense shaping would
+otherwise provide:
+
+- task signal: `success` (the ball is at the target) — the only positive term
+- regularization: the standard action-rate / joint-limit / joint-velocity-hinge
+  penalties
 
 ## Variants
 

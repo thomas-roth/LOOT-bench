@@ -19,16 +19,19 @@ uv run python g3a_bench/scripts/live_bridge/live_record.py \
     [--task TASK] [--num-episodes N] [--dataset-dir PATH]
 ```
 
-Ports are auto-detected if omitted. Enter an operator ID (1–4) at startup, then
-control recording with the numpad:
+Ports are auto-detected if omitted. Asks for operator ID (1–4) at startup. **Letter-key controls** (an on-screen HUD shows state, saved counts and the currently valid keys):
+- `V`: **Save** episode as **success** → reset
+- `F`: **Save** episode as **failure** → reset
+- `D`: **Discard** → reset
+- `U`: **Undo** the last saved episode (single-level)
+- `Q`: Finalize dataset and quit
+- `C`: Toggle wrist camera ↔ orbit view
 
-- `1` — save as success, reset
-- `2` — save as failure, reset
-- `3` — discard, reset
-- `4` — finalize and quit
-
-On task success an episode auto-saves; on a ground collision the sim freezes for
-you to label. After each save the arm ghosts back to rest, then recording resumes.
+On task success an episode auto-saves; any other termination (out of bounds,
+collision, timeout) pauses the sim (orange ghost) and auto-saves as failure
+after 2s unless `F` (save now), `D` (discard) or `V` (override to success) is
+pressed first. After each save the arm ghosts back to rest, then recording
+resumes.
 
 Episodes go to `out/demos/success/<timestamp>/` and `out/demos/failure/<timestamp>/`
 at the repo root (override with `--dataset-dir`). Nothing is ever overwritten, and a

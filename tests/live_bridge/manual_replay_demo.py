@@ -17,11 +17,10 @@ import torch
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.rl import RslRlVecEnvWrapper
 from mjlab.tasks.registry import load_env_cfg
-from mjlab.viewer import NativeMujocoViewer
-
 import g3a_bench  # noqa: F401 — registers benchmark tasks in mjlab registry
 from g3a_bench.scripts.live_bridge.mapper import lerobot_to_mjlab_raw_action
 from g3a_bench.scripts.live_bridge.reader import DatasetReader
+from g3a_bench.scripts.utils.viewer_wrapper import NativeViewerWrapper
 
 
 def main():
@@ -33,9 +32,6 @@ def main():
     # ------------------------------------------------------------------
     cfg = load_env_cfg("G3a-Cube-Stack3-Dk1_uni", play=True)
     cfg.terminations["time_out"].time_out = False
-    # Drop ee_ground_collision so a >10 N gripper-vs-ground contact doesn't
-    # auto-reset the env mid-replay (it survives the play-mode termination pop).
-    cfg.terminations.pop("ee_ground_collision", None)
 
     # ------------------------------------------------------------------
     # 2. Create the environment.
@@ -73,7 +69,7 @@ def main():
     # ------------------------------------------------------------------
     print("[INFO] Starting Native MuJoCo viewer")
     print("[INFO] Press Ctrl+C in terminal or close the window to stop")
-    NativeMujocoViewer(env=env, policy=ReplayPolicy()).run()
+    NativeViewerWrapper(env=env, policy=ReplayPolicy()).run()
 
     # ------------------------------------------------------------------
     # 6. Cleanup.

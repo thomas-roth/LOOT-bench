@@ -11,6 +11,8 @@ from g3a_bench.robots.interface import ManipulatorInterface
 from g3a_bench.robots.yam.yam_constants import (
     YAM_EE_SUBTREE,
     YAM_GRASP_SITE,
+    YAM_GRIPPER_JOINTS,
+    YAM_GRIPPER_OPEN_THRESHOLD,
     YAM_NAME,
     YAM_PAD_GEOM_PATTERN,
     YAM_VIEWER_BODY,
@@ -23,6 +25,8 @@ def get_yam_interface() -> ManipulatorInterface:
         entity_cfg_fn=get_yam_robot_cfg,
         action_scale=YAM_ACTION_SCALE,
         grasp_site=YAM_GRASP_SITE,
+        gripper_joints=YAM_GRIPPER_JOINTS,
+        gripper_open_threshold=YAM_GRIPPER_OPEN_THRESHOLD,
         ee_subtree=YAM_EE_SUBTREE,
         finger_pad_geoms=YAM_PAD_GEOM_PATTERN,
         viewer_body=YAM_VIEWER_BODY,

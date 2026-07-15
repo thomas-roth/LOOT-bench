@@ -13,8 +13,9 @@ is mjlab's.
 
 Three task categories, each with variants, currently registered for one robot
 (`-Dk1_uni`) → task ids look like `G3a-<Category>-<Variant>-<Robot>`:
-`tasks/cube` (piece stacking / dominoes), `tasks/insertion` (peg insertion +
-shape sorter), `tasks/ball` (golf / push / throw a ball to a target).
+`tasks/cube` (piece stacking / dominoes / maze push), `tasks/insertion` (peg
+insertion + shape sorter), `tasks/ball` (golf / push / throw a ball to a
+target).
 
 ## Commands
 
@@ -38,10 +39,18 @@ uv run g3a-play  G3a-Cube-Stack3-Dk1_uni
 # Verification scripts (see tests/tasks/README.md), not installed as console scripts
 uv run python tests/tasks/build_sim_registered_tasks.py
 uv run python tests/tasks/check_success_reward.py
+
+# Native-viewer checks (see tests/viewer/README.md), need a display, not for CI
+uv run python tests/viewer/measure_viewer_fps.py
+uv run python tests/viewer/check_viewer_shutdown.py
 ```
 
-There is **no pytest suite**. See `tests/tasks/README.md` for what each verification
-script covers; both accept `--cpu` to force CPU-only execution.
+The pytest suite (`uv run pytest tests/`) unit-tests the pure kernels in
+`tasks/common/` (`tests/tasks/`) and the DK1 collision contract on the
+compiled model (`tests/trlc_dk1/`). See `tests/tasks/README.md` for
+what each verification script covers; all accept `--cpu` to force CPU-only
+execution. `tests/viewer/` holds the manual native-viewer checks (FPS cap,
+shutdown segfault).
 
 ## Architecture
 
@@ -53,29 +62,53 @@ adding/editing a category means mirroring an existing one:
   (forms, colors, targets…), collected in a `*_VARIANTS` dict keyed by name.
 - `assets.py` — procedural `mujoco.MjSpec` builders for the scene objects
   (`get_*_spec`). All objects are built in code, not from XML.
-- `mdp/` — the per-category MDP terms: `commands.py` (a `CommandTerm` subclass
-  that samples goals, scatters objects on reset, and computes the success
-  metric), `observations.py`, `rewards.py`, `terminations.py`. `mdp/__init__.py`
-  re-exports them.
-- `<cat>_env_cfg.py` — `make_<cat>_env_cfg(variant, robot, play)` assembles the
-  full `ManagerBasedRlEnvCfg` (entities, observation/action/reward/event/
-  termination/curriculum managers).
-- `rl_cfg.py` — the PPO `RslRlOnPolicyRunnerCfg`.
-- `config/__init__.py` — loops over robots × variants and calls
-  `register_mjlab_task(...)`.
-- `__init__.py` — just `import_packages(__name__, ["utils", ".mdp"])`.
+- `mdp/` — the per-category MDP terms: `success.py` (the category's pure
+  success criteria — simulator-free placement tests like `peg_inserted`, plus
+  category-specific latches like the sorter's `SorterLatch`; unit-tested in
+  `tests/tasks/test_success.py`), `commands.py` (a `CommandTerm` subclass that
+  samples goals, scatters objects on reset, and computes the success metric —
+  an *adapter* that gathers sim buffers for the success criteria and the
+  shared `tasks/common/success.py` / `scatter.py` helpers), `observations.py`,
+  `rewards.py`, `terminations.py`. `mdp/__init__.py` re-exports the terms.
+- `<cat>_env_cfg.py` — `make_<cat>_env_cfg(variant, play)` builds only the
+  category-shaped parts (entities, command, task obs/reward/termination terms)
+  and hands them to `tasks/common/env_cfg.make_manipulation_env_cfg`, which
+  owns the shared skeleton (table, proprioceptive obs, actor/critic groups,
+  regularization rewards + curriculum, reset events, viewer/sim defaults, the
+  `play` strip-down).
+- `config/__init__.py` — one `tasks/common/registration.register_category(...)`
+  call: it loops robots × variants, wires the robot in (via
+  `tasks/common/manipulator_wiring.wire_manipulator_into_env` with the
+  category's `grasp_obs_terms`/`ee_contact_sensors`), registers each task with
+  the shared PPO cfg (`tasks/common/rl_cfg.manipulation_ppo_runner_cfg`,
+  per-category `max_iterations`), and records the category's
+  `REWARD_MODE_TERMS` (defined in `<cat>_env_cfg.py`) in
+  `registration.TASK_TABLE` — which is what `g3a-train --reward-mode` reads
+  (unknown task/mode aborts loudly).
+- `__init__.py` — empty (discovery happens one level up, see below).
 
-**Registration is automatic via discovery**: `tasks/__init__.py` and each
-`tasks/<cat>/__init__.py` call mjlab's `import_packages`, which imports the
-`config` subpackage and triggers `register_mjlab_task`. The `.mdp` blacklist
-prevents the MDP modules from being scanned as task configs. Top-level
-`g3a_bench/__init__.py` imports `g3a_bench.tasks`, so a single `import g3a_bench`
-registers everything.
+`tasks/common/` is the home of everything shared: the workbench builder, the
+manipulator wiring, the registration seam + PPO cfg, the shared success
+gating (`success.py`: `OBJECT_VEL_THRESHOLD` and the `SuccessGate` that
+combines a category's success criterion with the at-rest + released
+conditions), the `GripperGateCommandCfg`/`GripperOpenGate` "gripper released"
+success gate (`commands.py`; the joints/threshold are robot-specific and
+injected by the manipulator wiring), the `ScatterGrid` spawn sampler, the
+table asset, and the debug markers.
+
+**Registration is automatic via discovery**: `tasks/__init__.py` calls mjlab's
+`import_packages` once (blacklist `["utils", ".mdp", "common"]`), which walks
+the category packages, imports each `config` subpackage and triggers
+`register_mjlab_task`. The `.mdp`/`common` blacklist entries keep the MDP and
+shared-helper modules from being scanned as task configs. Top-level
+`g3a_bench/__init__.py` imports `g3a_bench.tasks`, so a single
+`import g3a_bench` registers everything.
 
 ### Robot-agnostic design
 Tasks never hardcode robot details. `robots/interface.py` defines
 `ManipulatorInterface` (name, entity-cfg factory, action scale, grasp site,
-end-effector subtree, finger-pad geom regex, viewer body). Each robot package
+gripper joints + open threshold for the success gate, end-effector subtree,
+finger-pad geom regex, viewer body). Each robot package
 exposes its own `get_<robot>_interface()` factory —
 `robots/trlc_dk1/__init__.py` has `get_unimanual_dk1_interface()` and
 `get_bimanual_dk1_interface()`, `robots/yam/__init__.py` has
@@ -86,14 +119,14 @@ instance — the env cfgs read everything they need from it.
 
 ### DK1 robot asset
 The TRLC-DK1 has no public MJCF; it was converted from the official URDF
-(github.com/robot-learning-co/trlc-dk1) into `robots/trlc_dk1/xmls/dk1.xml`
+(github.com/robot-learning-co/trlc-dk1) into `robots/trlc_dk1/xml/dk1.xml`
 (hand-written) plus per-color OBJ visual meshes split out of the source GLBs by
 `robots/trlc_dk1/utils/convert_glb_meshes_to_obj.py` (a one-time tool, not part
 of the runtime). `dk1_constants.py` exposes `get_unimanual_dk1_robot_cfg()` /
 `get_bimanual_dk1_robot_cfg()` and the action scales. Home pose q2=1.7, q3=1.7,
 q4=-1.5708 puts the downward gripper at ≈(0.30, 0, 0.20); the gripper is a
 rack-and-pinion pair coupled by an equality constraint (only `gripper_left`
-actuated). `dk1_constants.py` carries `# pyright: reportAttributeAccessIssue=false`.
+actuated).
 
 ## Conventions and gotchas
 
@@ -131,3 +164,13 @@ actuated). `dk1_constants.py` carries `# pyright: reportAttributeAccessIssue=fal
   pre-commit hooks on commit.
 - Test renders are written to `out/render/<domain>/`; training logs to `logs/` and
   `wandb/`. The `examples/` dir holds reference mjlab code, not part of the package.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and PRDs live as local markdown under `.scratch/<feature-slug>/`; no external tracker. See `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` + `docs/adr/` at the repo root created lazily by `/domain-modeling`. See `docs/agents/domain.md`.

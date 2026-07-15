@@ -59,13 +59,18 @@ class Recorder:
         self._success_root = success_root
         self._failure_root = failure_root
 
-        # Datasets are created lazily on the first save_episode() of each kind,
-        # so a session with only successes never leaves an empty failure dataset
-        # on disk (and vice versa).
+        # Datasets are created lazily on the first committed episode of each
+        # kind, so a session with only successes never leaves an empty failure
+        # dataset on disk (and vice versa).
         self.dataset_success: LeRobotDataset | None = None
         self.dataset_failure: LeRobotDataset | None = None
 
         self._pending: list[dict] = []
+        # Last saved episode (frames, label, seed), held back for single-level
+        # undo. Committed to the dataset when the next episode is saved or at
+        # close(). The seed travels with the frames so it is written under the
+        # correct episode index at commit time.
+        self._staged: tuple[list[dict], bool, int | None] | None = None
         self._qpos_dim = qpos_dim
         self._qvel_dim = qvel_dim
         self._device = device
@@ -158,14 +163,45 @@ class Recorder:
         Success episodes go to the success dataset, failures to the failure
         dataset. No-op if nothing was buffered (avoids empty/garbage episodes).
         ``seed`` is the RNG seed the env was reset with at this episode's start;
-        it is persisted to info.json immediately (not at close) so seeds survive
-        a crash, letting record_replay.py restore the exact object layout.
+        it is staged with the frames and written to info.json when the episode
+        is committed (next save or close), letting record_replay.py restore the
+        exact object layout.
         """
         if not self._pending:
             return
+        # Take ownership of the pending frames BEFORE committing: commit code
+        # must never touch self._pending, and staging after grabbing the list
+        # keeps the new episode safe even if commit misbehaves.
+        frames = self._pending
+        self._pending = []
+        self._commit_staged()
+        self._staged = (frames, success, seed)
+
+    @property
+    def has_staged(self) -> bool:
+        return self._staged is not None
+
+    def undo_last_save(self) -> bool | None:
+        """Drop the staged (last saved, not yet committed) episode.
+
+        Returns the dropped episode's label, or None if nothing was staged
+        (undo is single-level: only the most recent save can be taken back).
+        """
+        if self._staged is None:
+            return None
+        _, success, _ = self._staged
+        self._staged = None
+        return success
+
+    def _commit_staged(self) -> None:
+        """Write the staged episode to its dataset (point of no return)."""
+        if self._staged is None:
+            return
+        frames, success, seed = self._staged
+        self._staged = None
         label = np.array([success], dtype=bool)
         dataset = self._get_dataset(success)
-        for frame in self._pending:
+        for frame in frames:
             frame["success"] = label
             # Deferred host copy: convert GPU tensors to numpy here, off the hot
             # recording loop. This mirrors the pattern already used for qpos.
@@ -189,7 +225,6 @@ class Recorder:
                 frame[key] = val
             dataset.add_frame(frame)
         dataset.save_episode()
-        self._pending = []
         ep_index = self._episodes_saved[success]
         self._episodes_saved[success] += 1
         dataset.meta.info["gravity_compensate"] = self._gravity_compensate
@@ -207,6 +242,7 @@ class Recorder:
         self._pending = []
 
     def close(self, operator_id: int | None = None) -> None:
+        self._commit_staged()
         for dataset in (self.dataset_success, self.dataset_failure):
             if dataset is None:
                 continue

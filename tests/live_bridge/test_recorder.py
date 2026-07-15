@@ -65,7 +65,7 @@ class TestRecorder:
         assert flushed["success"].dtype == bool
         assert bool(flushed["success"][0]) is True
         mock_ds.save_episode.assert_called_once()
-        assert rec.num_frames_in_episode == 0
+        assert rec.has_staged
 
     @patch("g3a_bench.scripts.live_bridge.recorder.write_info")
     @patch("g3a_bench.scripts.live_bridge.recorder.LeRobotDataset")
@@ -82,6 +82,54 @@ class TestRecorder:
         rec.save_episode(success=False)
         flushed = mock_ds.add_frame.call_args[0][0]
         assert bool(flushed["success"][0]) is False
+
+    @patch("g3a_bench.scripts.live_bridge.recorder.LeRobotDataset")
+    def test_undo_drops_staged_episode(self, mock_dataset_cls, _mock_write_info):
+        """undo_last_save() drops the staged episode and reports its label —
+        an undone episode must never reach the dataset."""
+        mock_ds = MagicMock()
+        mock_dataset_cls.create.return_value = mock_ds
+        rec = Recorder(repo_id="test/ds", fps=30, obs_dim=10)
+        rec.add_frame(
+            {"actor": torch.zeros(1, 10)}, np.zeros(7, np.float32), 0.0, False
+        )
+        rec.save_episode(success=True)
+        assert rec.undo_last_save() is True
+        assert not rec.has_staged
+        mock_dataset_cls.create.assert_not_called()
+        mock_ds.add_frame.assert_not_called()
+        mock_ds.save_episode.assert_not_called()
+
+    @patch("g3a_bench.scripts.live_bridge.recorder.LeRobotDataset")
+    def test_undo_without_staged_returns_none(self, mock_dataset_cls):
+        """Single-level undo: a second undo has nothing to drop."""
+        rec = Recorder(repo_id="test/ds", fps=30, obs_dim=10)
+        assert rec.undo_last_save() is None
+        rec.add_frame(
+            {"actor": torch.zeros(1, 10)}, np.zeros(7, np.float32), 0.0, False
+        )
+        rec.save_episode(success=False)
+        assert rec.undo_last_save() is False
+        assert rec.undo_last_save() is None
+
+    @patch("g3a_bench.scripts.live_bridge.recorder.LeRobotDataset")
+    def test_undo_is_single_level(self, mock_dataset_cls):
+        """Only the last save is undoable: staging episode 2 committed episode 1,
+        so undo drops only episode 2."""
+        mock_ds = MagicMock()
+        mock_dataset_cls.create.return_value = mock_ds
+        rec = Recorder(repo_id="test/ds", fps=30, obs_dim=10)
+        rec.add_frame(
+            {"actor": torch.zeros(1, 10)}, np.zeros(7, np.float32), 0.0, False
+        )
+        rec.save_episode(success=True)
+        rec.add_frame(
+            {"actor": torch.zeros(1, 10)}, np.zeros(7, np.float32), 0.0, False
+        )
+        rec.save_episode(success=True)
+        assert rec.undo_last_save() is True
+        # Episode 1 was committed and stays; episode 2 was dropped.
+        assert mock_ds.save_episode.call_count == 1
 
     @patch("g3a_bench.scripts.live_bridge.recorder.write_info")
     @patch("g3a_bench.scripts.live_bridge.recorder.LeRobotDataset")
@@ -108,10 +156,14 @@ class TestRecorder:
         rec.add_frame(
             {"actor": torch.zeros(1, 10)}, np.zeros(7, np.float32), 0.0, False
         )
+        rec.save_episode(success=True)
+        rec.add_frame(
+            {"actor": torch.zeros(1, 10)}, np.zeros(7, np.float32), 0.0, False
+        )
         rec.discard_episode()
         assert rec.num_frames_in_episode == 0
-        mock_ds.add_frame.assert_not_called()
-        mock_ds.save_episode.assert_not_called()
+        assert rec.has_staged
+        assert mock_ds.save_episode.call_count == 1
 
     @patch("g3a_bench.scripts.live_bridge.recorder.write_info")
     @patch("g3a_bench.scripts.live_bridge.recorder.LeRobotDataset")
@@ -122,6 +174,7 @@ class TestRecorder:
         mock_dataset_cls.create.return_value = mock_ds
         rec = Recorder(repo_id="test/ds", fps=30, obs_dim=10)
         rec.save_episode(success=True)
+        assert not rec.has_staged
         mock_dataset_cls.create.assert_not_called()
         mock_ds.save_episode.assert_not_called()
 
@@ -159,9 +212,10 @@ class TestRecorder:
 def test_recorder_real_roundtrip(tmp_path):
     """Un-mocked round-trip against the installed lerobot.
 
-    Verifies the buffering+label path end-to-end: add frames, save with
-    success=True, read back and confirm the success column persists — and
-    that no failure dataset was created for a success-only session.
+    Verifies the staging+label path end-to-end: add frames, save with
+    success=True, close (commits the staged episode), read back and confirm
+    the success column persists — and that no failure dataset was created
+    for a success-only session.
     """
     from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
@@ -194,6 +248,35 @@ def test_recorder_real_roundtrip(tmp_path):
     assert np.asarray(frame["observation.robot_state"]).shape == (7,)
     assert np.asarray(frame["action"]).shape == (7,)
     assert bool(np.asarray(frame["success"]).flatten()[0]) is True
+
+
+def test_recorder_real_undo_roundtrip(tmp_path):
+    """Un-mocked: save two episodes, undo the second — only the first lands
+    on disk."""
+    from lerobot.datasets.lerobot_dataset import LeRobotDataset
+
+    success_root = tmp_path / "success" / "stamp"
+    rec = Recorder(
+        repo_id="test_undo",
+        fps=50,
+        obs_dim=53,
+        success_root=str(success_root),
+    )
+    for _ in range(2):
+        rec.add_frame(
+            {"actor": torch.zeros(1, 53)},
+            np.zeros(7, dtype=np.float32),
+            0.0,
+            False,
+            robot_obs=np.zeros(7, dtype=np.float32),
+        )
+        rec.save_episode(success=True)
+    assert rec.undo_last_save() is True
+    rec.close()
+
+    ds = LeRobotDataset("test_undo", root=str(success_root))
+    assert ds.num_episodes == 1
+    assert ds.num_frames == 1
 
 
 def test_close_stores_operator_id(tmp_path):

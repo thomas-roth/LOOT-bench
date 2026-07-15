@@ -9,28 +9,38 @@ hole variants the ball must also have dropped below the platform surface).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import torch
 from mjlab.entity import Entity
 from mjlab.managers.command_manager import CommandTerm, CommandTermCfg
+from mjlab.managers.scene_entity_config import SceneEntityCfg
 
+from g3a_bench.tasks.ball.mdp.success import ball_in_target_zone
 from g3a_bench.tasks.ball.variants import (
     BALL_RADIUS,
+    BALL_SPAWN_X,
     HOLE_RADIUS,
     BallVariantCfg,
 )
+from g3a_bench.tasks.common.debug_markers import marker_color
+from g3a_bench.tasks.common.success import SuccessGate
 
 if TYPE_CHECKING:
     from mjlab.envs.manager_based_rl_env import ManagerBasedRlEnv
     from mjlab.viewer.debug_visualizer import DebugVisualizer
+
+# Grasp-site distance beyond which the ball counts as released (not held).
+_RELEASE_DISTANCE = 0.08
 
 
 @dataclass(kw_only=True)
 class BallCommandCfg(CommandTermCfg):
     ball_name: str
     variant: BallVariantCfg
-    spawn_x_range: tuple[float, float] = (0.24, 0.30)
+    grasp_cfg: SceneEntityCfg
+    """Robot grasp site for the release check; site set by manipulator wiring."""
+    spawn_x_range: tuple[float, float] = (BALL_SPAWN_X - 0.03, BALL_SPAWN_X + 0.03)
     spawn_y_range: tuple[float, float] = (-0.08, 0.08)
 
     def build(self, env: ManagerBasedRlEnv) -> BallCommand:
@@ -44,6 +54,12 @@ class BallCommand(CommandTerm):
         super().__init__(cfg, env)
         self.variant = cfg.variant
         self.ball: Entity = env.scene[cfg.ball_name]
+        self.grasp_cfg = cfg.grasp_cfg
+        # Resolve names -> indices against the scene. Unlike term ``asset_cfg``s
+        # (which the managers resolve), this command-owned cfg is resolved here,
+        # so ``grasp_cfg.site_ids`` picks out the single grasp site instead of
+        # defaulting to all sites.
+        self.grasp_cfg.resolve(env.scene)
 
         E, dev = self.num_envs, self.device
         self.surface_z = self.variant.surface_z
@@ -59,8 +75,9 @@ class BallCommand(CommandTerm):
         self.ball_pos_w = torch.zeros(E, 3, device=dev)
         self.ball_vel_w = torch.zeros(E, 3, device=dev)
         self.at_target = torch.zeros(E, device=dev)
-        self.success_steps = torch.zeros(E, device=dev)
-        self.episode_success = torch.zeros(E, device=dev)
+        self._gate = SuccessGate(
+            E, device=dev, vel_threshold=self.variant.at_rest_speed
+        )
 
         self.metrics["target_distance"] = torch.zeros(E, device=dev)
         self.metrics["at_target"] = torch.zeros(E, device=dev)
@@ -70,30 +87,38 @@ class BallCommand(CommandTerm):
     def command(self) -> torch.Tensor:
         return self.target_pos_w - self.ball_pos_w
 
-    def dir_to_target(self) -> torch.Tensor:
-        """Unit horizontal direction from the ball to the target, (E, 2)."""
-        d = self.target_pos_w[:, :2] - self.ball_pos_w[:, :2]
-        return d / d.norm(dim=-1, keepdim=True).clamp_min(1e-6)
+    @property
+    def success(self) -> torch.Tensor:
+        """(E,) float: ball at target, at rest, and released."""
+        return self._gate.success
+
+    @property
+    def episode_success(self) -> torch.Tensor:
+        """(E,) float: success latched since the last reset."""
+        return self._gate.episode_success
+
+    def _is_ball_released(self) -> torch.Tensor:
+        robot: Entity = self._env.scene[self.grasp_cfg.name]
+        grasp_site_pos = robot.data.site_pos_w[:, self.grasp_cfg.site_ids].squeeze(1)
+        gripper_distance = torch.norm(self.ball_pos_w - grasp_site_pos, dim=-1)
+        return gripper_distance > _RELEASE_DISTANCE
 
     def _update_metrics(self) -> None:
         self.ball_pos_w = self.ball.data.root_link_pos_w
         self.ball_vel_w = self.ball.data.root_link_lin_vel_w
 
-        d_xy = torch.norm(self.ball_pos_w[:, :2] - self.target_pos_w[:, :2], dim=-1)
+        at_target, d_xy = ball_in_target_zone(
+            self.ball_pos_w,
+            self.target_pos_w,
+            radius=self.target_radius,
+            surface_z=self.surface_z,
+            is_hole=self.variant.target == "hole",
+            ball_radius=BALL_RADIUS,
+        )
         speed = torch.norm(self.ball_vel_w, dim=-1)
-        within = d_xy < self.target_radius
-        if self.variant.target == "hole":
-            dropped = self.ball_pos_w[:, 2] < self.surface_z
-            at_target = within & dropped
-        else:
-            on_surface = self.ball_pos_w[:, 2] < self.surface_z + 3 * BALL_RADIUS
-            at_target = within & on_surface
-        at_rest = speed < self.variant.at_rest_speed
 
         self.at_target = at_target.float()
-        success = (at_target & at_rest).float()
-        self.success_steps = (self.success_steps + 1.0) * success
-        self.episode_success = torch.maximum(self.episode_success, success)
+        self._gate.update(at_target, speed, self._is_ball_released())
 
         self.metrics["target_distance"] = d_xy
         self.metrics["at_target"] = self.at_target
@@ -106,8 +131,7 @@ class BallCommand(CommandTerm):
         dev = self.device
         origins = self._env.scene.env_origins[env_ids]
 
-        self.success_steps[env_ids] = 0.0
-        self.episode_success[env_ids] = 0.0
+        self._gate.reset(env_ids)
 
         x0, x1 = self.cfg.spawn_x_range
         y0, y1 = self.cfg.spawn_y_range
@@ -134,10 +158,23 @@ class BallCommand(CommandTerm):
         for batch in env_indices:
             center = self.target_pos_w[batch].cpu().numpy()
             done = bool(self.at_target[batch] > 0.5)
-            color = (0.2, 0.8, 0.2, 0.5) if done else (0.9, 0.9, 0.2, 0.4)
-            visualizer.add_sphere(
-                center=center,
+            success = bool(self.success[batch] > 0.5)
+            color = marker_color((0.9, 0.9, 0.2, 1.0), done, success)
+            # Success is an xy-radius test on the surface: draw a flat disk of
+            # the success radius sitting on it (lifted slightly to avoid
+            # z-fighting), not a half-buried sphere.
+            start = center.copy()
+            start[2] += 0.0005
+            end = center.copy()
+            end[2] += 0.003
+            visualizer.add_cylinder(
+                start=start,
+                end=end,
                 radius=self.target_radius,
                 color=color,
                 label=f"target_{batch}",
             )
+
+
+def get_command(env: ManagerBasedRlEnv, name: str) -> BallCommand:
+    return cast(BallCommand, env.command_manager.get_term(name))

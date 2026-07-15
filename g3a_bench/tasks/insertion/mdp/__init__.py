@@ -20,15 +20,6 @@ from g3a_bench.tasks.insertion.mdp.rewards import (
     inserted_count_reward as inserted_count_reward,
 )
 from g3a_bench.tasks.insertion.mdp.rewards import (
-    insertion_depth_reward as insertion_depth_reward,
-)
-from g3a_bench.tasks.insertion.mdp.rewards import (
-    sheet_alignment_reward as sheet_alignment_reward,
-)
-from g3a_bench.tasks.insertion.mdp.rewards import (
-    staged_next_socket_reward as staged_next_socket_reward,
-)
-from g3a_bench.tasks.insertion.mdp.rewards import (
     success_reward as success_reward,
 )
 from g3a_bench.tasks.insertion.mdp.terminations import (

@@ -2,9 +2,11 @@
 
 At every resample the command:
 
-1. samples goal poses for the arrangement (stack bases / domino row),
-2. scatters all pieces (goal pieces + distractors) over the workspace on a
-   jittered grid (collision-free by construction),
+1. samples goal poses for the arrangement (stack bases / domino row / push
+   zones behind the maze wall),
+2. scatters all pieces (goal pieces + distractors) on a jittered grid
+   (collision-free by construction) over the workspace — restricted to the
+   near side of the maze wall for the "push" arrangement,
 3. resets the slot assignment to identity, and
 4. exposes the slot goal positions as the policy command.
 
@@ -20,14 +22,31 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
+import numpy as np
 import torch
 from mjlab.entity import Entity
-from mjlab.managers.command_manager import CommandTerm, CommandTermCfg
+from mjlab.managers.command_manager import CommandTerm
 from mjlab.utils.lab_api.math import quat_from_euler_xyz
 
+from g3a_bench.tasks.common.commands import GripperGateCommandCfg, GripperOpenGate
+from g3a_bench.tasks.common.debug_markers import MARKER_INFLATE, marker_color
+from g3a_bench.tasks.common.scatter import ScatterGrid, random_yaw
+from g3a_bench.tasks.common.success import (
+    OBJECT_VEL_THRESHOLD,
+    SuccessGate,
+)
+from g3a_bench.tasks.cube.assets import (
+    PALETTE,
+    PUSH_BAND_HALF_Y,
+    PUSH_GOAL_LANE_SPACING,
+    PUSH_GOAL_X,
+    PUSH_SPAWN_X,
+)
+from g3a_bench.tasks.cube.mdp.success import domino_upright_aligned
 from g3a_bench.tasks.cube.variants import (
+    FORM_HALF_EXTENTS,
     CubeVariantCfg,
     form_height,
 )
@@ -37,9 +56,13 @@ if TYPE_CHECKING:
     from mjlab.viewer.debug_visualizer import DebugVisualizer
 
 
+def get_command(env: ManagerBasedRlEnv, name: str) -> PieceArrangementCommand:
+    return cast(PieceArrangementCommand, env.command_manager.get_term(name))
+
+
 @dataclass(kw_only=True)
-class PieceArrangementCommandCfg(CommandTermCfg):
-    entity_names: tuple[str, ...]
+class PieceArrangementCommandCfg(GripperGateCommandCfg):
+    piece_names: tuple[str, ...]
     """All piece entities; the first `variant.num_goal_pieces` are the goal
     pieces in slot order, the rest are distractors."""
     variant: CubeVariantCfg
@@ -49,8 +72,8 @@ class PieceArrangementCommandCfg(CommandTermCfg):
     """Max distance between piece and slot goal to count as placed."""
     upright_threshold_deg: float = 15.0
     """Max tilt (and yaw misalignment for dominos) to count as placed."""
-    min_stack_base_distance: float = 0.14
-    """Minimum distance between the bases of two stacks."""
+    piece_vel_threshold: float = OBJECT_VEL_THRESHOLD
+    """Max linear speed (m/s) of any goal piece to count success."""
 
     def build(self, env: ManagerBasedRlEnv) -> PieceArrangementCommand:
         return PieceArrangementCommand(self, env)
@@ -63,7 +86,7 @@ class PieceArrangementCommand(CommandTerm):
         super().__init__(cfg, env)
         variant = cfg.variant
         self.variant = variant
-        self.pieces: list[Entity] = [env.scene[n] for n in cfg.entity_names]
+        self.pieces: list[Entity] = [env.scene[n] for n in cfg.piece_names]
         self.num_pieces = len(self.pieces)
         self.num_slots = variant.num_goal_pieces
         assert self.num_pieces >= self.num_slots
@@ -78,8 +101,8 @@ class PieceArrangementCommand(CommandTerm):
         self.row_yaw = torch.zeros(E, device=dev)  # domino row direction
         self.piece_pos_w = torch.zeros(E, N, 3, device=dev)
         self.slot_at_goal = torch.zeros(E, G, device=dev)
-        self.success_steps = torch.zeros(E, device=dev)
-        self.episode_success = torch.zeros(E, device=dev)
+        self._gate = SuccessGate(E, dev, vel_threshold=cfg.piece_vel_threshold)
+        self._gripper_gate = GripperOpenGate(cfg)
 
         # Slot heights -> goal z per slot (cumulative within each stack).
         goal_z = []
@@ -116,18 +139,36 @@ class PieceArrangementCommand(CommandTerm):
             [form_height(p.form) / 2 for p in variant.pieces], device=dev
         )
 
-        # Scatter grid (jittered cells) covering the workspace.
+        # Goal-zone y lanes for the "push" arrangement (one zone per stack).
+        lanes = [(i - (G - 1) / 2) * PUSH_GOAL_LANE_SPACING for i in range(G)]
+        self._push_lanes = torch.tensor(lanes, device=dev)
+
+        # Scatter grid (jittered cells) covering the spawn region: the whole
+        # workspace, or only the near side of the maze wall for "push".
+        if variant.arrangement == "push":
+            # Single column: the near band is too shallow for two.
+            self._scatter = ScatterGrid.from_region(
+                PUSH_SPAWN_X,
+                (-PUSH_BAND_HALF_Y, PUSH_BAND_HALF_Y),
+                nx=1,
+                ny=4,
+                device=dev,
+            )
+        else:
+            self._scatter = ScatterGrid.from_region(
+                cfg.workspace_x, cfg.workspace_y, nx=3, ny=6, device=dev
+            )
+        assert self._scatter.num_cells >= N
+
+        # Stack bases go on a coarse jittered grid for separation ("stack").
         x0, x1 = cfg.workspace_x
         y0, y1 = cfg.workspace_y
-        nx, ny = 3, 6
-        cx = torch.linspace(x0, x1, nx + 1, device=dev)
-        cy = torch.linspace(y0, y1, ny + 1, device=dev)
-        centers = torch.cartesian_prod((cx[:-1] + cx[1:]) / 2, (cy[:-1] + cy[1:]) / 2)
-        self._cells = centers  # (nx*ny, 2)
-        self._cell_jitter = 0.4 * torch.tensor(
-            [(x1 - x0) / nx / 2, (y1 - y0) / ny / 2], device=dev
+        sx = torch.linspace(x0 + 0.03, x1 - 0.03, 2, device=dev)
+        sy = torch.linspace(y0 + 0.04, y1 - 0.04, 3, device=dev)
+        self._stack_bases = ScatterGrid(
+            cells=torch.cartesian_prod(sx, sy),
+            jitter=torch.tensor([0.015, 0.015], device=dev),
         )
-        assert self._cells.shape[0] >= N
 
         self.metrics["position_error"] = torch.zeros(E, device=dev)
         self.metrics["num_placed"] = torch.zeros(E, device=dev)
@@ -151,20 +192,24 @@ class PieceArrangementCommand(CommandTerm):
 
     # Helpers used by observation/reward/termination terms. ----------------
 
+    @property
+    def success(self) -> torch.Tensor:
+        """(E,) float: all slots placed, pieces at rest, gripper open."""
+        return self._gate.success
+
+    @property
+    def episode_success(self) -> torch.Tensor:
+        """(E,) float: success latched since the last reset."""
+        return self._gate.episode_success
+
     def slot_piece_pos(self) -> torch.Tensor:
         """Positions of the piece assigned to each slot, (E, G, 3)."""
-        idx = self.piece_for_slot.unsqueeze(-1).expand(-1, -1, 3)
-        return torch.gather(self.piece_pos_w, 1, idx)
+        return self._gather_slot(self.piece_pos_w)
 
-    def next_slot(self) -> torch.Tensor:
-        """First unplaced slot index per env (clamped to G-1 when done)."""
-        unplaced = self.slot_at_goal < 0.5
-        idx = torch.where(
-            unplaced.any(dim=1),
-            unplaced.float().argmax(dim=1),
-            torch.full_like(self.piece_for_slot[:, 0], self.num_slots - 1),
-        )
-        return idx
+    def _gather_slot(self, per_piece: torch.Tensor) -> torch.Tensor:
+        """Per-piece values (E, N, D) -> per-slot values via piece_for_slot."""
+        idx = self.piece_for_slot.unsqueeze(-1).expand(-1, -1, per_piece.shape[-1])
+        return torch.gather(per_piece, 1, idx)
 
     # CommandTerm interface. ------------------------------------------------
 
@@ -178,36 +223,31 @@ class PieceArrangementCommand(CommandTerm):
         for group in self._groups:
             dist = torch.cdist(self.slot_goal_pos[:, group], self.piece_pos_w[:, group])
             self.piece_for_slot[:, group] = group[self._greedy_match(dist)]
-        slot_pos = self.slot_piece_pos()
-        error = torch.norm(self.slot_goal_pos - slot_pos, dim=-1)
+        error = torch.norm(self.slot_goal_pos - self.slot_piece_pos(), dim=-1)
         at_goal = error < self.cfg.pos_threshold
 
         # Upright (and row alignment) checks for dominos.
         if self.variant.arrangement == "domino":
             quats = torch.stack([p.data.root_link_quat_w for p in self.pieces], dim=1)
-            idx = self.piece_for_slot.unsqueeze(-1).expand(-1, -1, 4)
-            q = torch.gather(quats, 1, idx)  # (E, G, 4) wxyz
-            w, x, y, z = q.unbind(-1)
-            # Body z-axis dot world z.
-            up_cos = 1.0 - 2.0 * (x * x + y * y)
-            cos_tol = math.cos(math.radians(self.cfg.upright_threshold_deg))
-            # Body x-axis (thin side) must align with the row direction
-            # (mod pi) so the dominos can knock each other over.
-            bx_x = 1.0 - 2.0 * (y * y + z * z)
-            bx_y = 2.0 * (x * y + w * z)
-            dir_x = torch.cos(self.row_yaw)[:, None]
-            dir_y = torch.sin(self.row_yaw)[:, None]
-            align = (bx_x * dir_x + bx_y * dir_y).abs()
-            at_goal = at_goal & (up_cos > cos_tol) & (align > cos_tol)
+            q = self._gather_slot(quats)  # (E, G, 4) wxyz
+            at_goal = at_goal & domino_upright_aligned(
+                q, self.row_yaw, self.cfg.upright_threshold_deg
+            )
 
         self.slot_at_goal = at_goal.float()
-        all_placed = at_goal.all(dim=1).float()
-        self.success_steps = (self.success_steps + 1.0) * all_placed
-        self.episode_success = torch.maximum(self.episode_success, all_placed)
+        all_placed = at_goal.all(dim=1)
+
+        piece_lin_vel_w = torch.stack(
+            [p.data.root_link_lin_vel_w for p in self.pieces], dim=1
+        )  # (E, N, 3)
+        goal_speed = self._gather_slot(piece_lin_vel_w).norm(dim=-1)  # (E, G)
+
+        released = self._gripper_gate(self._env.scene["robot"])
+        self._gate.update(all_placed, goal_speed, released)
 
         self.metrics["position_error"] = error.mean(dim=1)
         self.metrics["num_placed"] = self.slot_at_goal.sum(dim=1)
-        self.metrics["all_placed"] = all_placed
+        self.metrics["all_placed"] = all_placed.float()
         self.metrics["episode_success"] = self.episode_success
 
     def _resample_command(self, env_ids: torch.Tensor) -> None:
@@ -219,8 +259,7 @@ class PieceArrangementCommand(CommandTerm):
         G, N = self.num_slots, self.num_pieces
         origins = self._env.scene.env_origins[env_ids]
 
-        self.success_steps[env_ids] = 0.0
-        self.episode_success[env_ids] = 0.0
+        self._gate.reset(env_ids)
         self.slot_at_goal[env_ids] = 0.0
 
         x0, x1 = cfg.workspace_x
@@ -228,19 +267,17 @@ class PieceArrangementCommand(CommandTerm):
 
         # --- Goal poses. ---
         if self.variant.arrangement == "stack":
-            # Stack bases on a coarse jittered grid for separation.
-            sx = torch.linspace(x0 + 0.03, x1 - 0.03, 2, device=dev)
-            sy = torch.linspace(y0 + 0.04, y1 - 0.04, 3, device=dev)
-            base_cells = torch.cartesian_prod(sx, sy)  # (6, 2)
-            pick = torch.argsort(torch.rand(n, base_cells.shape[0], device=dev), dim=1)[
-                :, : self._num_stacks
-            ]
-            bases = base_cells[pick]  # (n, num_stacks, 2)
-            bases = bases + (torch.rand_like(bases) - 0.5) * 0.03
+            bases = self._stack_bases.sample(n, self._num_stacks)
             slot_xy = bases[:, self._slot_to_stack, :]  # (n, G, 2)
-            goal = torch.cat(
-                [slot_xy, self._slot_goal_z.expand(n, G).unsqueeze(-1)], dim=-1
-            )
+        elif self.variant.arrangement == "push":
+            # One goal zone per piece in the band behind the maze wall: the
+            # fixed y lanes are shuffled among the zones and jittered, x is
+            # sampled freely within the band.
+            gx0, gx1 = PUSH_GOAL_X
+            perm = torch.argsort(torch.rand(n, G, device=dev), dim=1)
+            gy = self._push_lanes[perm] + (torch.rand(n, G, device=dev) - 0.5) * 0.03
+            gx = gx0 + 0.02 + torch.rand(n, G, device=dev) * (gx1 - gx0 - 0.04)
+            slot_xy = torch.stack([gx, gy], dim=-1)
         else:
             # Domino row: mostly lateral so the row always fits in x.
             spacing = self.variant.domino_spacing
@@ -255,11 +292,11 @@ class PieceArrangementCommand(CommandTerm):
             slot_xy = center.unsqueeze(1) + steps.view(
                 1, G, 1
             ) * spacing * dir_xy.unsqueeze(1)
-            goal = torch.cat(
-                [slot_xy, self._slot_goal_z.expand(n, G).unsqueeze(-1)], dim=-1
-            )
             self.row_yaw[env_ids] = yaw
 
+        goal = torch.cat(
+            [slot_xy, self._slot_goal_z.expand(n, G).unsqueeze(-1)], dim=-1
+        )
         self.slot_goal_pos[env_ids] = goal + origins.unsqueeze(1)
 
         # --- Slot assignment: identity at reset; _update_metrics re-matches
@@ -269,12 +306,8 @@ class PieceArrangementCommand(CommandTerm):
         )
 
         # --- Scatter all pieces on distinct jittered grid cells. ---
-        pick = torch.argsort(torch.rand(n, self._cells.shape[0], device=dev), dim=1)[
-            :, :N
-        ]
-        xy = self._cells[pick]  # (n, N, 2)
-        xy = xy + (torch.rand_like(xy) - 0.5) * 2.0 * self._cell_jitter
-        spawn_yaw = torch.rand(n, N, device=dev) * 2 * math.pi
+        xy = self._scatter.sample(n, N)  # (n, N, 2)
+        spawn_yaw = random_yaw(n, N, device=dev)
 
         zeros = torch.zeros(n, device=dev)
         for i, piece in enumerate(self.pieces):
@@ -318,13 +351,36 @@ class PieceArrangementCommand(CommandTerm):
         if not env_indices:
             return
         for batch in env_indices:
-            for i in range(self.num_slots):
+            success = bool(self.success[batch] > 0.5)
+            if self.variant.arrangement == "domino":
+                # Dominos must align their thin side with the row direction.
+                yaw = float(self.row_yaw[batch])
+                c, s = math.cos(yaw), math.sin(yaw)
+                mat = np.array([[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]])
+            else:
+                # Stack success is yaw-free.
+                mat = np.eye(3)
+            for i, piece in enumerate(self.variant.goal_pieces):
                 goal = self.slot_goal_pos[batch, i].cpu().numpy()
                 placed = bool(self.slot_at_goal[batch, i] > 0.5)
-                color = (0.2, 0.8, 0.2, 0.4) if placed else (0.9, 0.9, 0.2, 0.3)
-                visualizer.add_sphere(
-                    center=goal,
-                    radius=0.02,
-                    color=color,
-                    label=f"slot_goal_{batch}_{i}",
-                )
+                color = marker_color(PALETTE[piece.color], placed, success)
+                half = FORM_HALF_EXTENTS[piece.form]
+                label = f"slot_goal_{batch}_{i}"
+                if piece.form == "cylinder":
+                    radius, hz = half
+                    axis = np.array([0.0, 0.0, hz + MARKER_INFLATE])
+                    visualizer.add_cylinder(
+                        start=goal - axis,
+                        end=goal + axis,
+                        radius=radius + MARKER_INFLATE,
+                        color=color,
+                        label=label,
+                    )
+                else:
+                    visualizer.add_box(
+                        center=goal,
+                        size=np.array(half) + MARKER_INFLATE,
+                        mat=mat,
+                        color=color,
+                        label=label,
+                    )

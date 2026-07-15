@@ -17,9 +17,6 @@ from g3a_bench.tasks.cube.mdp.rewards import (
     placed_slots_reward as placed_slots_reward,
 )
 from g3a_bench.tasks.cube.mdp.rewards import (
-    staged_next_slot_reward as staged_next_slot_reward,
-)
-from g3a_bench.tasks.cube.mdp.rewards import (
     success_reward as success_reward,
 )
 from g3a_bench.tasks.cube.mdp.terminations import (

@@ -2,28 +2,22 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 import torch
 from mjlab.entity import Entity
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 
-from g3a_bench.tasks.cube.mdp.commands import PieceArrangementCommand
+from g3a_bench.tasks.cube.mdp.commands import get_command as _command
 
 if TYPE_CHECKING:
     from mjlab.envs import ManagerBasedRlEnv
-
-_DEFAULT_ASSET_CFG = SceneEntityCfg("robot")
-
-
-def _command(env: ManagerBasedRlEnv, name: str) -> PieceArrangementCommand:
-    return cast(PieceArrangementCommand, env.command_manager.get_term(name))
 
 
 def pieces_rel_grasp(
     env: ManagerBasedRlEnv,
     command_name: str,
-    asset_cfg: SceneEntityCfg = _DEFAULT_ASSET_CFG,
+    asset_cfg: SceneEntityCfg,
 ) -> torch.Tensor:
     """All piece positions relative to the grasp site, flattened (E, N*3)."""
     command = _command(env, command_name)

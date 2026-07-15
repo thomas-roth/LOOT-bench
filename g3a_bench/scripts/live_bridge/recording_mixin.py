@@ -1,4 +1,4 @@
-"""Viewer-agnostic recording state machine (record → reset phase → collision label).
+"""Viewer-agnostic recording state machine (record → decision prompt → reset phase).
 Only viewer-specific drawing differs; everything else here to avoid drift."""
 
 import copy
@@ -14,13 +14,15 @@ GHOST_ROBOT_ENTITY = "robot"  # scene entity key whose geoms get ghosted
 GHOST_COLOR = (0.5, 0.6, 0.9, 0.5)  # translucent blue, the neutral/reset-target color
 GHOST_COLOR_SUCCESS = (0.3, 0.9, 0.3, 0.8)  # bright green for success feedback
 GHOST_COLOR_FAILURE = (0.9, 0.3, 0.3, 0.8)  # bright red for failure feedback
+GHOST_COLOR_PROMPT = (0.95, 0.6, 0.1, 0.8)  # orange during the save-or-discard window
+FEEDBACK_COLOR_DURATION = 1.5  # seconds to show success/failure color
 RESET_THRESHOLD_RAD = 0.2  # all 6 arm joints must be within this many rad of home
 
 
 class RecordingViewerMixin:
-    """Multi-episode recording + reset phase. States: RECORDING → (collision:
-    PROVISIONAL_FAILURE, auto-saves after a 2s grace period unless discarded)
-    → RESET_PHASE → next episode."""
+    """Multi-episode recording + reset phase. States: RECORDING → (non-success
+    termination: PROVISIONAL_FAILURE, auto-saves after a 2s grace period unless
+    discarded) → RESET_PHASE → next episode."""
 
     def _init_recording(
         self,
@@ -53,20 +55,29 @@ class RecordingViewerMixin:
             )
         self._task = task
         self._num_episodes = num_episodes
-        self.episodes_saved = 0
+        self._saved_success = 0
+        self._saved_failure = 0
         self._in_reset_phase = False
         self._feedback_color: tuple[float, float, float, float] | None = None
+        self._feedback_color_start_time = 0.0
         # Auto-save failure after ~2s if user doesn't press N (discard) first
         self._provisional_failure = False
         self._provisional_failure_time = 0.0
         self._current_ep_seed: int | None = None
 
+    @property
+    def episodes_saved(self) -> int:
+        return self._saved_success + self._saved_failure
+
     # Ghost arm helpers
 
     def _get_ghost_color(self) -> tuple[float, float, float, float]:
-        """Success/failure color persists until the arm is realigned to the
+        """Orange during the provisional-failure save-or-discard window;
+        success/failure color persists until the arm is realigned to the
         reset position (_exit_reset_phase clears it); otherwise the neutral
         reset-target color."""
+        if self._provisional_failure:
+            return GHOST_COLOR_PROMPT
         if self._feedback_color is None:
             return GHOST_COLOR
         return self._feedback_color
@@ -105,6 +116,12 @@ class RecordingViewerMixin:
     # Reset phase
 
     def _enter_reset_phase(self) -> None:
+        # Ensure the next episode starts from a clean env reset (especially when an
+        # episode is ended/discarded manually without env-driven termination).
+        reset = getattr(self, "reset_environment", None)
+        if callable(reset):
+            reset()
+
         self._in_reset_phase = True
         self._provisional_failure = False
         # Suppress verbose per-tick spam during arm alignment
@@ -122,21 +139,44 @@ class RecordingViewerMixin:
     # Custom actions (GUI buttons / keys)
 
     def _handle_custom_action(self, action, payload) -> bool:  # type: ignore[override]
+        # Guards keep the accepted keys identical to what the HUD advertises
+        # as "currently valid" in each state.
         if payload == "save_success":
             self._end_episode(success=True)
         elif payload == "save_failure":
             self._end_episode(success=False)
         elif payload == "discard":
+            if self._in_reset_phase:
+                print("[INFO] Nothing to discard in the reset phase — ignored")
+                return True
             frames = self._recorder.num_frames_in_episode
             self._recorder.discard_episode()
-            self._provisional_failure = False
             print(f"[INFO] Episode discarded ({frames} frames dropped)")
             self._feedback_color = GHOST_COLOR_FAILURE
             self._enter_reset_phase()
+        elif payload == "undo":
+            self._undo_last_save()
+        elif payload == "quit":
+            self._interrupted = True
         else:
             # Delegate to concrete viewer (checkpoint, GUI-reset, etc.)
             return super()._handle_custom_action(action, payload)
         return True
+
+    def _undo_last_save(self) -> None:
+        """Drop the last saved (still staged) episode — single-level undo."""
+        label = self._recorder.undo_last_save()
+        if label is None:
+            print("[INFO] Nothing to undo (no episode staged)")
+            return
+        if label:
+            self._saved_success -= 1
+        else:
+            self._saved_failure -= 1
+        print(
+            f"[INFO] Undid last save (was {'SUCCESS' if label else 'FAILURE'}) — "
+            f"{self.episodes_saved} episode(s) remain"
+        )
 
     def _end_episode(self, success: bool) -> None:
         frames = self._recorder.num_frames_in_episode
@@ -144,7 +184,10 @@ class RecordingViewerMixin:
             print("[INFO] Nothing to save (no frames recorded yet)")
             return
         self._recorder.save_episode(success=success, seed=self._current_ep_seed)
-        self.episodes_saved += 1
+        if success:
+            self._saved_success += 1
+        else:
+            self._saved_failure += 1
         label = "SUCCESS" if success else "FAILURE"
         color_label = "✓ SUCCESS" if success else "✗ FAILURE"
         print(
@@ -152,9 +195,10 @@ class RecordingViewerMixin:
         )
 
         self._feedback_color = GHOST_COLOR_SUCCESS if success else GHOST_COLOR_FAILURE
+        self._feedback_color_start_time = time.perf_counter()
 
         folder = "success" if success else "failure"
-        print(f"[{color_label}] Episode saved to {folder}/ folder")
+        print(f"[{color_label}] Episode saved to {folder}/ folder (U undoes)")
 
         if self._num_episodes and self.episodes_saved >= self._num_episodes:
             print(f"[INFO] Reached {self._num_episodes} episodes — stopping")
@@ -162,27 +206,70 @@ class RecordingViewerMixin:
         else:
             self._enter_reset_phase()
 
-    def _handle_done(self) -> None:
-        """Distinguish success from collision."""
-        # Env auto-resets before done reaches us; read success term from termination manager
+    def _read_success_termination(self) -> bool:
+        """Read whether the success termination fired (env auto-resets before
+        done reaches us, so ask the termination manager)."""
         try:
             tm = self.env.env.termination_manager
-            is_success = bool(tm.get_term("success")[0].item())
+            return bool(tm.get_term("success")[0].item())
         except Exception:
-            is_success = False
+            return False
 
+    def _read_fired_terminations(self) -> str:
+        """Names of the termination terms that fired for the viewed env,
+        e.g. "out_of_bounds" — same post-done read as the success check."""
+        try:
+            tm = self.env.env.termination_manager
+            fired = [n for n in tm.active_terms if bool(tm.get_term(n)[0].item())]
+            return ", ".join(fired) or "unknown"
+        except Exception:
+            return "unknown"
+
+    def _handle_done(self, is_success: bool) -> None:
+        """Episode label = which termination fired: success termination saves
+        as success; any other termination enters PROVISIONAL_FAILURE (auto-saves
+        as failure after the grace period unless F saves now or D discards)."""
         if is_success:
             print("[INFO] Task succeeded — auto-saving as success")
             self._end_episode(success=True)
+        elif self._recorder.num_frames_in_episode == 0:
+            # Nothing recorded (e.g. leader action not available yet): a
+            # prompt would have nothing to save, so skip straight to reset.
+            print("[INFO] Episode ended with no recorded frames — nothing to decide")
+            self._enter_reset_phase()
         else:
             print(
-                "[WARN] Ground collision — will save as failure in ~2s "
-                "(discard within 2s to redo)"
+                f"[INFO] Episode ended by termination: "
+                f"{self._read_fired_terminations()} — auto-saving as FAILURE "
+                f"in 2s (F saves now as failure, D discards, "
+                f"V overrides to success)"
             )
             self._provisional_failure = True
             self._provisional_failure_time = time.perf_counter()
-            self._feedback_color = GHOST_COLOR_FAILURE
-            self.verbosity = VerbosityLevel.INFO
+
+    # HUD
+
+    def _hud_text(self) -> tuple[str, str]:
+        """Two-column HUD text (labels, values) for the viewer's text overlay:
+        state, saved counts, staged/undo info, and the currently valid keys."""
+        if self._provisional_failure:
+            state = "SAVE OR DISCARD?"
+            keys = "V save success   F save failure   D discard   C wrist cam"
+        else:
+            state = f"RECORDING  episode {self.episodes_saved + 1}"
+            keys = (
+                "V save success   F save failure   D discard   "
+                "U undo   Q quit   C wrist cam"
+            )
+        staged = "last save undoable (U)" if self._recorder.has_staged else "-"
+        labels = "State\nSaved\nUndo\nKeys"
+        values = (
+            f"{state}\n"
+            f"{self._saved_success} success / {self._saved_failure} failure\n"
+            f"{staged}\n"
+            f"{keys}"
+        )
+        return labels, values
 
     # Step loop
 
@@ -289,7 +376,7 @@ class RecordingViewerMixin:
                 self._stats_steps += 1
 
                 if dones[0]:
-                    self._handle_done()
+                    self._handle_done(self._read_success_termination())
 
                 return True
         except Exception:

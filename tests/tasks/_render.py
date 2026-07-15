@@ -57,6 +57,7 @@ def save_env_render(
             distance=_CAM_DISTANCE,
             elevation=_CAM_ELEVATION,
             azimuth=_CAM_AZIMUTH,
+            enable_shadows=False,
         )
         renderer = OffscreenRenderer(
             model=env.sim.mj_model,
