@@ -241,7 +241,7 @@ class _LivePolicy:
 
 
 class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
-    """NativeMujocoViewer with multi-episode recording and ghost-arm reset phase.
+    """NativeViewerWrapper with multi-episode recording and ghost-arm reset phase.
 
     The per-episode recording state machine (record → decision prompt → reset
     phase, plus ghost-color feedback and the HUD text) lives in

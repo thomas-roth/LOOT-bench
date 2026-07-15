@@ -1,15 +1,6 @@
-"""Measure the native viewer's real FPS (needs a display; not for CI).
+"""Measure the native viewer's real FPS.
 
-Launches the native MuJoCo viewer on a 1-env zero-policy task and reports the
-smoothed FPS samples the viewer computes every 0.5 s. Defaults to 1/32x
-slow-motion so the render loop is not physics-bound even on CPU-only machines
-— the point is to measure the *renderer* cap, not the sim throughput.
-
-Usage (from repo root):
-  uv run python tests/viewer/measure_viewer_fps.py                  # expect >> 60
-  uv run python tests/viewer/measure_viewer_fps.py --viewer stock   # shows 60 cap
-  uv run python tests/viewer/measure_viewer_fps.py --plots          # figures path
-  uv run python tests/viewer/measure_viewer_fps.py --frame-rate 20 --min-fps 0
+See tests/viewer/README.md.
 """
 
 import argparse
@@ -32,28 +23,16 @@ def main() -> int:
     ap.add_argument("--task", default=DEFAULT_TASK)
     ap.add_argument(
         "--viewer",
-        choices=["stock", "throttled"],
-        default="throttled",
-        help="'throttled' is what g3a-play uses; 'stock' is mjlab's viewer",
+        choices=["stock", "wrapper"],
+        default="wrapper",
+        help="'stock' is MuJoCo's native viewer; 'wrapper' is G3A's wrapper of MuJoCo's native viewer",
     )
     ap.add_argument("--frame-rate", type=float, default=240.0)
     ap.add_argument("--steps", type=int, default=25, help="env steps before exit")
     ap.add_argument(
-        "--speed-index",
-        type=int,
-        default=0,
-        help="index into BaseViewer.SPEED_MULTIPLIERS (0 = 1/32x slow-mo)",
-    )
-    ap.add_argument(
-        "--plots",
+        "--reward-plots",
         action="store_true",
         help="show reward plots (exercises the set_figures path)",
-    )
-    ap.add_argument(
-        "--min-fps",
-        type=float,
-        default=None,
-        help="exit non-zero if the median FPS is below this",
     )
     ap.add_argument("--cpu", action="store_true", help="force CPU execution")
     args = ap.parse_args()
@@ -66,17 +45,10 @@ def main() -> int:
     env = ManagerBasedRlEnv(cfg=env_cfg, device=device, render_mode=None)
     env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
 
-    action_shape = env.unwrapped.action_space.shape
-
-    def policy(obs):
-        del obs
-        return torch.zeros(action_shape, device=env.unwrapped.device)
-
-    base_cls = NativeViewerWrapper if args.viewer == "throttled" else NativeMujocoViewer
-
+    BaseViewer = NativeViewerWrapper if args.viewer == "wrapper" else NativeMujocoViewer
     samples: list[float] = []
 
-    class MeteredViewer(base_cls):  # pyright: ignore[reportGeneralTypeIssues]
+    class MeteredViewer(BaseViewer):  # pyright: ignore[reportGeneralTypeIssues]
         def _update_stats(self):
             before = self._stats_last_time
             super()._update_stats()
@@ -84,10 +56,16 @@ def main() -> int:
                 samples.append(self._fps)
                 print(f"  fps={self._fps:.1f} sps={self._sps:.1f}")
 
+    def policy(obs):
+        del obs
+        return torch.zeros(
+            env.unwrapped.action_space.shape, device=env.unwrapped.device
+        )
+
     viewer = MeteredViewer(env, policy, frame_rate=args.frame_rate)
-    viewer._speed_index = args.speed_index
-    viewer._time_multiplier = viewer.SPEED_MULTIPLIERS[args.speed_index]
-    viewer._show_plots = args.plots
+    viewer._speed_index = 0  # 0 = 1/32x slo-mo
+    viewer._time_multiplier = viewer.SPEED_MULTIPLIERS[viewer._speed_index]
+    viewer._show_plots = args.reward_plots
     viewer.run(num_steps=args.steps)
     env.close()
 
@@ -98,11 +76,8 @@ def main() -> int:
     median = sorted(steady)[len(steady) // 2]
     print(
         f"RESULT: viewer={args.viewer} frame_rate={args.frame_rate:g} "
-        f"plots={args.plots} median_fps={median:.1f} (n={len(steady)})"
+        f"plots={args.reward_plots} median_fps={median:.1f} (n={len(steady)})"
     )
-    if args.min_fps is not None and median < args.min_fps:
-        print(f"FAIL: median {median:.1f} < required {args.min_fps:g}")
-        return 1
     return 0
 
 

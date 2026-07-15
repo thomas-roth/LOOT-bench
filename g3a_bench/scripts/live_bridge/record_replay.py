@@ -240,7 +240,7 @@ class _ReplayAndRecord:
 
 
 class _RecordingViewer(NativeViewerWrapper):
-    """NativeMujocoViewer that records obs/action/reward/done per step."""
+    """NativeViewerWrapper that records obs/action/reward/done per step."""
 
     def __init__(self, env, policy, **kwargs):
         super().__init__(
