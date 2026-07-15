@@ -31,17 +31,19 @@ import mujoco.viewer
 from mjlab.viewer import NativeMujocoViewer
 from mjlab.viewer.native.viewer import compute_viewports
 
+TEARDOWN_TIMEOUT = 5.0  # seconds to wait for teardown of viewer thread
 
-def _wait_for_viewer_teardown(viewer_handle: object, timeout: float) -> bool:
+
+def wait_for_viewer_teardown(viewer_handle: object) -> bool:
     """Block until the passive viewer's GLFW thread finished tearing down.
 
     The ``Handle`` keeps only a weakref to the C++ ``Simulate`` object; the
     strong reference lives in the GLFW thread's launch frame and is dropped
     once ``simulate.destroy()`` completed. The weakref clearing is therefore
     a reliable "teardown done" signal. Returns True if teardown completed
-    within ``timeout``, False if the wait was skipped or timed out (in both
-    cases exiting may still segfault); failures are also warned to stderr so
-    they don't pass silently.
+    within ``TEARDOWN_TIMEOUT``, False if the wait was skipped or timed out (in
+    both cases exiting may still segfault); failures are also warned to stderr
+    so they don't pass silently.
     """
 
     sim_ref = getattr(viewer_handle, "_sim", None)
@@ -53,11 +55,11 @@ def _wait_for_viewer_teardown(viewer_handle: object, timeout: float) -> bool:
         )
         return False
 
-    deadline = time.perf_counter() + timeout
+    deadline = time.perf_counter() + TEARDOWN_TIMEOUT
     while sim_ref() is not None:
         if time.perf_counter() > deadline:
             print(
-                f"[g3a] WARNING: viewer teardown not finished after {timeout:g}s; "
+                f"[g3a] WARNING: viewer teardown not finished after {TEARDOWN_TIMEOUT:g}s; "
                 "exiting anyway. May lead to segfault.",
                 file=sys.stderr,
             )
@@ -86,7 +88,6 @@ class NativeViewerWrapper(NativeMujocoViewer):
     VIEWER_FRAME_RATE = 1000.0  # frame rate of viewer (1000 is functionally uncapped)
     OVERLAY_INTERVAL = 0.25  # seconds between set_texts calls (4 Hz)
     FIGURES_INTERVAL = 0.067  # seconds between set_figures calls (~15 Hz)
-    TEARDOWN_TIMEOUT = 5.0  # seconds to wait for teardown of viewer thread
 
     def __init__(
         self,
@@ -106,7 +107,7 @@ class NativeViewerWrapper(NativeMujocoViewer):
         super().close()
 
         if viewer_handle is not None:
-            _wait_for_viewer_teardown(viewer_handle, self.TEARDOWN_TIMEOUT)
+            wait_for_viewer_teardown(viewer_handle)
 
     def _set_status_overlay(self, viewer: mujoco.viewer.Handle) -> None:
         # Throttle set_texts to avoid spin-wait cap (vsync lock).

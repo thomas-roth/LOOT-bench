@@ -40,6 +40,13 @@ The script re-invokes itself as a child process that opens a tiny passive
 viewer, closes it, and exits immediately. The parent asserts a clean, prompt
 exit; `--timeout` is measured from the moment the child reaches `close()` (the
 child signals it on stdout), so slow startup/imports don't count against it.
+The child disables core dumps (`RLIMIT_CORE = 0`): the expected `--show-bug`
+segfault would otherwise spend seconds writing a 400+ MB core (torch is
+loaded), racing `--timeout` and misreporting the crash as a hang.
+`--show-bug --coredump` keeps the dump to demonstrate the unpatched
+real-world behavior — the crashed child lingers while the kernel writes the
+core (frozen window, stutter) — so there the parent just waits, without a
+timeout, and reports how long the crash-to-exit took.
 
 The why and the fix live in the module docstring of
 `g3a_bench/scripts/utils/viewer_wrapper.py`: `Handle.close()` only *requests*
@@ -49,6 +56,7 @@ before returning from `close()`; every native-viewer subclass in this repo
 derives from it, and the child here calls the same wait helper directly.
 
 ```bash
-uv run python tests/viewer/check_viewer_shutdown.py            # expect clean closing
-uv run python tests/viewer/check_viewer_shutdown.py --show-bug # expect segfault
+uv run python tests/viewer/check_viewer_shutdown.py                       # expect clean closing
+uv run python tests/viewer/check_viewer_shutdown.py --show-bug            # expect prompt segfault
+uv run python tests/viewer/check_viewer_shutdown.py --show-bug --coredump # segfault + core dump demo
 ```

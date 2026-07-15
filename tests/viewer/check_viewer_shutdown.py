@@ -11,16 +11,25 @@ import time
 CLOSE_MARKER = "CHILD_CLOSING"
 
 
-def run_child(safe: bool) -> None:
+def run_child(safe: bool, coredump: bool) -> None:
     """Open a tiny passive viewer, close it, and return straight into
     interpreter exit — the race the safe teardown wait prevents."""
     import mujoco
     import mujoco.viewer
 
-    from g3a_bench.scripts.utils.viewer_wrapper import (
-        NativeViewerWrapper,
-        _wait_for_viewer_teardown,
-    )
+    from g3a_bench.scripts.utils.viewer_wrapper import wait_for_viewer_teardown
+
+    if not coredump:
+        # A show-bug child is expected to segfault; suppress the core dump
+        # (400+ MB with torch loaded, unbounded seconds to write) so the crash
+        # doesn't race the parent's --timeout while the kernel pipes it out.
+        # --coredump keeps the dump to demonstrate the real-world cost.
+        try:
+            import resource
+
+            resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+        except ImportError:  # non-POSIX: no resource module, no core dumps
+            pass
 
     model = mujoco.MjModel.from_xml_string("""
     <mujoco>
@@ -46,7 +55,7 @@ def run_child(safe: bool) -> None:
     viewer.close()
 
     if safe:
-        _wait_for_viewer_teardown(viewer, NativeViewerWrapper.TEARDOWN_TIMEOUT)
+        wait_for_viewer_teardown(viewer)
     # interpreter exits right after this returns; without the wait the GLFW
     # thread is still mid-swap and mesa's exit-time destructors segfault it
 
@@ -59,10 +68,18 @@ def main() -> int:
         help="run the child without the teardown wait to demonstrate the crash",
     )
     ap.add_argument(
+        "--coredump",
+        action="store_true",
+        help="with --show-bug: let the crash write its core dump to show the "
+        "full real-world behavior (the child lingers for however long the "
+        "kernel needs to write 400+ MB, so --timeout is not enforced)",
+    )
+    ap.add_argument(
         "--timeout",
         type=float,
-        default=15.0,
-        help="max seconds between the child's close() and its exit",
+        default=30.0,
+        help="max seconds between the child's close() and its exit "
+        "(not enforced with --coredump)",
     )
     # Internal flags for the self-spawned child process.
     ap.add_argument("--child", action="store_true", help=argparse.SUPPRESS)
@@ -70,12 +87,17 @@ def main() -> int:
     args = ap.parse_args()
 
     if args.child:
-        run_child(safe=args.safe)
+        run_child(safe=args.safe, coredump=args.coredump)
         return 0
+
+    if args.coredump and not args.show_bug:
+        ap.error("--coredump only makes sense with --show-bug")
 
     child_args = [sys.executable, __file__, "--child"]
     if not args.show_bug:
         child_args.append("--safe")
+    if args.coredump:
+        child_args.append("--coredump")
 
     proc = subprocess.Popen(child_args, stdout=subprocess.PIPE, text=True)
     assert proc.stdout is not None
@@ -90,16 +112,24 @@ def main() -> int:
         return 1
 
     t_close = time.perf_counter()
-    try:
-        proc.communicate(timeout=args.timeout)
-        return_code = proc.returncode
-    except subprocess.TimeoutExpired:
-        proc.kill()
+    if args.coredump:
+        # Dump-writing time is unbounded (load/disk dependent), so there is no
+        # timeout that separates "still dumping" from "hung" — just wait.
+        print("child closed; waiting for it to finish core-dumping (no timeout)...")
         proc.communicate()
-        print(
-            f"FAIL: child still running {args.timeout:g}s after close() (hung teardown)"
-        )
-        return 1
+        return_code = proc.returncode
+    else:
+        try:
+            proc.communicate(timeout=args.timeout)
+            return_code = proc.returncode
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.communicate()
+            print(
+                f"FAIL: child still running {args.timeout:g}s after close() "
+                "(hung teardown)"
+            )
+            return 1
     dt = time.perf_counter() - t_close
 
     if args.show_bug:
