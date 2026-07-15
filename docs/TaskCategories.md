@@ -17,30 +17,24 @@ Pay attention to the drawing of random numbers from a seed. First draw all rando
 -> always collect data in small Margins & Ordered (needed so cutoff works)
 
 ### Randomization:
-always randomize objects & goal poses (position and orientation) a little if not stated otherwise to prevent stupid overfitting. 
+always randomize objects & goal poses (position and orientation) a little if not stated otherwise to prevent overfitting. 
 
 ## Category: Stacking
 
 Stack blocks to reach a target height. Only the final height matters; block position does not.
 
-### Tests
-
-| Test | Description |
+| **Evaluated Capabilities** | Description |
 | --- | --- |
 | Combinatorial complexity and transfer | Use different block sets and stacking strategies. |
 | Robustness | Continue building even with an unstable base. |
 
-### Tasks
-
-| Task | Description |
+| **Task** | Description |
 | --- | --- |
 | Stack3 | Build a stack three standard blocks high. |
 | Stack4 | Build a stack four standard blocks high. |
 | Stack5 | Build a stack five standard blocks high. |
 
-### Variations
-
-| Variation | Description |
+| **Variation** | Description |
 | --- | --- |
 | `base` | Use identical basic cubes only. |
 | `differentBlocks` | Use blocks with different shapes and weights, each with stacking trade-offs; rectangular blocks can serve as a bridging base. |
@@ -50,23 +44,17 @@ Stack blocks to reach a target height. Only the final height matters; block posi
 
 Build a domino line that can topple sequentially.
 
-### Tests
-
-| Test | Description |
+| **Evaluated Capabilities** | Description |
 | --- | --- |
 | Precision | Place dominoes accurately without knocking over those already placed. |
 
-### Tasks
-
-| Task | Description |
+| **Task** | Description |
 | --- | --- |
 | Domino2 | Place two dominoes in a line. |
 | Domino3 | Place three dominoes in a line. |
 | Domino4 | Place four dominoes in a line. |
 
-### Variations
-
-| Variation | Description |
+| **Variation** | Description |
 | --- | --- |
 | `base` | Use identical basic dominoes only. |
 | `differentDominoes` | Dominoes become progressively thinner and lighter. |
@@ -76,25 +64,19 @@ Build a domino line that can topple sequentially.
 
 Insert every peg into its matching hole in a Cube6 shape sorter. Each peg fits only its corresponding hole.
 
-### Tests
-
-| Test | Description |
+| **Evaluated Capabilities**  | Description |
 | --- | --- |
 | Combinatorial complexity | Reposition the cube or perform more difficult insertions. |
 | Strategy | Choose an effective insertion order. |
 | Precision | Handle tight insertion tolerances. |
 
-### Tasks
-
-| Task | Description |
+| **Task** | Description |
 | --- | --- |
 | ShapeSorter3 | Insert three shapes into the sorter. |
 | ShapeSorter4 | Insert four shapes into the sorter. |
 | ShapeSorter5 | Insert five shapes into the sorter. |
 
-### Variations
-
-| Variation | Description |
+| **Variation** | Description |
 | --- | --- |
 | `fixedOrientation` | The sorter orientation is fixed; its position varies. |
 | `noRotation` | The sorter orientation varies, but no required hole faces the ground. |
@@ -105,9 +87,7 @@ Insert every peg into its matching hole in a Cube6 shape sorter. Each peg fits o
 
 Bring a ball to its goal by hitting or throwing it.
 
-### Tests
-
-| Test | Description |
+| **Evaluated Capabilities** | Description |
 | --- | --- |
 | Dynamics | Apply sufficient force to reach the goal. |
 | Long-horizon credit assignment | Receive the reward substantially after the action. |
@@ -116,7 +96,7 @@ Bring a ball to its goal by hitting or throwing it.
 
 Hit the ball once to reach a goal outside the robot's direct reach.
 
-| Variation | Description |
+| **Variation** | Description |
 | --- | --- |
 | `direct` | Reach the goal with a direct hit. |
 | `usingWall` | Use a wall bounce to reach the goal. |
@@ -127,11 +107,13 @@ Hit the ball once to reach a goal outside the robot's direct reach.
 
 Throw the ball over a wall to reach the target. Evaluate whether reduced gravity is needed.
 
-| Variation | Description |
+| **Variation** | Description |
 | --- | --- |
 | `U` | U-shaped walls surround the goal. |
 | `markedArea` | A marked area defines the goal. |
 | `wallVariation` | Vary wall height and the robot-to-wall distance. |
+
+
 ## Future Work (don't implement for now):
 
 ### Extra Variation:
