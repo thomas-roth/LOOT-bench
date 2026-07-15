@@ -81,7 +81,7 @@ from g3a_bench.scripts.live_bridge.mapper import (
 )
 from g3a_bench.scripts.live_bridge.recorder import Recorder
 from g3a_bench.scripts.live_bridge.recording_mixin import RecordingViewerMixin
-from g3a_bench.scripts.viewer_wrapper import NativeViewerWrapper
+from g3a_bench.scripts.utils.viewer_wrapper import NativeViewerWrapper
 
 # Repo-root out/ directory (consistent with the out/<cat>_check render outputs).
 DEMOS_DIR = Path(__file__).resolve().parents[3] / "out" / "demos"

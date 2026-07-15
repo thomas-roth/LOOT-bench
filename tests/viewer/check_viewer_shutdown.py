@@ -17,7 +17,7 @@ def run_child(safe: bool) -> None:
     import mujoco
     import mujoco.viewer
 
-    from g3a_bench.scripts.viewer_wrapper import (
+    from g3a_bench.scripts.utils.viewer_wrapper import (
         NativeViewerWrapper,
         _wait_for_viewer_teardown,
     )

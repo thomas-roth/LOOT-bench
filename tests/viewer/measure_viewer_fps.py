@@ -13,7 +13,7 @@ from mjlab.tasks.registry import load_env_cfg, load_rl_cfg
 from mjlab.viewer import NativeMujocoViewer
 
 import g3a_bench  # noqa: F401  (registers tasks)
-from g3a_bench.scripts.viewer_wrapper import NativeViewerWrapper
+from g3a_bench.scripts.utils.viewer_wrapper import NativeViewerWrapper
 
 DEFAULT_TASK = "G3a-Cube-Stack3-Dk1_uni"
 
