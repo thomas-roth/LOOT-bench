@@ -20,7 +20,7 @@ register_category(
     variants=DOMINO_VARIANTS.values(),
     make_env_cfg=make_domino_env_cfg,
     robots=(get_unimanual_dk1_interface(),),
-    grasp_obs_terms=("dominoes_rel_grasp",),
+    grasp_obs_terms=(),
     task_id_parts=_task_id_parts,
     max_iterations=10_000,
 )

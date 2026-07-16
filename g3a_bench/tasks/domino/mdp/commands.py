@@ -104,6 +104,7 @@ class DominoCommand(CommandTerm):
         )
         self.row_yaw = torch.zeros(E, device=dev)
         self.domino_pos_w = torch.zeros(E, G, 3, device=dev)
+        self.domino_quat_w = torch.zeros(E, G, 4, device=dev)
         self.slot_at_goal = torch.zeros(E, G, device=dev)
         self.phase = torch.zeros(E, device=dev)
         self.progress = torch.zeros(E, device=dev)
@@ -116,21 +117,18 @@ class DominoCommand(CommandTerm):
 
     @property
     def command(self) -> torch.Tensor:
-        """(E, 2 + G*3): cos/sin(row_yaw), then env-local slot goal positions.
+        """(E, G*7): per-slot env-local target pose (pos xyz, quat wxyz).
 
-        Shared dims first, per-slot dims in index order, so a shorter
-        variant's command is a tail-truncation of a longer one's (demo-cutoff
-        rule).
+        Every slot in a row shares the same upright/row-aligned target
+        orientation. Object-major (slot index order == domino index order),
+        so a shorter variant's command is a tail-truncation of a longer
+        one's (demo-cutoff rule).
         """
         goals = self.slot_goal_pos - self._env.scene.env_origins.unsqueeze(1)
-        return torch.cat(
-            [
-                torch.cos(self.row_yaw[:, None]),
-                torch.sin(self.row_yaw[:, None]),
-                goals.reshape(self.num_envs, -1),
-            ],
-            dim=-1,
-        )
+        zeros = torch.zeros_like(self.row_yaw)
+        slot_quat = quat_from_euler_xyz(zeros, zeros, self.row_yaw)  # (E, 4)
+        slot_quat = slot_quat.unsqueeze(1).expand(-1, self.num_dominoes, -1)
+        return torch.cat([goals, slot_quat], dim=-1).reshape(self.num_envs, -1)
 
     # Helpers used by observation/reward/termination terms. ----------------
 
@@ -159,7 +157,7 @@ class DominoCommand(CommandTerm):
         self.domino_pos_w = torch.stack(
             [d.data.root_link_pos_w for d in self.dominoes], dim=1
         )
-        quats = torch.stack(
+        self.domino_quat_w = torch.stack(
             [d.data.root_link_quat_w for d in self.dominoes], dim=1
         )  # (E, G, 4) wxyz
 
@@ -173,7 +171,7 @@ class DominoCommand(CommandTerm):
             self.piece_for_slot = self._greedy_match(dist)
 
         pos = self.slot_piece_pos()
-        q = self._gather_slot(quats)
+        q = self._gather_slot(self.domino_quat_w)
         margin = self.variant.margin
         error = torch.norm(self.slot_goal_pos - pos, dim=-1)
         at_goal = (error < self.cfg.pos_threshold * margin) & domino_upright_aligned(
@@ -189,7 +187,7 @@ class DominoCommand(CommandTerm):
         released = self._gripper_gate(self._env.scene["robot"])
 
         if self.variant.knock_over:
-            fallen = domino_fallen(quats, self.cfg.fallen_tilt_deg)
+            fallen = domino_fallen(self.domino_quat_w, self.cfg.fallen_tilt_deg)
             self.phase = torch.maximum(self.phase, all_placed.float())
             task_done = (self.phase > 0.5) & fallen.all(dim=-1)
             fallen_frac = fallen.float().mean(dim=-1)

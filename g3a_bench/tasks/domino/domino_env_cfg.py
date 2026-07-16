@@ -4,7 +4,6 @@ from mjlab.entity import EntityCfg
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.managers.observation_manager import ObservationTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
-from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.managers.termination_manager import TerminationTermCfg
 from mjlab.utils.noise import UniformNoiseCfg as Unoise
 
@@ -33,16 +32,9 @@ def make_domino_env_cfg(
             spec_fn=lambda i=i, n=name: get_domino_spec(i, variant.different, name=n)
         )
 
-    grasp_cfg = SceneEntityCfg("robot", site_names=())  # Set per-robot.
-
     task_obs_terms = {
-        "dominoes_rel_grasp": ObservationTermCfg(
-            func=domino_mdp.dominoes_rel_grasp,
-            params={"command_name": COMMAND_NAME, "asset_cfg": grasp_cfg},
-            noise=Unoise(n_min=-0.01, n_max=0.01),
-        ),
-        "slot_deltas": ObservationTermCfg(
-            func=domino_mdp.slot_deltas,
+        "domino_poses": ObservationTermCfg(
+            func=domino_mdp.domino_poses,
             params={"command_name": COMMAND_NAME},
             noise=Unoise(n_min=-0.01, n_max=0.01),
         ),
