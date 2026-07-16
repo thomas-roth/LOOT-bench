@@ -1,0 +1,123 @@
+"""Pure success criteria for the shape-sorter category.
+
+Plain tensor math, no mjlab or environment imports: the command term
+(``commands.py``) acts as the adapter that gathers sim buffers and calls
+these, so the success semantics live (and are unit-tested in
+``tests/tasks/test_success.py``) in exactly one place.
+
+``peg_axial_lateral``/``peg_axis_cos_tilt``/``SorterLatch`` are a copy of the
+STL-sorter half of ``insertion/mdp/success.py`` (the peg/two_sheet
+insertion-depth test stays specific to that archived category). Quaternions
+are wxyz, matching mjlab.
+"""
+
+from __future__ import annotations
+
+import torch
+
+
+def peg_axial_lateral(
+    pos: torch.Tensor, mouth: torch.Tensor, axis_out: torch.Tensor
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Decompose piece-to-mouth offsets along/across the hole axis.
+
+    Args:
+        pos: (..., 3) piece centre positions.
+        mouth: (..., 3) hole mouth positions.
+        axis_out: (..., 3) unit outward hole axes.
+
+    Returns:
+        ``(axial, lateral)``, each (...,): signed distance along the axis
+        (+ is outside the hole) and distance from the hole centreline.
+    """
+    rel = pos - mouth
+    axial = torch.sum(rel * axis_out, dim=-1)
+    lateral = torch.norm(rel - axial.unsqueeze(-1) * axis_out, dim=-1)
+    return axial, lateral
+
+
+def peg_axis_cos_tilt(quat_wxyz: torch.Tensor, axis_out: torch.Tensor) -> torch.Tensor:
+    """|cos| of the angle between a piece's body z-axis and the hole axis.
+
+    Sign-free: a piece inserted "upside down" is equally aligned.
+
+    Args:
+        quat_wxyz: (..., 4) piece orientations.
+        axis_out: (..., 3) unit hole axes.
+
+    Returns:
+        (...,) in [0, 1].
+    """
+    w, x, y, z = quat_wxyz.unbind(-1)
+    piece_axis = torch.stack(
+        [2 * (x * z + w * y), 2 * (y * z - w * x), 1 - 2 * (x * x + y * y)], dim=-1
+    )
+    return torch.sum(piece_axis * axis_out, dim=-1).abs()
+
+
+class SorterLatch:
+    """Latched mouth-plane crossing for the shape sorter.
+
+    A piece scores the moment it passes through its own hole into the cube:
+    it must be inside the insertion channel above the crossing plane on the
+    previous step and at or below it now, roughly axis-aligned. The latch
+    holds until :meth:`reset`, so it survives the piece tumbling around
+    inside the hollow cube.
+
+    All per-socket tensors are (S,); ``axial`` is measured from the mouth
+    along the outward axis (+ is outside).
+    """
+
+    # Channel slack beyond the exact crossing window (m).
+    _BELOW_MARGIN = 0.02
+    _ABOVE_MARGIN = 0.01
+
+    def __init__(
+        self,
+        num_envs: int,
+        num_sockets: int,
+        device: str | torch.device,
+        *,
+        hole_radius: torch.Tensor,
+        piece_half: torch.Tensor,
+        s_cross: torch.Tensor,
+        tilt_cos: float,
+    ):
+        self.hole_radius = hole_radius.to(device)
+        self.piece_half = piece_half.to(device)
+        self.s_cross = s_cross.to(device)
+        self.tilt_cos = tilt_cos
+        self.latched = torch.zeros(
+            num_envs, num_sockets, dtype=torch.bool, device=device
+        )
+        # Far outside, out of channel: the first step can never latch.
+        self._prev_axial = torch.full((num_envs, num_sockets), 1.0, device=device)
+        self._prev_in_channel = torch.zeros(
+            num_envs, num_sockets, dtype=torch.bool, device=device
+        )
+
+    def update(
+        self, axial: torch.Tensor, lateral: torch.Tensor, cos_tilt: torch.Tensor
+    ) -> torch.Tensor:
+        """Advance one step; returns the (E, S) bool latch state."""
+        in_channel = (
+            (lateral < self.hole_radius)
+            & (axial > self.s_cross - self._BELOW_MARGIN)
+            & (axial < self.piece_half + self._ABOVE_MARGIN)
+        )
+        crossed = (
+            self._prev_in_channel
+            & in_channel
+            & (self._prev_axial > self.s_cross)
+            & (axial <= self.s_cross)
+            & (cos_tilt > self.tilt_cos)
+        )
+        self.latched |= crossed
+        self._prev_axial = axial.clone()
+        self._prev_in_channel = in_channel
+        return self.latched
+
+    def reset(self, env_ids: torch.Tensor) -> None:
+        self.latched[env_ids] = False
+        self._prev_in_channel[env_ids] = False
+        self._prev_axial[env_ids] = 1.0  # far outside: no spurious crossing

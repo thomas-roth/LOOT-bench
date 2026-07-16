@@ -22,6 +22,7 @@ from g3a_bench.tasks.insertion.mdp.success import (
     peg_axis_cos_tilt,
     peg_inserted,
 )
+from g3a_bench.tasks.shape_sorter.variants import SHAPE_SORTER_VARIANTS, allowed_faces
 from g3a_bench.tasks.stacking.mdp.success import (
     block_top_heights,
     stack_reached,
@@ -433,3 +434,25 @@ class TestDominoFallen:
         # Toppling either way about any horizontal axis counts the same.
         quat = _quat_axis_angle((0.0, 1.0, 0.0), math.radians(90.0)).view(1, 1, 4)
         assert bool(domino_fallen(quat, tilt_deg=45.0)[0, 0])
+
+
+# ---------------------------------------------------------------------------
+# shape_sorter: no_rotation allowed-face sets
+# ---------------------------------------------------------------------------
+
+
+class TestNoRotationFaces:
+    def _allowed(self, name: str) -> set[int]:
+        return set(allowed_faces(SHAPE_SORTER_VARIANTS[name].shapes))
+
+    def test_allowed_faces_shrink_and_nest_with_shape_count(self):
+        a3 = self._allowed("ShapeSorter3NoRotation")
+        a4 = self._allowed("ShapeSorter4NoRotation")
+        a5 = self._allowed("ShapeSorter5NoRotation")
+        assert a5 <= a4 <= a3
+        assert len(a5) < len(a4) < len(a3)
+
+    def test_allowed_faces_never_empty(self):
+        # The star socket is never a required shape, so its face index is
+        # always allowed, however many shapes the variant needs.
+        assert self._allowed("ShapeSorter5NoRotation")
