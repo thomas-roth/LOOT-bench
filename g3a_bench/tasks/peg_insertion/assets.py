@@ -21,6 +21,7 @@ from dataclasses import dataclass
 import mujoco
 import numpy as np
 
+from g3a_bench.tasks.common.colors import PALETTE
 from g3a_bench.tasks.peg_insertion.variants import (
     PEG_HALF_LEN,
     SHAPE_GEOMS,
@@ -29,15 +30,6 @@ from g3a_bench.tasks.peg_insertion.variants import (
     bore_apothem,
 )
 
-PALETTE: dict[str, tuple[float, float, float, float]] = {
-    "red": (0.85, 0.15, 0.15, 1.0),
-    "green": (0.15, 0.7, 0.2, 1.0),
-    "blue": (0.15, 0.3, 0.85, 1.0),
-    "yellow": (0.9, 0.8, 0.1, 1.0),
-    "orange": (0.95, 0.55, 0.1, 1.0),
-    "purple": (0.55, 0.25, 0.75, 1.0),
-    "gray": (0.5, 0.5, 0.5, 1.0),
-}
 BOARD_RGBA = (0.72, 0.6, 0.42, 1.0)  # light wood
 PEG_MASS = 0.05
 SHEET_MASS = 0.12
