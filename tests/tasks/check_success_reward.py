@@ -30,8 +30,8 @@ from g3a_bench.tasks.ball.variants import (
 from g3a_bench.tasks.domino.mdp.commands import DominoCommand
 from g3a_bench.tasks.shape_sorter.assets import BOARD_POS, load_sorter_layout
 from g3a_bench.tasks.shape_sorter.mdp.commands import ShapeSorterCommand
-from g3a_bench.tasks.stacking.mdp.commands import StackingCommand
-from g3a_bench.tasks.stacking.variants import FORM_HALF_EXTENTS
+from g3a_bench.tasks.stack.mdp.commands import StackCommand
+from g3a_bench.tasks.stack.variants import FORM_HALF_EXTENTS
 
 _NUM_ENVS = 8
 _STEPS = 10
@@ -79,12 +79,12 @@ def _render_goal(env: ManagerBasedRlEnv, task_id: str, render: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Stacking
+# Stack
 # ---------------------------------------------------------------------------
 
 
 def _teleport_stack(
-    cmd: StackingCommand,
+    cmd: StackCommand,
     env: ManagerBasedRlEnv,
     device: str,
     *,
@@ -108,7 +108,7 @@ def _teleport_stack(
 
 
 def _teleport_two_stacks(
-    cmd: StackingCommand, env: ManagerBasedRlEnv, device: str, *, separation: float
+    cmd: StackCommand, env: ManagerBasedRlEnv, device: str, *, separation: float
 ) -> None:
     """Two separate n-block stacks, ``separation`` m apart in y."""
     origins = env.scene.env_origins
@@ -132,10 +132,10 @@ def _teleport_two_stacks(
         cum[stack] += 2 * h
 
 
-def _check_stacking_stack3(device: str, *, render: bool = False) -> str | None:
-    task_id = "G3a-Stacking-Stack3-Dk1_uni"
+def _check_stack_low(device: str, *, render: bool = False) -> str | None:
+    task_id = "G3A-Stack-Low-Dk1_uni"
     env = _make_env(task_id, device)
-    cmd = cast(StackingCommand, env.command_manager.get_term("task"))
+    cmd = cast(StackCommand, env.command_manager.get_term("task"))
     zeros = _zeros(env, device)
     env.step(zeros)
     _teleport_stack(cmd, env, device, xy=(0.30, 0.0))
@@ -147,10 +147,10 @@ def _check_stacking_stack3(device: str, *, render: bool = False) -> str | None:
     return None if frac > 0.9 else f"progress={frac:.3f} (expected >0.9)"
 
 
-def _check_stacking_two_stacks(device: str, *, render: bool = False) -> str | None:
-    task_id = "G3a-Stacking-Stack3TwoStacks-Dk1_uni"
+def _check_stack_low_two_stacks(device: str, *, render: bool = False) -> str | None:
+    task_id = "G3A-Stack-Low-TwoStacks-Dk1_uni"
     env = _make_env(task_id, device)
-    cmd = cast(StackingCommand, env.command_manager.get_term("task"))
+    cmd = cast(StackCommand, env.command_manager.get_term("task"))
     zeros = _zeros(env, device)
     env.step(zeros)
     _teleport_two_stacks(cmd, env, device, separation=0.12)
@@ -201,8 +201,8 @@ def _lay_dominoes_flat(cmd: DominoCommand, env: ManagerBasedRlEnv, device: str) 
         domino.write_root_link_velocity_to_sim(torch.zeros(n, 6, device=device))
 
 
-def _check_domino_domino3(device: str, *, render: bool = False) -> str | None:
-    task_id = "G3a-Domino-Domino3-Dk1_uni"
+def _check_domino_3pieces(device: str, *, render: bool = False) -> str | None:
+    task_id = "G3A-Domino-3Pieces-Dk1_uni"
     env = _make_env(task_id, device)
     cmd = cast(DominoCommand, env.command_manager.get_term("task"))
     zeros = _zeros(env, device)
@@ -217,7 +217,7 @@ def _check_domino_domino3(device: str, *, render: bool = False) -> str | None:
 
 
 def _check_domino_knockover(device: str, *, render: bool = False) -> str | None:
-    task_id = "G3a-Domino-Domino3KnockOver-Dk1_uni"
+    task_id = "G3A-Domino-3Pieces-KnockOver-Dk1_uni"
     env = _make_env(task_id, device)
     cmd = cast(DominoCommand, env.command_manager.get_term("task"))
     zeros = _zeros(env, device)
@@ -265,7 +265,7 @@ def _check_shape_sorter_full(device: str, *, render: bool = False) -> str | None
     sequentially -- the latch is monotonic (never clears except on reset), so
     an earlier piece stays scored while later sockets are reoriented to.
     """
-    task_id = "G3a-ShapeSorter-ShapeSorter3Full-Dk1_uni"
+    task_id = "G3A-Sorter-3Shapes-Full-Dk1_uni"
     env = _make_env(task_id, device)
     cmd = cast(ShapeSorterCommand, env.command_manager.get_term("task"))
     zeros = _zeros(env, device)
@@ -413,7 +413,7 @@ def _check_minigolf_using_wall_blocks_direct_shots() -> str | None:
 
 
 def _check_ball_minigolf_using_wall(device: str, *, render: bool = False) -> str | None:
-    task_id = "G3a-Ball-MinigolfUsingWall-Dk1_uni"
+    task_id = "G3A-Ball-Minigolf-UsingWall-Dk1_uni"
     err = _check_ball_at_target(device, task_id, render=render)
     if err is not None:
         return err
@@ -425,42 +425,42 @@ def _check_ball_minigolf_using_wall(device: str, *, render: bool = False) -> str
 # ---------------------------------------------------------------------------
 
 _CHECKS: list[tuple[str, str]] = [
-    ("Stacking  Stack3        ", "stacking_stack3"),
-    ("Stacking  Stack3TwoStacks", "stacking_two_stacks"),
-    ("Domino    Domino3       ", "domino_domino3"),
-    ("Domino    Domino3KnockOver", "domino_knockover"),
-    ("ShapeSorter ShapeSorter3Full", "shape_sorter_full"),
-    ("Ball      MinigolfDirect", "ball_minigolf_direct"),
-    ("Ball      MinigolfUsingWall", "ball_minigolf_using_wall"),
-    ("Ball      ThrowU        ", "ball_throw_u"),
+    ("Stack     Low          ", "stack_low"),
+    ("Stack     Low-TwoStacks", "stack_low_two_stacks"),
+    ("Domino    3Pieces       ", "domino_3pieces"),
+    ("Domino    3Pieces-KnockOver", "domino_knockover"),
+    ("Sorter    3Shapes-Full ", "shape_sorter_full"),
+    ("Ball      Minigolf-Direct", "ball_minigolf_direct"),
+    ("Ball      Minigolf-UsingWall", "ball_minigolf_using_wall"),
+    ("Ball      Throw-U       ", "ball_throw_u"),
 ]
 
 
 def _dispatch(key: str, device: str, *, render: bool = False) -> str | None:
-    if key == "stacking_stack3":
-        return _check_stacking_stack3(device, render=render)
-    if key == "stacking_two_stacks":
-        return _check_stacking_two_stacks(device, render=render)
-    if key == "domino_domino3":
-        return _check_domino_domino3(device, render=render)
+    if key == "stack_low":
+        return _check_stack_low(device, render=render)
+    if key == "stack_low_two_stacks":
+        return _check_stack_low_two_stacks(device, render=render)
+    if key == "domino_3pieces":
+        return _check_domino_3pieces(device, render=render)
     if key == "domino_knockover":
         return _check_domino_knockover(device, render=render)
     if key == "shape_sorter_full":
         return _check_shape_sorter_full(device, render=render)
     if key == "ball_minigolf_direct":
         return _check_ball_at_target(
-            device, "G3a-Ball-MinigolfDirect-Dk1_uni", render=render
+            device, "G3A-Ball-Minigolf-Direct-Dk1_uni", render=render
         )
     if key == "ball_minigolf_using_wall":
         return _check_ball_minigolf_using_wall(device, render=render)
     if key == "ball_throw_u":
-        return _check_ball_at_target(device, "G3a-Ball-ThrowU-Dk1_uni", render=render)
+        return _check_ball_at_target(device, "G3A-Ball-Throw-U-Dk1_uni", render=render)
     return f"Unknown check key: {key}"
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Verify success metrics fire for representative G3a tasks."
+        description="Verify success metrics fire for representative G3A tasks."
     )
     parser.add_argument("--cpu", action="store_true", help="Force CPU device.")
     parser.add_argument(

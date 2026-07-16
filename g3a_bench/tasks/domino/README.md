@@ -31,14 +31,14 @@ complete, and then additionally require every domino toppled past 45°.
 
 ## Variants
 
-| Task id (`-Dk1_uni`)                     | Description                                    |
-| ----------------------------------------- | ----------------------------------------------- |
-| `G3a-Domino-Domino{2,3,4}`                 | place n standard dominoes in a row               |
-| `G3a-Domino-Domino{n}DifferentDominoes`    | dominoes progressively thinner and lighter       |
-| `G3a-Domino-Domino{n}KnockOver`            | topple the completed line after building it      |
+| Task id (`-Dk1_uni`)                            | Description                                    |
+| ------------------------------------------------ | ----------------------------------------------- |
+| `G3A-Domino-{2,3,4}Pieces`                        | place n standard dominoes in a row               |
+| `G3A-Domino-{2,3,4}Pieces-DifferentDominoes`      | dominoes progressively thinner and lighter       |
+| `G3A-Domino-{2,3,4}Pieces-KnockOver`              | topple the completed line after building it      |
 
 Play e.g. with:
 
 ```bash
-uv run g3a-play G3a-Domino-Domino3-Dk1_uni
+uv run g3a-play G3A-Domino-3Pieces-Dk1_uni
 ```

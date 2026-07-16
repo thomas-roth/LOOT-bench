@@ -1,4 +1,4 @@
-"""Task command for the stacking category.
+"""Task command for the stack category.
 
 There is no goal pose to sample — the target height is a per-task constant —
 so at every resample the command only resets the success gate and scatters
@@ -26,17 +26,17 @@ from g3a_bench.tasks.common.commands import GripperGateCommandCfg, GripperOpenGa
 from g3a_bench.tasks.common.debug_markers import marker_color
 from g3a_bench.tasks.common.scatter import ScatterGrid
 from g3a_bench.tasks.common.success import OBJECT_VEL_THRESHOLD, SuccessGate
-from g3a_bench.tasks.stacking.mdp.success import (
+from g3a_bench.tasks.stack.mdp.success import (
     block_top_heights,
+    stack_progress,
     stack_reached,
-    stacking_progress,
     two_stacks_progress,
     two_stacks_success,
 )
-from g3a_bench.tasks.stacking.variants import (
+from g3a_bench.tasks.stack.variants import (
     FORM_HALF_EXTENTS,
     MIN_STACK_SEPARATION,
-    StackingVariantCfg,
+    StackVariantCfg,
 )
 
 if TYPE_CHECKING:
@@ -47,28 +47,28 @@ if TYPE_CHECKING:
 _PLANE_RGBA = (0.95, 0.95, 0.95, 1.0)
 
 
-def get_command(env: ManagerBasedRlEnv, name: str) -> StackingCommand:
-    return cast(StackingCommand, env.command_manager.get_term(name))
+def get_command(env: ManagerBasedRlEnv, name: str) -> StackCommand:
+    return cast(StackCommand, env.command_manager.get_term(name))
 
 
 @dataclass(kw_only=True)
-class StackingCommandCfg(GripperGateCommandCfg):
+class StackCommandCfg(GripperGateCommandCfg):
     block_names: tuple[str, ...]
     """All block entities, in the variant's (tail-extending) index order."""
-    variant: StackingVariantCfg
+    variant: StackVariantCfg
     workspace_x: tuple[float, float] = (0.22, 0.42)
     workspace_y: tuple[float, float] = (-0.18, 0.18)
     block_vel_threshold: float = OBJECT_VEL_THRESHOLD
     """Max linear speed (m/s) of any block to count success."""
 
-    def build(self, env: ManagerBasedRlEnv) -> StackingCommand:
-        return StackingCommand(self, env)
+    def build(self, env: ManagerBasedRlEnv) -> StackCommand:
+        return StackCommand(self, env)
 
 
-class StackingCommand(CommandTerm):
-    cfg: StackingCommandCfg
+class StackCommand(CommandTerm):
+    cfg: StackCommandCfg
 
-    def __init__(self, cfg: StackingCommandCfg, env: ManagerBasedRlEnv):
+    def __init__(self, cfg: StackCommandCfg, env: ManagerBasedRlEnv):
         super().__init__(cfg, env)
         variant = cfg.variant
         self.variant = variant
@@ -137,7 +137,7 @@ class StackingCommand(CommandTerm):
             )
         else:
             task_done = self.block_reached.any(dim=-1)
-            self.progress = stacking_progress(top_z, table_z, target)
+            self.progress = stack_progress(top_z, table_z, target)
 
         speed = torch.stack(
             [b.data.root_link_lin_vel_w for b in self.blocks], dim=1

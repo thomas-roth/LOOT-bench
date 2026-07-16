@@ -1,4 +1,4 @@
-"""Environment configuration for the stacking task category."""
+"""Environment configuration for the stack task category."""
 
 from mjlab.entity import EntityCfg
 from mjlab.envs import ManagerBasedRlEnvCfg
@@ -10,18 +10,18 @@ from mjlab.utils.noise import UniformNoiseCfg as Unoise
 
 from g3a_bench.tasks.common.env_cfg import make_manipulation_env_cfg
 from g3a_bench.tasks.common.table import table_entity_cfg
-from g3a_bench.tasks.stacking import mdp as stacking_mdp
-from g3a_bench.tasks.stacking.assets import get_block_spec
-from g3a_bench.tasks.stacking.variants import StackingVariantCfg
+from g3a_bench.tasks.stack import mdp as stack_mdp
+from g3a_bench.tasks.stack.assets import get_block_spec
+from g3a_bench.tasks.stack.variants import StackVariantCfg
 
 COMMAND_NAME = "task"
 
 
-def make_stacking_env_cfg(
-    variant: StackingVariantCfg,
+def make_stack_env_cfg(
+    variant: StackVariantCfg,
     play: bool = False,
 ) -> ManagerBasedRlEnvCfg:
-    """Build the robot-agnostic stacking cfg (see ``tasks/common/env_cfg.py``
+    """Build the robot-agnostic stack cfg (see ``tasks/common/env_cfg.py``
     for the placeholder/wiring convention)."""
     block_names = tuple(f"block_{i}" for i in range(len(variant.blocks)))
 
@@ -35,7 +35,7 @@ def make_stacking_env_cfg(
 
     task_obs_terms = {
         "blocks_rel_grasp": ObservationTermCfg(
-            func=stacking_mdp.blocks_rel_grasp,
+            func=stack_mdp.blocks_rel_grasp,
             params={"command_name": COMMAND_NAME, "asset_cfg": grasp_cfg},
             noise=Unoise(n_min=-0.01, n_max=0.01),
         ),
@@ -43,12 +43,12 @@ def make_stacking_env_cfg(
 
     task_rewards = {
         "progress": RewardTermCfg(
-            func=stacking_mdp.progress_reward,
+            func=stack_mdp.progress_reward,
             weight=1.0,
             params={"command_name": COMMAND_NAME},
         ),
         "success": RewardTermCfg(
-            func=stacking_mdp.success_reward,
+            func=stack_mdp.success_reward,
             weight=1.0,
             params={"command_name": COMMAND_NAME},
         ),
@@ -56,7 +56,7 @@ def make_stacking_env_cfg(
 
     task_terminations = {
         "success": TerminationTermCfg(
-            func=stacking_mdp.stack_complete,
+            func=stack_mdp.stack_complete,
             params={"command_name": COMMAND_NAME},
         ),
     }
@@ -66,7 +66,7 @@ def make_stacking_env_cfg(
         entities=entities,
         fixed_props=("table",),
         command_name=COMMAND_NAME,
-        command_cfg=stacking_mdp.StackingCommandCfg(
+        command_cfg=stack_mdp.StackCommandCfg(
             block_names=block_names,
             variant=variant,
             resampling_time_range=(1.0e9, 1.0e9),

@@ -56,7 +56,7 @@ def _run(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Smoke-test all G3a tasks.")
+    parser = argparse.ArgumentParser(description="Smoke-test all G3A tasks.")
     parser.add_argument("--cpu", action="store_true", help="Force CPU device.")
     parser.add_argument(
         "--no-render",
@@ -66,7 +66,7 @@ def main() -> None:
     args = parser.parse_args()
 
     device = "cpu" if args.cpu else ("cuda" if torch.cuda.is_available() else "cpu")
-    tasks = sorted(t for t in list_tasks() if t.startswith("G3a"))
+    tasks = sorted(t for t in list_tasks() if t.startswith("G3A"))
     render_dir = None if args.no_render else _RENDER_DIR
 
     print(f"Device: {device}   Tasks: {len(tasks)}")

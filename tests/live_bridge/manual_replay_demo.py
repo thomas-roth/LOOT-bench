@@ -30,7 +30,7 @@ def main():
     # ------------------------------------------------------------------
     # 1. Load a task config in play-mode (infinite episode, no noise).
     # ------------------------------------------------------------------
-    cfg = load_env_cfg("G3a-Stacking-Stack3-Dk1_uni", play=True)
+    cfg = load_env_cfg("G3A-Stack-Low-Dk1_uni", play=True)
     cfg.terminations["time_out"].time_out = False
 
     # ------------------------------------------------------------------

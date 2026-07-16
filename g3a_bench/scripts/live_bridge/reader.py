@@ -5,6 +5,7 @@ from typing import Any
 
 import numpy as np
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
+from lerobot.datasets.utils import DatasetInfo
 
 # Hardware-specific imports — only needed for LiveReader (real robot).
 # Protected by try/except so the module can be imported on machines
@@ -97,8 +98,8 @@ class DatasetReader(Reader):
         self._frame_index = 0
 
     @property
-    def meta_info(self) -> dict:
-        """The dataset's info.json dict (episode_seeds, seed_device, operator_id, ...)."""
+    def meta_info(self) -> DatasetInfo:
+        """The dataset's info.json (episode_seeds, seed_device, operator_id, ... via .get())."""
         return self._ds.meta.info
 
     def read(self) -> ReaderFrame:

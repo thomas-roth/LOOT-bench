@@ -114,7 +114,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--task",
         type=str,
         default=None,
-        help="mjlab task id for online fine-tuning (e.g. G3a-Stacking-Stack3-Dk1_uni)",
+        help="mjlab task id for online fine-tuning (e.g. G3A-Stack-Low-Dk1_uni)",
     )
     parser.add_argument(
         "--device",

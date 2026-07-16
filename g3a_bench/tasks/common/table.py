@@ -8,7 +8,7 @@ those objects sit on.
 
 One fixed size is shared unchanged across categories rather than sized per
 task, so it must cover the union of every category's workspace:
-- stacking/domino: object scatter region, x in (0.22, 0.42), y in
+- stack/domino: object scatter region, x in (0.22, 0.42), y in
   (-0.18, 0.18).
 - shape sorter: sorter cube + piece scatter, x in (0.08, 0.60), y in
   (-0.34, 0.34).

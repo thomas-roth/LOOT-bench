@@ -23,6 +23,7 @@ def register_category(
     make_env_cfg: Callable[..., ManagerBasedRlEnvCfg],
     robots: tuple[ManipulatorInterface, ...],
     grasp_obs_terms: tuple[str, ...],
+    task_id_parts: Callable[..., tuple[str, str]],
     ee_contact_sensors: tuple[str, ...] = (),
     max_iterations: int = 15_000,
 ) -> None:
@@ -30,12 +31,19 @@ def register_category(
 
     Args:
         category: capitalized category name; task ids become
-            ``G3a-<category>-<variant.name>-<robot.name>``.
-        variants: the category's ``*_VARIANTS`` values; each needs a ``name``.
+            ``G3A-<category>-<task>-<variation>-<robot.name>`` (the
+            ``<variation>`` segment is omitted when ``task_id_parts`` returns
+            an empty string for it).
+        variants: the category's ``*_VARIANTS`` values; each needs a ``name``
+            (used only for the internal experiment-name string, not the
+            task id).
         make_env_cfg: ``make_<cat>_env_cfg(variant, play=...)``.
         robots: manipulator interfaces to register against.
         grasp_obs_terms / ee_contact_sensors: forwarded to
             ``wire_manipulator_into_env``.
+        task_id_parts: ``(task, variation)`` for a variant, e.g.
+            ``("Low", "DifferentBlocks")`` or ``("Low", "")`` for the base
+            case.
         max_iterations: PPO iteration budget (kept so ``g3a-play`` and the
             mjlab registry tooling work; QC has its own trainer).
     """
@@ -57,7 +65,12 @@ def register_category(
                 ee_contact_sensors=ee_contact_sensors,
             )
 
-            task_id = f"G3a-{category}-{variant.name}-{robot.name}"
+            task, variation = task_id_parts(variant)
+            task_id = (
+                f"G3A-{category}-{task}-{variation}-{robot.name}"
+                if variation
+                else f"G3A-{category}-{task}-{robot.name}"
+            )
             register_mjlab_task(
                 task_id=task_id,
                 env_cfg=env_cfg,

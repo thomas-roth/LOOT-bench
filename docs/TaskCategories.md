@@ -19,7 +19,7 @@ Pay attention to the drawing of random numbers from a seed. First draw all rando
 ### Randomization:
 always randomize objects & goal poses (position and orientation) a little if not stated otherwise to prevent overfitting. 
 
-## Category: Stacking
+## Category: Stack
 
 Stack blocks to reach a target height. Only the final height matters; block position does not.
 
@@ -30,9 +30,9 @@ Stack blocks to reach a target height. Only the final height matters; block posi
 
 | **Task** | Description |
 | --- | --- |
-| Stack3 | Build a stack three standard blocks high. |
-| Stack4 | Build a stack four standard blocks high. |
-| Stack5 | Build a stack five standard blocks high. |
+| Low | Build a stack three standard blocks high. |
+| Medium | Build a stack four standard blocks high. |
+| High | Build a stack five standard blocks high. |
 
 | **Variation** | Description |
 | --- | --- |
@@ -50,9 +50,9 @@ Build a domino line that can topple sequentially.
 
 | **Task** | Description |
 | --- | --- |
-| Domino2 | Place two dominoes in a line. |
-| Domino3 | Place three dominoes in a line. |
-| Domino4 | Place four dominoes in a line. |
+| 2Pieces | Place two dominoes in a line. |
+| 3Pieces | Place three dominoes in a line. |
+| 4Pieces | Place four dominoes in a line. |
 
 | **Variation** | Description |
 | --- | --- |
@@ -60,9 +60,9 @@ Build a domino line that can topple sequentially.
 | `differentDominoes` | Dominoes become progressively thinner and lighter. |
 | `knockOver` | Topple the completed line; include a phase observation indicating build (`0`) or toppling (`1`). |
 
-## Category: ShapeSorter (Cube6)
+## Category: Sorter
 
-Insert every peg into its matching hole in a Cube6 shape sorter. Each peg fits only its corresponding hole.
+Insert every peg into its matching hole in a shape sorter. Each peg fits only its corresponding hole.
 
 | **Evaluated Capabilities**  | Description |
 | --- | --- |
@@ -72,9 +72,9 @@ Insert every peg into its matching hole in a Cube6 shape sorter. Each peg fits o
 
 | **Task** | Description |
 | --- | --- |
-| ShapeSorter3 | Insert three shapes into the sorter. |
-| ShapeSorter4 | Insert four shapes into the sorter. |
-| ShapeSorter5 | Insert five shapes into the sorter. |
+| 3Shapes | Insert three shapes into the sorter. |
+| 4Shapes | Insert four shapes into the sorter. |
+| 5Shapes | Insert five shapes into the sorter. |
 
 | **Variation** | Description |
 | --- | --- |

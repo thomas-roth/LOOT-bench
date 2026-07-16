@@ -12,12 +12,13 @@ provide the robot assets and task definitions; the play loop is mjlab's, and
 training is QC-FQL (offline-to-online RL; see `g3a_bench/scripts/qc_fql/`).
 
 Four task categories, 37 tasks total, currently registered for one robot
-(`-Dk1_uni`) → task ids look like `G3a-<Category>-<Variant>-<Robot>`:
-`tasks/stacking` (stack blocks to a target height), `tasks/domino` (place
-and optionally knock over a row of dominoes), `tasks/shape_sorter` (insert
-shapes into a sorter board), `tasks/ball` (minigolf / throw a ball to a
-target). `tasks/peg_insertion` is an archived, unregistered category kept
-importable for reference (see its README).
+(`-Dk1_uni`) → task ids look like `G3A-<Category>-<Task>[-<Variation>]-<Robot>`:
+`tasks/stack` (stack blocks to a target height, registered as `Stack`),
+`tasks/domino` (place and optionally knock over a row of dominoes),
+`tasks/shape_sorter` (insert shapes into a sorter board, registered as
+`Sorter`), `tasks/ball` (minigolf / throw a ball to a target).
+`tasks/peg_insertion` is an archived, unregistered category kept importable
+for reference (see its README).
 
 ## Commands
 
@@ -35,11 +36,11 @@ uv run pyright             # type check (config in pyrightconfig.json, basic mod
 uv run pre-commit run --all-files
 
 # Play a task (wraps mjlab's player after importing g3a_bench to register tasks)
-uv run g3a-play G3a-Stacking-Stack3-Dk1_uni
+uv run g3a-play G3A-Stack-Low-Dk1_uni
 
 # Offline-to-online RL training (QC-FQL; see g3a_bench/scripts/qc_fql/README.md)
 uv run g3a-train-qcfql --dataset-path demos.npz --offline-steps 1000000 \
-    --online-steps 50000 --task G3a-Stacking-Stack3-Dk1_uni --checkpoint-path agent.pt
+    --online-steps 50000 --task G3A-Stack-Low-Dk1_uni --checkpoint-path agent.pt
 uv run g3a-play-qcfql --checkpoint agent.pt --dataset-path demos.npz
 
 # Verification scripts (see tests/tasks/README.md), not installed as console scripts

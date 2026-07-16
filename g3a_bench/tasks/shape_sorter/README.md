@@ -52,15 +52,15 @@ settling/tumbling after latching).
 
 ## Variants
 
-| Task id (`-Dk1_uni`)                        | Description                                     |
-| -------------------------------------------- | ------------------------------------------------ |
-| `G3a-ShapeSorter-ShapeSorter{3,4,5}FixedOrientation` | cube pose fixed, position jittered          |
-| `G3a-ShapeSorter-ShapeSorter{3,4,5}NoRotation`       | cube face-down on an unneeded hole + random yaw |
-| `G3a-ShapeSorter-ShapeSorter{3,4,5}Full`             | cube face-down on any face + random yaw     |
-| `G3a-ShapeSorter-ShapeSorter{3,4,5}RandomPositions`  | fixed cube pose, pieces spawn on a wide ring |
+| Task id (`-Dk1_uni`)                                | Description                                     |
+| ----------------------------------------------------- | ------------------------------------------------ |
+| `G3A-Sorter-{3,4,5}Shapes-FixedOrientation`            | cube pose fixed, position jittered          |
+| `G3A-Sorter-{3,4,5}Shapes-NoRotation`                  | cube face-down on an unneeded hole + random yaw |
+| `G3A-Sorter-{3,4,5}Shapes-Full`                        | cube face-down on any face + random yaw     |
+| `G3A-Sorter-{3,4,5}Shapes-RandomPositions`             | fixed cube pose, pieces spawn on a wide ring |
 
 Play e.g. with:
 
 ```bash
-uv run g3a-play G3a-ShapeSorter-ShapeSorter3FixedOrientation-Dk1_uni
+uv run g3a-play G3A-Sorter-3Shapes-FixedOrientation-Dk1_uni
 ```

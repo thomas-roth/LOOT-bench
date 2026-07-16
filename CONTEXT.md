@@ -16,7 +16,7 @@ _Avoid_: domain (overloaded with domain randomization)
 **Variant**:
 A frozen configuration enumerating one concrete task of a category (piece
 set + arrangement, socket set, target kind). Registered as
-`G3a-<Category>-<Variant>-<Robot>`.
+`G3A-<Category>-<Task>[-<Variation>]-<Robot>`.
 
 **Workbench**:
 The shared tabletop-manipulation environment skeleton every task is built

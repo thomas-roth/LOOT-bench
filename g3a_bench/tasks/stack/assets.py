@@ -1,11 +1,11 @@
-"""MjSpec builders for the stacking blocks."""
+"""MjSpec builders for the stack blocks."""
 # pyright: reportAttributeAccessIssue=false
 # (mujoco ships no type stubs for the compiled MjSpec module)
 
 import mujoco
 
 from g3a_bench.tasks.common.colors import PALETTE
-from g3a_bench.tasks.stacking.variants import FORM_HALF_EXTENTS, FORM_MASS, BlockCfg
+from g3a_bench.tasks.stack.variants import FORM_HALF_EXTENTS, FORM_MASS, BlockCfg
 
 
 def get_block_spec(block: BlockCfg, name: str = "block") -> mujoco.MjSpec:

@@ -48,18 +48,18 @@ target, at rest, and released) — no shaping, penalties, or regularization.
 
 ## Variants
 
-| Task id (`-Dk1_uni`)                | Description                                       |
-| ------------------------------------ | -------------------------------------------------- |
-| `G3a-Ball-MinigolfDirect`            | hit the ball straight into the pit                |
-| `G3a-Ball-MinigolfUsingWall`         | bank the ball off a wall around a blocker          |
-| `G3a-Ball-MinigolfObstacle`          | hit the ball past an obstacle into the pit         |
-| `G3a-Ball-MinigolfRamp`              | hit the ball up a ramp into the pit                |
-| `G3a-Ball-ThrowU`                    | throw the ball over a wall into a U pocket         |
-| `G3a-Ball-ThrowMarkedArea`           | throw the ball over a wall onto a marked disk      |
-| `G3a-Ball-ThrowWallVariation`        | as MarkedArea, but the wall moves every reset      |
+| Task id (`-Dk1_uni`)                       | Description                                       |
+| --------------------------------------------- | -------------------------------------------------- |
+| `G3A-Ball-Minigolf-Direct`                    | hit the ball straight into the pit                |
+| `G3A-Ball-Minigolf-UsingWall`                  | bank the ball off a wall around a blocker          |
+| `G3A-Ball-Minigolf-Obstacle`                  | hit the ball past an obstacle into the pit         |
+| `G3A-Ball-Minigolf-Ramp`                       | hit the ball up a ramp into the pit                |
+| `G3A-Ball-Throw-U`                             | throw the ball over a wall into a U pocket         |
+| `G3A-Ball-Throw-MarkedArea`                    | throw the ball over a wall onto a marked disk      |
+| `G3A-Ball-Throw-WallVariation`                 | as MarkedArea, but the wall moves every reset      |
 
 Play e.g. with:
 
 ```bash
-uv run g3a-play G3a-Ball-MinigolfDirect-Dk1_uni
+uv run g3a-play G3A-Ball-Minigolf-Direct-Dk1_uni
 ```

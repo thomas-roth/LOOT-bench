@@ -1,4 +1,4 @@
-"""Reward terms for the stacking task category."""
+"""Reward terms for the stack task category."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 import torch
 
-from g3a_bench.tasks.stacking.mdp.commands import get_command as _command
+from g3a_bench.tasks.stack.mdp.commands import get_command as _command
 
 if TYPE_CHECKING:
     from mjlab.envs import ManagerBasedRlEnv

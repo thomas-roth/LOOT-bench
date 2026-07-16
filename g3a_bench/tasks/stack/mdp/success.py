@@ -1,4 +1,4 @@
-"""Pure success criteria for the stacking category.
+"""Pure success criteria for the stack category.
 
 Plain tensor math, no mjlab or environment imports: the command term
 (``commands.py``) acts as the adapter that gathers sim buffers and calls
@@ -75,7 +75,7 @@ def two_stacks_success(
     return pair.any(dim=-1).any(dim=-1)
 
 
-def stacking_progress(
+def stack_progress(
     top_z: torch.Tensor, table_z: torch.Tensor | float, target_height: float
 ) -> torch.Tensor:
     """Fraction of the target height reached by the tallest block, (E,) in [0, 1]."""

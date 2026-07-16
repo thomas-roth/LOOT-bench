@@ -17,10 +17,10 @@ from g3a_bench.tasks.common.success import SuccessGate
 from g3a_bench.tasks.domino.mdp.success import domino_fallen, domino_upright_aligned
 from g3a_bench.tasks.shape_sorter.mdp.success import SorterLatch
 from g3a_bench.tasks.shape_sorter.variants import SHAPE_SORTER_VARIANTS, allowed_faces
-from g3a_bench.tasks.stacking.mdp.success import (
+from g3a_bench.tasks.stack.mdp.success import (
     block_top_heights,
+    stack_progress,
     stack_reached,
-    stacking_progress,
     two_stacks_progress,
     two_stacks_success,
 )
@@ -278,7 +278,7 @@ class TestGripperOpenGate:
 
 
 # ---------------------------------------------------------------------------
-# stacking kernels
+# stack kernels
 # ---------------------------------------------------------------------------
 
 
@@ -307,12 +307,12 @@ class TestStackHeight:
         assert bool(reached.any(dim=-1)[0])
 
     def test_progress_clamps_to_unit_interval(self):
-        assert stacking_progress(torch.tensor([[0.20]]), 0.0, 0.12)[0] == 1.0
-        assert stacking_progress(torch.tensor([[-0.05]]), 0.0, 0.12)[0] == 0.0
+        assert stack_progress(torch.tensor([[0.20]]), 0.0, 0.12)[0] == 1.0
+        assert stack_progress(torch.tensor([[-0.05]]), 0.0, 0.12)[0] == 0.0
 
     def test_progress_tracks_tallest_block(self):
         top_z = torch.tensor([[0.04, 0.08]])
-        assert stacking_progress(top_z, 0.0, 0.16)[0].item() == pytest.approx(0.5)
+        assert stack_progress(top_z, 0.0, 0.16)[0].item() == pytest.approx(0.5)
 
 
 # ---------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-"""Variant definitions for the stacking task category.
+"""Variant definitions for the stack task category.
 
 A variant fixes the block set and the target height:
 
@@ -52,7 +52,7 @@ class BlockCfg:
 
 
 @dataclass(frozen=True)
-class StackingVariantCfg:
+class StackVariantCfg:
     name: str
     """Variant identifier used in the task id (e.g. "Stack3")."""
     target_blocks: int
@@ -92,21 +92,21 @@ def _different_blocks(n: int) -> tuple[BlockCfg, ...]:
     ) + _cubes(n - 1)
 
 
-STACKING_VARIANTS: dict[str, StackingVariantCfg] = {
+STACK_VARIANTS: dict[str, StackVariantCfg] = {
     v.name: v
     for n in (3, 4, 5)
     for v in (
-        StackingVariantCfg(
+        StackVariantCfg(
             name=f"Stack{n}",
             target_blocks=n,
             blocks=_cubes(n),
         ),
-        StackingVariantCfg(
+        StackVariantCfg(
             name=f"Stack{n}DifferentBlocks",
             target_blocks=n,
             blocks=_different_blocks(n),
         ),
-        StackingVariantCfg(
+        StackVariantCfg(
             name=f"Stack{n}TwoStacks",
             target_blocks=n,
             blocks=_cubes(2 * n),
