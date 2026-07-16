@@ -4,7 +4,6 @@ from mjlab.entity import EntityCfg
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.managers.observation_manager import ObservationTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
-from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.managers.termination_manager import TerminationTermCfg
 from mjlab.utils.noise import UniformNoiseCfg as Unoise
 
@@ -31,12 +30,10 @@ def make_stack_env_cfg(
     for name, block in zip(block_names, variant.blocks, strict=True):
         entities[name] = EntityCfg(spec_fn=lambda b=block, n=name: get_block_spec(b, n))
 
-    grasp_cfg = SceneEntityCfg("robot", site_names=())  # Set per-robot.
-
     task_obs_terms = {
-        "blocks_rel_grasp": ObservationTermCfg(
-            func=stack_mdp.blocks_rel_grasp,
-            params={"command_name": COMMAND_NAME, "asset_cfg": grasp_cfg},
+        "block_poses": ObservationTermCfg(
+            func=stack_mdp.block_poses,
+            params={"command_name": COMMAND_NAME},
             noise=Unoise(n_min=-0.01, n_max=0.01),
         ),
     }

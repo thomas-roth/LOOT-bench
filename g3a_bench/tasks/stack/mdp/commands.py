@@ -89,6 +89,7 @@ class StackCommand(CommandTerm):
         assert self._scatter.num_cells >= N
 
         self.block_pos_w = torch.zeros(E, N, 3, device=dev)
+        self.block_quat_w = torch.zeros(E, N, 4, device=dev)
         self.block_reached = torch.zeros(E, N, device=dev, dtype=torch.bool)
         self.progress = torch.zeros(E, device=dev)
         self._gate = SuccessGate(E, dev, vel_threshold=cfg.block_vel_threshold)
@@ -121,6 +122,9 @@ class StackCommand(CommandTerm):
     def _update_metrics(self) -> None:
         self.block_pos_w = torch.stack(
             [b.data.root_link_pos_w for b in self.blocks], dim=1
+        )
+        self.block_quat_w = torch.stack(
+            [b.data.root_link_quat_w for b in self.blocks], dim=1
         )
         table_z = self._env.scene.env_origins[:, 2]
         target = self.variant.target_height

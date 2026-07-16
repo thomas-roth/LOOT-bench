@@ -5,8 +5,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import torch
-from mjlab.entity import Entity
-from mjlab.managers.scene_entity_config import SceneEntityCfg
 
 from g3a_bench.tasks.stack.mdp.commands import get_command as _command
 
@@ -14,19 +12,14 @@ if TYPE_CHECKING:
     from mjlab.envs import ManagerBasedRlEnv
 
 
-def blocks_rel_grasp(
-    env: ManagerBasedRlEnv,
-    command_name: str,
-    asset_cfg: SceneEntityCfg,
-) -> torch.Tensor:
-    """All block positions relative to the grasp site, flattened (E, N*3).
+def block_poses(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
+    """All block poses in the env-local world frame, flattened (E, N*7).
 
-    Object-major (block index order), so dropping the trailing blocks' dims
-    adapts the observation to an easier task (demo cutoff).
+    Object-major (block index order): each block contributes
+    (pos_x, pos_y, pos_z, quat_w, quat_x, quat_y, quat_z). Dropping the
+    trailing blocks' 7-dim slices adapts the observation to an easier task
+    (demo cutoff).
     """
     command = _command(env, command_name)
-    robot: Entity = env.scene[asset_cfg.name]
-    ee_pos = robot.data.site_pos_w[:, asset_cfg.site_ids].squeeze(1)
-    block_pos = torch.stack([b.data.root_link_pos_w for b in command.blocks], dim=1)
-    rel = block_pos - ee_pos.unsqueeze(1)
-    return rel.reshape(env.num_envs, -1)
+    pos = command.block_pos_w - env.scene.env_origins.unsqueeze(1)
+    return torch.cat([pos, command.block_quat_w], dim=-1).reshape(env.num_envs, -1)
