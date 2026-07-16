@@ -1,4 +1,4 @@
-"""Teleport-based success-reward check for the three task categories.
+"""Teleport-based success-reward check for the four task categories.
 
 See tests/tasks/README.md.
 """
@@ -10,39 +10,44 @@ import math
 import sys
 import traceback
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import torch
 from _render import domain_of, save_env_render
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.tasks.registry import load_env_cfg
-from mjlab.utils.lab_api.math import quat_from_euler_xyz
+from mjlab.utils.lab_api.math import quat_from_angle_axis, quat_from_euler_xyz, quat_mul
 
 import g3a_bench  # noqa: F401  (registers all tasks)
 from g3a_bench.tasks.ball.mdp.commands import BallCommand
-from g3a_bench.tasks.ball.variants import BALL_RADIUS
-from g3a_bench.tasks.cube.mdp.commands import PieceArrangementCommand
-from g3a_bench.tasks.insertion.assets import BOARD_POS, SHEET_HALF_Z
-from g3a_bench.tasks.insertion.mdp.commands import InsertionCommand
+from g3a_bench.tasks.ball.variants import (
+    BALL_RADIUS,
+    BALL_SPAWN_X,
+    BALL_VARIANTS,
+    TARGET_X,
+)
+from g3a_bench.tasks.domino.mdp.commands import DominoCommand
+from g3a_bench.tasks.shape_sorter.assets import BOARD_POS, load_sorter_layout
+from g3a_bench.tasks.shape_sorter.mdp.commands import ShapeSorterCommand
+from g3a_bench.tasks.stacking.mdp.commands import StackingCommand
+from g3a_bench.tasks.stacking.variants import FORM_HALF_EXTENTS
 
 _NUM_ENVS = 8
-_STEPS = 10  # cube uses play=True (no success termination); other categories still safe at 10
-
+_STEPS = 10
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
-def _make_env(
-    task_id: str, device: str, *, play: bool = False, pop_success: bool = False
-) -> ManagerBasedRlEnv:
+def _make_env(task_id: str, device: str, *, play: bool = True) -> ManagerBasedRlEnv:
     cfg = load_env_cfg(task_id, play=play)
-    if pop_success:
-        # Cube's play config keeps "success" active (live_bridge auto-saves a
-        # recording when it fires) — pop it here too so it doesn't auto-reset
-        # mid-measurement, same as record_replay.py does for actual playback.
-        cfg.terminations.pop("success", None)
+    # Every category's play=True cfg re-adds the "success" termination (so
+    # live_bridge demo playback actually terminates on success); pop it here
+    # too, otherwise the env auto-resets the instant our teleported state
+    # scores, wiping the state before we read the fraction below.
+    cfg.terminations.pop("success", None)
     cfg.scene.num_envs = _NUM_ENVS
     env = ManagerBasedRlEnv(cfg=cfg, device=device)
     env.reset()
@@ -56,24 +61,6 @@ def _zeros(env: ManagerBasedRlEnv, device: str) -> torch.Tensor:
 def _upright_quat(n: int, device: str) -> torch.Tensor:
     z = torch.zeros(n, device=device)
     return quat_from_euler_xyz(z, z, z)
-
-
-def _axis_aligned_quat(axis_out: torch.Tensor, device: str) -> torch.Tensor:
-    """(N, 4) wxyz quaternion that rotates world-z onto *axis_out* (N, 3)."""
-    world_z = np.array([0.0, 0.0, 1.0])
-    ax = axis_out[0].cpu().numpy()
-    if abs(float(np.dot(world_z, ax))) > 0.9999:
-        return _upright_quat(axis_out.shape[0], device)
-    rot_axis = np.cross(world_z, ax)
-    rot_axis /= np.linalg.norm(rot_axis) + 1e-9
-    angle = math.acos(float(np.clip(np.dot(world_z, ax), -1.0, 1.0)))
-    ca2, sa2 = math.cos(angle / 2), math.sin(angle / 2)
-    qv = torch.tensor(
-        [ca2, sa2 * rot_axis[0], sa2 * rot_axis[1], sa2 * rot_axis[2]],
-        device=device,
-        dtype=torch.float32,
-    )
-    return qv.unsqueeze(0).expand(axis_out.shape[0], -1).contiguous()
 
 
 def _render_goal(env: ManagerBasedRlEnv, task_id: str, render: bool) -> None:
@@ -92,46 +79,163 @@ def _render_goal(env: ManagerBasedRlEnv, task_id: str, render: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Per-category teleport helpers
+# Stacking
 # ---------------------------------------------------------------------------
 
 
-def _teleport_cube(cmd: PieceArrangementCommand, device: str) -> None:
-    """Place every piece at its assigned slot goal, upright."""
-    goals = cmd.slot_goal_pos.clone()  # (E, G, 3)
-    assign = cmd.piece_for_slot.clone()  # (E, G)
-    row_yaw = cmd.row_yaw.clone()  # (E,) – nonzero only for dominos
-    is_domino = cmd.variant.arrangement == "domino"
-    z = torch.zeros(1, device=device)
-    for s in range(cmd.num_slots):
-        for e in range(cmd.num_envs):
-            p_idx = int(assign[e, s].item())
-            piece = cmd.pieces[p_idx]
-            pos = goals[e, s].unsqueeze(0)
-            yaw = row_yaw[e : e + 1] if is_domino else z
-            quat = quat_from_euler_xyz(z, z, yaw)
-            env_id = torch.tensor([e], device=device)
-            piece.write_root_link_pose_to_sim(
-                torch.cat([pos, quat], dim=-1), env_ids=env_id
-            )
-            piece.write_root_link_velocity_to_sim(
-                torch.zeros(1, 6, device=device), env_ids=env_id
-            )
-
-
-def _teleport_pegs(
-    cmd: InsertionCommand, device: str, *, all_sockets: bool = False
+def _teleport_stack(
+    cmd: StackingCommand,
+    env: ManagerBasedRlEnv,
+    device: str,
+    *,
+    xy: tuple[float, float],
 ) -> None:
-    """Insert peg(s) 1 cm inside their bore; align quaternion to bore axis."""
-    n = cmd.num_sockets if all_sockets else 1
-    for s in range(n):
-        axis_out = cmd.socket_axis_w[:, s]  # (E, 3)
-        quat = _axis_aligned_quat(axis_out, device)
-        peg_pos = cmd.socket_mouth_w[:, s] - axis_out * 0.01
-        cmd.pegs[s].write_root_link_pose_to_sim(torch.cat([peg_pos, quat], dim=-1))
-        cmd.pegs[s].write_root_link_velocity_to_sim(
-            torch.zeros(_NUM_ENVS, 6, device=device)
+    """Stack every block at one xy, resting directly on top of each other."""
+    origins = env.scene.env_origins
+    half_h = [FORM_HALF_EXTENTS[b.form][2] for b in cmd.variant.blocks]
+    quat = _upright_quat(cmd.num_envs, device)
+    xy_t = torch.tensor(xy, device=device)
+    cum = 0.0
+    for i, block in enumerate(cmd.blocks):
+        h = half_h[i]
+        z = origins[:, 2] + cum + h
+        pos = torch.cat([origins[:, :2] + xy_t, z.unsqueeze(-1)], dim=-1)
+        block.write_root_link_pose_to_sim(torch.cat([pos, quat], dim=-1))
+        block.write_root_link_velocity_to_sim(
+            torch.zeros(cmd.num_envs, 6, device=device)
         )
+        cum += 2 * h
+
+
+def _teleport_two_stacks(
+    cmd: StackingCommand, env: ManagerBasedRlEnv, device: str, *, separation: float
+) -> None:
+    """Two separate n-block stacks, ``separation`` m apart in y."""
+    origins = env.scene.env_origins
+    half_h = [FORM_HALF_EXTENTS[b.form][2] for b in cmd.variant.blocks]
+    quat = _upright_quat(cmd.num_envs, device)
+    n = cmd.variant.target_blocks
+    xy_by_stack = (
+        torch.tensor([0.30, -separation / 2], device=device),
+        torch.tensor([0.30, separation / 2], device=device),
+    )
+    cum = [0.0, 0.0]
+    for i, block in enumerate(cmd.blocks):
+        stack = 0 if i < n else 1
+        h = half_h[i]
+        z = origins[:, 2] + cum[stack] + h
+        pos = torch.cat([origins[:, :2] + xy_by_stack[stack], z.unsqueeze(-1)], dim=-1)
+        block.write_root_link_pose_to_sim(torch.cat([pos, quat], dim=-1))
+        block.write_root_link_velocity_to_sim(
+            torch.zeros(cmd.num_envs, 6, device=device)
+        )
+        cum[stack] += 2 * h
+
+
+def _check_stacking_stack3(device: str, *, render: bool = False) -> str | None:
+    task_id = "G3a-Stacking-Stack3-Dk1_uni"
+    env = _make_env(task_id, device)
+    cmd = cast(StackingCommand, env.command_manager.get_term("task"))
+    zeros = _zeros(env, device)
+    env.step(zeros)
+    _teleport_stack(cmd, env, device, xy=(0.30, 0.0))
+    for _ in range(_STEPS):
+        env.step(zeros)
+    frac = cmd.progress.mean().item()
+    _render_goal(env, task_id, render)
+    env.close()
+    return None if frac > 0.9 else f"progress={frac:.3f} (expected >0.9)"
+
+
+def _check_stacking_two_stacks(device: str, *, render: bool = False) -> str | None:
+    task_id = "G3a-Stacking-Stack3TwoStacks-Dk1_uni"
+    env = _make_env(task_id, device)
+    cmd = cast(StackingCommand, env.command_manager.get_term("task"))
+    zeros = _zeros(env, device)
+    env.step(zeros)
+    _teleport_two_stacks(cmd, env, device, separation=0.12)
+    for _ in range(_STEPS):
+        env.step(zeros)
+    frac = cmd.progress.mean().item()
+    _render_goal(env, task_id, render)
+    env.close()
+    return None if frac > 0.9 else f"progress={frac:.3f} (expected >0.9)"
+
+
+# ---------------------------------------------------------------------------
+# Domino
+# ---------------------------------------------------------------------------
+
+
+def _teleport_dominoes_upright(cmd: DominoCommand, device: str) -> None:
+    """Place every domino at its own slot goal, upright and row-aligned."""
+    zeros = torch.zeros(cmd.num_envs, device=device)
+    quat = quat_from_euler_xyz(zeros, zeros, cmd.row_yaw)
+    for i, domino in enumerate(cmd.dominoes):
+        pos = cmd.slot_goal_pos[:, i]
+        domino.write_root_link_pose_to_sim(torch.cat([pos, quat], dim=-1))
+        domino.write_root_link_velocity_to_sim(
+            torch.zeros(cmd.num_envs, 6, device=device)
+        )
+
+
+def _lay_dominoes_flat(cmd: DominoCommand, env: ManagerBasedRlEnv, device: str) -> None:
+    """Topple every domino sideways (about the row axis), in place.
+
+    Rotating about the domino's own thin (row-aligned) body axis swings its
+    height into the direction perpendicular to the row, so neighbouring slots
+    (spaced along the row) never overlap.
+    """
+    n = cmd.num_envs
+    origins = env.scene.env_origins
+    x_axis = torch.tensor([1.0, 0.0, 0.0], device=device).unsqueeze(0).expand(n, 3)
+    roll = quat_from_angle_axis(torch.full((n,), math.pi / 2, device=device), x_axis)
+    zeros = torch.zeros(n, device=device)
+    upright = quat_from_euler_xyz(zeros, zeros, cmd.row_yaw)
+    flat = quat_mul(upright, roll)
+    for i, domino in enumerate(cmd.dominoes):
+        half_w = cmd.variant.half_extents[i][1]  # width becomes the new "up" extent
+        pos = cmd.slot_goal_pos[:, i].clone()
+        pos[:, 2] = origins[:, 2] + half_w + 0.003
+        domino.write_root_link_pose_to_sim(torch.cat([pos, flat], dim=-1))
+        domino.write_root_link_velocity_to_sim(torch.zeros(n, 6, device=device))
+
+
+def _check_domino_domino3(device: str, *, render: bool = False) -> str | None:
+    task_id = "G3a-Domino-Domino3-Dk1_uni"
+    env = _make_env(task_id, device)
+    cmd = cast(DominoCommand, env.command_manager.get_term("task"))
+    zeros = _zeros(env, device)
+    env.step(zeros)
+    _teleport_dominoes_upright(cmd, device)
+    for _ in range(_STEPS):
+        env.step(zeros)
+    frac = cmd.progress.mean().item()
+    _render_goal(env, task_id, render)
+    env.close()
+    return None if frac > 0.9 else f"placed_fraction={frac:.3f} (expected >0.9)"
+
+
+def _check_domino_knockover(device: str, *, render: bool = False) -> str | None:
+    task_id = "G3a-Domino-Domino3KnockOver-Dk1_uni"
+    env = _make_env(task_id, device)
+    cmd = cast(DominoCommand, env.command_manager.get_term("task"))
+    zeros = _zeros(env, device)
+    env.step(zeros)
+    _teleport_dominoes_upright(cmd, device)
+    env.step(zeros)  # all placed simultaneously -> phase latches to 1
+    _lay_dominoes_flat(cmd, env, device)
+    for _ in range(_STEPS):
+        env.step(zeros)
+    frac = cmd.progress.mean().item()
+    _render_goal(env, task_id, render)
+    env.close()
+    return None if frac > 0.9 else f"progress={frac:.3f} (expected >0.9)"
+
+
+# ---------------------------------------------------------------------------
+# Shape sorter
+# ---------------------------------------------------------------------------
 
 
 def _vec_to_up_quat(ax: np.ndarray, device: str) -> torch.Tensor:
@@ -154,175 +258,95 @@ def _vec_to_up_quat(ax: np.ndarray, device: str) -> torch.Tensor:
     )
 
 
-def _teleport_sorter_cube(
-    cmd: InsertionCommand, env: ManagerBasedRlEnv, device: str
-) -> None:
-    """Reorient the free sorter cube so each env's target hole faces up."""
-    assert cmd.board is not None
-    origins = env.scene.env_origins
-    board_pos = torch.tensor(BOARD_POS, device=device, dtype=torch.float32)
-    for e in range(cmd.num_envs):
-        tgt = int(cmd.target_idx[e].item())
-        quat = _vec_to_up_quat(cmd.axis_local[tgt].cpu().numpy(), device)
-        pos = origins[e] + board_pos
-        pos[2] += cmd.cube_half + 0.001
-        env_id = torch.tensor([e], device=device)
-        cmd.board.write_root_link_pose_to_sim(
-            torch.cat([pos, quat]).unsqueeze(0), env_ids=env_id
-        )
-        cmd.board.write_root_link_velocity_to_sim(
-            torch.zeros(1, 6, device=device), env_ids=env_id
-        )
+def _check_shape_sorter_full(device: str, *, render: bool = False) -> str | None:
+    """Per socket: reorient the cube hole-up, two-station insert; all latch.
 
-
-def _teleport_sorter_piece(
-    cmd: InsertionCommand, device: str, axial: torch.Tensor
-) -> None:
-    """Place each env's target piece at signed offset *axial* along its hole axis.
-
-    Positive *axial* is outside the mouth. The piece is aligned with the hole
-    axis (world +z after ``_teleport_sorter_cube``); yaw is irrelevant to the
-    latch metric and both stations used by the check are penetration-free.
+    The cube can only present one hole up at a time, so pieces are latched in
+    sequentially -- the latch is monotonic (never clears except on reset), so
+    an earlier piece stays scored while later sockets are reoriented to.
     """
-    idx = torch.arange(cmd.num_envs, device=device)
-    mouth = cmd.socket_mouth_w[idx, cmd.target_idx]
-    axis = cmd.socket_axis_w[idx, cmd.target_idx]
-    pos = mouth + axis * axial.unsqueeze(-1)
-    pose = torch.cat([pos, _upright_quat(cmd.num_envs, device)], dim=-1)
-    for s in range(cmd.num_sockets):
-        env_ids = (cmd.target_idx == s).nonzero(as_tuple=False).squeeze(-1)
-        if env_ids.numel() == 0:
-            continue
-        cmd.pegs[s].write_root_link_pose_to_sim(pose[env_ids], env_ids=env_ids)
-        cmd.pegs[s].write_root_link_velocity_to_sim(
-            torch.zeros(env_ids.numel(), 6, device=device), env_ids=env_ids
+    task_id = "G3a-ShapeSorter-ShapeSorter3Full-Dk1_uni"
+    env = _make_env(task_id, device)
+    cmd = cast(ShapeSorterCommand, env.command_manager.get_term("task"))
+    zeros = _zeros(env, device)
+    env.step(zeros)
+
+    layout = load_sorter_layout()
+    holes = [layout.holes[s] for s in cmd.variant.shapes]
+    piece_half = torch.tensor(
+        [layout.pieces[s].half_len for s in cmd.variant.shapes], device=device
+    )
+    wall_t = torch.tensor([h.wall_thickness for h in holes], device=device)
+    s_cross = -(wall_t + piece_half)
+
+    board_pos = torch.tensor(BOARD_POS, device=device, dtype=torch.float32)
+    origins = env.scene.env_origins
+
+    for s in range(cmd.num_pieces):
+        axis_local = np.array(holes[s].axis_out)
+        quat = _vec_to_up_quat(axis_local, device).unsqueeze(0).expand(_NUM_ENVS, -1)
+        pos = origins[:, :2] + board_pos[:2]
+        z = origins[:, 2] + board_pos[2] + layout.half_size + 0.001
+        cube_pos = torch.cat([pos, z.unsqueeze(-1)], dim=-1)
+        cmd.cube.write_root_link_pose_to_sim(torch.cat([cube_pos, quat], dim=-1))
+        cmd.cube.write_root_link_velocity_to_sim(
+            torch.zeros(_NUM_ENVS, 6, device=device)
         )
+        env.step(zeros)  # refresh socket_mouth_w/socket_axis_w from the new pose
 
+        mouth = cmd.socket_mouth_w[:, s]
+        axis = cmd.socket_axis_w[:, s]
+        upright = _upright_quat(_NUM_ENVS, device)
 
-def _teleport_sheet(cmd: InsertionCommand, env: ManagerBasedRlEnv, device: str) -> None:
-    """Snap the movable sheet to the bottom-bore XY."""
-    assert cmd.sheet is not None
-    mouth = cmd.socket_mouth_w[:, 0].clone()
-    mouth[:, 2] = env.scene.env_origins[:, 2] + 2 * SHEET_HALF_Z + SHEET_HALF_Z + 0.001
-    quat = _upright_quat(_NUM_ENVS, device)
-    cmd.sheet.write_root_link_pose_to_sim(torch.cat([mouth, quat], dim=-1))
-    cmd.sheet.write_root_link_velocity_to_sim(torch.zeros(_NUM_ENVS, 6, device=device))
+        station1 = mouth + axis * (piece_half[s] + 0.005)
+        cmd.pieces[s].write_root_link_pose_to_sim(
+            torch.cat([station1, upright], dim=-1)
+        )
+        cmd.pieces[s].write_root_link_velocity_to_sim(
+            torch.zeros(_NUM_ENVS, 6, device=device)
+        )
+        env.step(zeros)
 
+        station2 = mouth + axis * (s_cross[s] - 0.005)
+        cmd.pieces[s].write_root_link_pose_to_sim(
+            torch.cat([station2, upright], dim=-1)
+        )
+        cmd.pieces[s].write_root_link_velocity_to_sim(
+            torch.zeros(_NUM_ENVS, 6, device=device)
+        )
+        env.step(zeros)
 
-def _teleport_ball(cmd: BallCommand, env: ManagerBasedRlEnv, device: str) -> None:
-    """Place ball at target XY at its natural resting height."""
-    ball_pos = cmd.target_pos_w.clone()
-    if cmd.variant.target == "hole":
-        # Ball resting on terrain inside the pit; avoid a large bounce.
-        ball_pos[:, 2] = env.scene.env_origins[:, 2] + BALL_RADIUS + 0.001
-    else:
-        ball_pos[:, 2] = cmd.surface_z + BALL_RADIUS
-    quat = _upright_quat(_NUM_ENVS, device)
-    cmd.ball.write_root_link_pose_to_sim(torch.cat([ball_pos, quat], dim=-1))
-    cmd.ball.write_root_link_velocity_to_sim(torch.zeros(_NUM_ENVS, 6, device=device))
-
-
-# ---------------------------------------------------------------------------
-# Individual checks
-# ---------------------------------------------------------------------------
-
-
-def _check_cube_stack(
-    device: str, task_id: str = "G3a-Cube-Stack3-Dk1_uni", *, render: bool = False
-) -> str | None:
-    from typing import cast
-
-    # Cube's play config keeps "success" active (see _make_env); pop it here
-    # too, otherwise it terminates on step 1 and resets env mid-measurement.
-    env = _make_env(task_id, device, play=True, pop_success=True)
-    cmd = cast(PieceArrangementCommand, env.command_manager.get_term("arrangement"))
-    zeros = _zeros(env, device)
-    env.step(zeros)
-    _teleport_cube(cmd, device)
     for _ in range(_STEPS):
         env.step(zeros)
-    frac = cmd.slot_at_goal.mean().item()
-    _render_goal(env, task_id, render)
-    env.close()
-    return None if frac > 0.9 else f"placed_fraction={frac:.3f} (expected >0.9)"
-
-
-def _check_cube_domino(device: str, *, render: bool = False) -> str | None:
-    return _check_cube_stack(device, "G3a-Cube-Domino5-Dk1_uni", render=render)
-
-
-def _check_insertion_single(
-    device: str, task_id: str, *, render: bool = False
-) -> str | None:
-    from typing import cast
-
-    # play=True removes success termination; insertion terminates the instant
-    # all pegs are inserted, which would reset the env mid-measurement in the
-    # training config.
-    env = _make_env(task_id, device, play=True)
-    cmd = cast(InsertionCommand, env.command_manager.get_term("insertion"))
-    zeros = _zeros(env, device)
-    env.step(zeros)
-    all_s = cmd.num_sockets > 1
-    _teleport_pegs(cmd, device, all_sockets=all_s)
-    for _ in range(_STEPS):
-        env.step(zeros)
-    frac = cmd.inserted.mean().item()
-    _render_goal(env, task_id, render)
-    env.close()
-    return None if frac > 0.9 else f"inserted_fraction={frac:.3f} (expected >0.9)"
-
-
-def _check_insertion_sorter(
-    device: str, task_id: str, *, render: bool = False
-) -> str | None:
-    from typing import cast
-
-    env = _make_env(task_id, device, play=True)
-    cmd = cast(InsertionCommand, env.command_manager.get_term("insertion"))
-    zeros = _zeros(env, device)
-    env.step(zeros)
-    _teleport_sorter_cube(cmd, env, device)
-    env.step(zeros)  # refresh the live mouth/axis buffers from the new pose
-    tgt = cmd.target_idx
-    _teleport_sorter_piece(cmd, device, cmd.piece_half[tgt] + 0.005)
-    env.step(zeros)
-    _teleport_sorter_piece(cmd, device, cmd.s_cross[tgt] - 0.005)
-    for _ in range(_STEPS):
-        env.step(zeros)  # piece tumbles inside the cube; the latch must hold
-    frac = cmd.scored_fraction().mean().item()
+    frac = cmd.progress.mean().item()
     _render_goal(env, task_id, render)
     env.close()
     return None if frac > 0.9 else f"latched_fraction={frac:.3f} (expected >0.9)"
 
 
-def _check_insertion_twosheet(device: str, *, render: bool = False) -> str | None:
-    from typing import cast
-
-    task_id = "G3a-Insertion-TwoSheet-Dk1_uni"
-    env = _make_env(task_id, device, play=True)
-    cmd = cast(InsertionCommand, env.command_manager.get_term("insertion"))
-    zeros = _zeros(env, device)
-    env.step(zeros)
-    _teleport_pegs(cmd, device)
-    _teleport_sheet(cmd, env, device)
-    for _ in range(_STEPS):
-        env.step(zeros)
-    frac = cmd.inserted.mean().item()
-    _render_goal(env, task_id, render)
-    env.close()
-    return None if frac > 0.9 else f"inserted_fraction={frac:.3f} (expected >0.9)"
+# ---------------------------------------------------------------------------
+# Ball
+# ---------------------------------------------------------------------------
 
 
-def _check_ball(device: str, task_id: str, *, render: bool = False) -> str | None:
-    from typing import cast
+def _teleport_ball(cmd: BallCommand, env: ManagerBasedRlEnv, device: str) -> None:
+    """Place ball at target XY at its natural resting height."""
+    ball_pos = cmd.target_pos_w.clone()
+    if cmd.variant.task == "minigolf":
+        # Ball resting on terrain inside the pit; avoid a large bounce.
+        ball_pos[:, 2] = env.scene.env_origins[:, 2] + BALL_RADIUS + 0.001
+    else:
+        ball_pos[:, 2] = cmd.target_z + BALL_RADIUS
+    quat = _upright_quat(_NUM_ENVS, device)
+    cmd.ball.write_root_link_pose_to_sim(torch.cat([ball_pos, quat], dim=-1))
+    cmd.ball.write_root_link_velocity_to_sim(torch.zeros(_NUM_ENVS, 6, device=device))
 
-    # play=True removes the success termination -- it fires the instant the
-    # teleported ball registers success, auto-resetting the env before the
-    # fraction below is measured. Same issue play=True works around for the
-    # cube and insertion checks.
-    env = _make_env(task_id, device, play=True)
-    cmd = cast(BallCommand, env.command_manager.get_term("ball_target"))
+
+def _check_ball_at_target(
+    device: str, task_id: str, *, render: bool = False
+) -> str | None:
+    env = _make_env(task_id, device)
+    cmd = cast(BallCommand, env.command_manager.get_term("task"))
     zeros = _zeros(env, device)
     env.step(zeros)
     _teleport_ball(cmd, env, device)
@@ -334,41 +358,104 @@ def _check_ball(device: str, task_id: str, *, render: bool = False) -> str | Non
     return None if frac > 0.9 else f"at_target_fraction={frac:.3f} (expected >0.9)"
 
 
+def _segment_intersects_aabb(
+    p0: tuple[float, float],
+    p1: tuple[float, float],
+    box_min: tuple[float, float],
+    box_max: tuple[float, float],
+) -> bool:
+    """2D segment-vs-axis-aligned-box intersection (slab method)."""
+    d = (p1[0] - p0[0], p1[1] - p0[1])
+    tmin, tmax = 0.0, 1.0
+    for axis in range(2):
+        o, dd = p0[axis], d[axis]
+        lo, hi = box_min[axis], box_max[axis]
+        if abs(dd) < 1e-12:
+            if o < lo or o > hi:
+                return False
+            continue
+        t1, t2 = (lo - o) / dd, (hi - o) / dd
+        if t1 > t2:
+            t1, t2 = t2, t1
+        tmin, tmax = max(tmin, t1), min(tmax, t2)
+        if tmin > tmax:
+            return False
+    return True
+
+
+def _check_minigolf_using_wall_blocks_direct_shots() -> str | None:
+    """Pure-math check (no simulation): every straight line from a spawn
+    corner to the pit crosses the blocker box, so a direct shot is never
+    geometrically possible.
+
+    Blocker geometry (must match ``ball/assets.py._add_using_wall_walls``):
+    box centred at (0.58, 0.09), half extents (0.012, 0.13). Spawn rectangle
+    matches ``BallCommandCfg``'s defaults (``BALL_SPAWN_X`` +/- 0.03 x,
+    +/- 0.08 y).
+    """
+    variant = BALL_VARIANTS["MinigolfUsingWall"]
+    pit = (TARGET_X, variant.pit_y)
+    spawn_x = (BALL_SPAWN_X - 0.03, BALL_SPAWN_X + 0.03)
+    spawn_y = (-0.08, 0.08)
+    blocker_pos, blocker_half = (0.58, 0.09), (0.012, 0.13)
+    box_min = (blocker_pos[0] - blocker_half[0], blocker_pos[1] - blocker_half[1])
+    box_max = (blocker_pos[0] + blocker_half[0], blocker_pos[1] + blocker_half[1])
+
+    misses = [
+        (sx, sy)
+        for sx in spawn_x
+        for sy in spawn_y
+        if not _segment_intersects_aabb((sx, sy), pit, box_min, box_max)
+    ]
+    if misses:
+        return f"spawn corners with a clear line to the pit: {misses}"
+    return None
+
+
+def _check_ball_minigolf_using_wall(device: str, *, render: bool = False) -> str | None:
+    task_id = "G3a-Ball-MinigolfUsingWall-Dk1_uni"
+    err = _check_ball_at_target(device, task_id, render=render)
+    if err is not None:
+        return err
+    return _check_minigolf_using_wall_blocks_direct_shots()
+
+
 # ---------------------------------------------------------------------------
 # Test table
 # ---------------------------------------------------------------------------
 
 _CHECKS: list[tuple[str, str]] = [
-    # (label, task_id or special key)
-    ("Cube  Stack3        ", "G3a-Cube-Stack3-Dk1_uni"),
-    ("Cube  Domino5       ", "G3a-Cube-Domino5-Dk1_uni"),
-    ("Cube  Push3         ", "G3a-Cube-Push3-Dk1_uni"),
-    ("Ins   PegCylinder   ", "G3a-Insertion-PegCylinder-Dk1_uni"),
-    ("Ins   PegCylinderH  ", "G3a-Insertion-PegCylinderH-Dk1_uni"),
-    ("Ins   Sorter3       ", "G3a-Insertion-Sorter3-Dk1_uni"),
-    ("Ins   Sorter6       ", "G3a-Insertion-Sorter6-Dk1_uni"),
-    ("Ins   TwoSheet      ", "G3a-Insertion-TwoSheet-Dk1_uni"),
-    ("Ball  PushMarked    ", "G3a-Ball-PushMarked-Dk1_uni"),
-    ("Ball  GolfHole      ", "G3a-Ball-GolfHole-Dk1_uni"),
-    ("Ball  PushHole      ", "G3a-Ball-PushHole-Dk1_uni"),
+    ("Stacking  Stack3        ", "stacking_stack3"),
+    ("Stacking  Stack3TwoStacks", "stacking_two_stacks"),
+    ("Domino    Domino3       ", "domino_domino3"),
+    ("Domino    Domino3KnockOver", "domino_knockover"),
+    ("ShapeSorter ShapeSorter3Full", "shape_sorter_full"),
+    ("Ball      MinigolfDirect", "ball_minigolf_direct"),
+    ("Ball      MinigolfUsingWall", "ball_minigolf_using_wall"),
+    ("Ball      ThrowU        ", "ball_throw_u"),
 ]
 
 
-def _dispatch(task_id: str, device: str, *, render: bool = False) -> str | None:
-    cat = task_id.split("-")[1]
-    if cat == "Cube":
-        if "Domino" in task_id:
-            return _check_cube_domino(device, render=render)
-        return _check_cube_stack(device, task_id, render=render)
-    if cat == "Insertion":
-        if "TwoSheet" in task_id:
-            return _check_insertion_twosheet(device, render=render)
-        if "Sorter" in task_id:
-            return _check_insertion_sorter(device, task_id, render=render)
-        return _check_insertion_single(device, task_id, render=render)
-    if cat == "Ball":
-        return _check_ball(device, task_id, render=render)
-    return f"Unknown category in task id: {task_id}"
+def _dispatch(key: str, device: str, *, render: bool = False) -> str | None:
+    if key == "stacking_stack3":
+        return _check_stacking_stack3(device, render=render)
+    if key == "stacking_two_stacks":
+        return _check_stacking_two_stacks(device, render=render)
+    if key == "domino_domino3":
+        return _check_domino_domino3(device, render=render)
+    if key == "domino_knockover":
+        return _check_domino_knockover(device, render=render)
+    if key == "shape_sorter_full":
+        return _check_shape_sorter_full(device, render=render)
+    if key == "ball_minigolf_direct":
+        return _check_ball_at_target(
+            device, "G3a-Ball-MinigolfDirect-Dk1_uni", render=render
+        )
+    if key == "ball_minigolf_using_wall":
+        return _check_ball_minigolf_using_wall(device, render=render)
+    if key == "ball_throw_u":
+        return _check_ball_at_target(device, "G3a-Ball-ThrowU-Dk1_uni", render=render)
+    return f"Unknown check key: {key}"
 
 
 def main() -> None:
@@ -391,9 +478,9 @@ def main() -> None:
     print()
 
     failures: dict[str, str] = {}
-    for label, task_id in _CHECKS:
+    for label, key in _CHECKS:
         try:
-            err = _dispatch(task_id, device, render=render)
+            err = _dispatch(key, device, render=render)
         except Exception as exc:
             err = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
         if err is None:

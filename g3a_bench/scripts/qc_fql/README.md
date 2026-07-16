@@ -13,7 +13,7 @@ uv run g3a-train-qcfql --dataset-path demos.npz --offline-steps 1000000 \
 
 # Offline + online fine-tuning:
 uv run g3a-train-qcfql --dataset-path demos.npz --offline-steps 1000000 \
-    --online-steps 50000 --task G3a-Cube-Stack3-Dk1_uni --checkpoint-path agent.pt
+    --online-steps 50000 --task G3a-Stacking-Stack3-Dk1_uni --checkpoint-path agent.pt
 
 # All knobs:
 uv run g3a-train-qcfql --help
@@ -21,7 +21,7 @@ uv run g3a-train-qcfql --help
 
 The dataset `.npz` must come from `scripts/live_bridge/lerobot_to_qc.py`
 (default `physical` action normalization — do not use `--action-norm data`).
-**As of now, no recorded demo dataset exists for `G3a-Cube-Stack3-Dk1_uni`** —
+**As of now, no recorded demo dataset exists for `G3a-Stacking-Stack3-Dk1_uni`** —
 recording demos via `live_bridge` and converting them is a manual prerequisite.
 
 ```bash

@@ -14,14 +14,8 @@ from mjlab.entity import Entity
 from g3a_bench.tasks.ball.mdp.success import ball_in_target_zone
 from g3a_bench.tasks.common.commands import GripperGateCommandCfg, GripperOpenGate
 from g3a_bench.tasks.common.success import SuccessGate
-from g3a_bench.tasks.cube.mdp.success import domino_upright_aligned
-from g3a_bench.tasks.domino.mdp.success import domino_fallen
-from g3a_bench.tasks.insertion.mdp.success import (
-    SorterLatch,
-    peg_axial_lateral,
-    peg_axis_cos_tilt,
-    peg_inserted,
-)
+from g3a_bench.tasks.domino.mdp.success import domino_fallen, domino_upright_aligned
+from g3a_bench.tasks.shape_sorter.mdp.success import SorterLatch
 from g3a_bench.tasks.shape_sorter.variants import SHAPE_SORTER_VARIANTS, allowed_faces
 from g3a_bench.tasks.stacking.mdp.success import (
     block_top_heights,
@@ -95,55 +89,6 @@ class TestDominoUprightAligned:
         yaw = 0.7
         quat = _quat_axis_angle((0.0, 0.0, 1.0), yaw + math.pi)
         assert self._check(quat, yaw)
-
-
-# ---------------------------------------------------------------------------
-# peg criteria
-# ---------------------------------------------------------------------------
-
-
-class TestPegKernels:
-    def test_axial_lateral_decomposition(self):
-        mouth = torch.zeros(1, 1, 3)
-        axis = torch.tensor([[[0.0, 0.0, 1.0]]])
-        pos = torch.tensor([[[0.03, 0.04, -0.02]]])
-        axial, lateral = peg_axial_lateral(pos, mouth, axis)
-        assert axial[0, 0].item() == pytest.approx(-0.02)
-        assert lateral[0, 0].item() == pytest.approx(0.05)
-
-    def test_cos_tilt_of_upright_peg_along_z(self):
-        quat = torch.tensor([[[1.0, 0.0, 0.0, 0.0]]])
-        axis = torch.tensor([[[0.0, 0.0, 1.0]]])
-        assert peg_axis_cos_tilt(quat, axis)[0, 0].item() == pytest.approx(1.0)
-
-    def test_cos_tilt_is_sign_free(self):
-        # A peg inserted "upside down" is still aligned with the bore axis.
-        quat = _quat_axis_angle((1.0, 0.0, 0.0), math.pi).view(1, 1, 4)
-        axis = torch.tensor([[[0.0, 0.0, 1.0]]])
-        assert peg_axis_cos_tilt(quat, axis)[0, 0].item() == pytest.approx(1.0)
-
-    def test_inserted_requires_depth_lateral_and_tilt(self):
-        kw = {
-            "half_len": 0.05,
-            "insert_depth": 0.01,
-            "lateral_tol": 0.004,
-            "tilt_cos": 0.9,
-        }
-        one = torch.ones(1, 1)
-
-        def check(axial: float, lateral: float, cos_tilt: float) -> bool:
-            return bool(
-                peg_inserted(axial * one, lateral * one, cos_tilt * one, **kw)[0, 0]
-            )
-
-        # Center 1 cm below the mouth, tip well past insert_depth.
-        assert check(-0.01, 0.0, 1.0)
-        # Center above the mouth but tip still deep enough (tip depth
-        # = -axial + half_len * cos_tilt).
-        assert check(0.03, 0.0, 1.0)
-        assert not check(0.05, 0.0, 1.0)  # tip 0 mm deep
-        assert not check(-0.01, 0.005, 1.0)  # off-center
-        assert not check(-0.01, 0.0, 0.8)  # tilted
 
 
 # ---------------------------------------------------------------------------

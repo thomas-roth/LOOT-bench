@@ -30,7 +30,7 @@ def main():
     # ------------------------------------------------------------------
     # 1. Load cube-task config in play-mode (infinite episode, no noise).
     # ------------------------------------------------------------------
-    cfg = load_env_cfg("G3a-Cube-Stack3-Dk1_uni", play=True)
+    cfg = load_env_cfg("G3a-Stacking-Stack3-Dk1_uni", play=True)
     cfg.terminations["time_out"].time_out = False
 
     # ------------------------------------------------------------------

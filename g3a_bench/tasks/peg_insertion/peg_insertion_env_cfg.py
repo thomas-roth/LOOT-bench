@@ -1,6 +1,9 @@
-"""Environment configuration for the object-insertion task category."""
+"""Environment configuration for the peg-insertion task category.
 
-import math
+ARCHIVED (unregistered, untested): see ``README.md``. Kept importable and
+pyright-clean so a future robot/category can still borrow from it, but not
+wired into ``config/`` and not discovered by ``tasks/__init__.py``.
+"""
 
 from mjlab.entity import EntityCfg
 from mjlab.envs import ManagerBasedRlEnvCfg
@@ -11,22 +14,18 @@ from mjlab.managers.termination_manager import TerminationTermCfg
 from mjlab.utils.noise import UniformNoiseCfg as Unoise
 
 from g3a_bench.tasks.common.env_cfg import make_manipulation_env_cfg
-from g3a_bench.tasks.common.success import OBJECT_VEL_THRESHOLD
 from g3a_bench.tasks.common.table import table_entity_cfg
-from g3a_bench.tasks.insertion import mdp as ins_mdp
-from g3a_bench.tasks.insertion.assets import (
+from g3a_bench.tasks.peg_insertion import mdp as ins_mdp
+from g3a_bench.tasks.peg_insertion.assets import (
     BOARD_POS,
     get_board_spec,
-    get_decor_spec,
     get_peg_spec,
     get_sheet_board_spec,
     get_sheet_spec,
-    get_sorter_piece_spec,
-    get_sorter_spec,
 )
-from g3a_bench.tasks.insertion.variants import InsertionVariantCfg
+from g3a_bench.tasks.peg_insertion.variants import InsertionVariantCfg
 
-COMMAND_NAME = "insertion"
+COMMAND_NAME = "task"
 
 REWARD_MODE_TERMS: dict[str, frozenset[str]] = {
     "success": frozenset(["success"]),
@@ -41,14 +40,11 @@ def make_insertion_env_cfg(
     """Build the robot-agnostic insertion cfg (see ``tasks/common/env_cfg.py``
     for the placeholder/wiring convention)."""
     two_sheet = variant.kind == "two_sheet"
-    sorter = variant.kind == "sorter"
     peg_names = tuple(f"peg_{i}" for i in range(len(variant.peg_shapes)))
     sheet_name = "sheet" if two_sheet else None
 
     board_init = EntityCfg.InitialStateCfg(pos=BOARD_POS)
     entities: dict[str, EntityCfg] = {
-        # Shared visual-only workstation dressing (same for every variant).
-        "decor": EntityCfg(spec_fn=get_decor_spec),
         "table": table_entity_cfg(),
     }
     if two_sheet:
@@ -56,8 +52,6 @@ def make_insertion_env_cfg(
             spec_fn=lambda v=variant: get_sheet_board_spec(v), init_state=board_init
         )
         entities["sheet"] = EntityCfg(spec_fn=lambda v=variant: get_sheet_spec(v))
-    elif sorter:
-        entities["board"] = EntityCfg(spec_fn=get_sorter_spec)
     else:
         entities["board"] = EntityCfg(
             spec_fn=lambda v=variant: get_board_spec(v), init_state=board_init
@@ -65,14 +59,9 @@ def make_insertion_env_cfg(
     for name, shape, color in zip(
         peg_names, variant.peg_shapes, variant.peg_colors, strict=True
     ):
-        if sorter:
-            entities[name] = EntityCfg(
-                spec_fn=lambda s=shape, c=color: get_sorter_piece_spec(s, c)
-            )
-        else:
-            entities[name] = EntityCfg(
-                spec_fn=lambda s=shape, c=color, n=name: get_peg_spec(s, c, n)
-            )
+        entities[name] = EntityCfg(
+            spec_fn=lambda s=shape, c=color, n=name: get_peg_spec(s, c, n)
+        )
 
     grasp_cfg = SceneEntityCfg("robot", site_names=())  # Set per-robot.
 
@@ -120,10 +109,9 @@ def make_insertion_env_cfg(
     }
 
     num_pegs = len(peg_names)
-    fixed_props = ("decor", "table") if sorter else ("decor", "table", "board")
     return make_manipulation_env_cfg(
         entities=entities,
-        fixed_props=fixed_props,
+        fixed_props=("table", "board"),
         command_name=COMMAND_NAME,
         command_cfg=ins_mdp.InsertionCommandCfg(
             board_name="board",
@@ -132,29 +120,18 @@ def make_insertion_env_cfg(
             variant=variant,
             resampling_time_range=(1.0e9, 1.0e9),
             debug_vis=True,
-            # The sorter cube keeps tumbling after the target piece is
-            # latched in (it and the other loose pieces settle slowly), so
-            # gating success/termination on the piece being at rest is
-            # unreliable here. Every other insertion kind keeps the default
-            # at-rest gate.
-            peg_vel_threshold=math.inf if sorter else OBJECT_VEL_THRESHOLD,
         ),
         task_obs_terms=task_obs_terms,
-        command_obs=sorter,
+        command_obs=False,
         task_rewards=task_rewards,
         task_terminations=task_terminations,
         env_spacing=2.0,
-        episode_length_s=30.0 if sorter else 10.0 + 8.0 * variant.num_sockets,
-        # Two-sheet: two 16-box rings stacked on top of each other need
-        # extra contact/constraint headroom. Sorter: ~90 convex mesh parts on
-        # the cube colliding with pieces, table and gripper -- 500/2000 has
-        # 1.7-8x margin over observed peak usage (~289 contacts at a fresh
-        # reset, comfortably clean through the piece-tumbling latch check
-        # down to 60/240) and is ~2x faster to step than the original
-        # 2000/8000, which was far larger than the geometry ever needs.
+        episode_length_s=10.0 + 8.0 * variant.num_sockets,
+        # Two-sheet: two 16-box rings stacked on top of each other need extra
+        # contact/constraint headroom.
         solver_iterations=15,
         solver_ls_iterations=25,
-        nconmax=500 if sorter else 120 + 120 * num_pegs + (200 if two_sheet else 0),
-        njmax=2000 if sorter else 900 + 90 * num_pegs + (400 if two_sheet else 0),
+        nconmax=120 + 120 * num_pegs + (200 if two_sheet else 0),
+        njmax=900 + 90 * num_pegs + (400 if two_sheet else 0),
         play=play,
     )

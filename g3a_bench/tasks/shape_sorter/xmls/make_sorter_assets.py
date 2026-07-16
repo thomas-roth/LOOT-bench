@@ -6,7 +6,7 @@
 
 Converts the user-designed CAD STLs (committed under ``cad/``; mm units,
 uncentered assembly offsets) into the committed runtime assets under
-``tasks/insertion/xmls/``:
+``tasks/shape_sorter/xmls/``:
 
 - ``meshes/sorter_visual.stl``      pretty sorter mesh (metres, centred)
 - ``meshes/sorter_col_<face>_<k>.stl``  exact convex collision parts, one set
@@ -19,12 +19,12 @@ uncentered assembly offsets) into the committed runtime assets under
 - ``sorter.xml`` / ``piece_<shape>.xml``  freejoint MJCF bodies
 - ``sorter_layout.json``            hole mouths/axes + piece dims in the cube
   body frame -- the single source both the XML geometry and the success metric
-  derive from (see ``insertion.assets.load_sorter_layout``)
+  derive from (see ``shape_sorter.assets.load_sorter_layout``)
 
-Build-time tool (like ``decor/make_decor_meshes.py``), not part of the runtime.
-Re-run to regenerate the committed assets:
+Build-time tool, not part of the runtime. Re-run to regenerate the committed
+assets:
 
-    uv run g3a_bench/tasks/insertion/xmls/make_sorter_assets.py
+    uv run g3a_bench/tasks/shape_sorter/xmls/make_sorter_assets.py
 """
 
 from __future__ import annotations

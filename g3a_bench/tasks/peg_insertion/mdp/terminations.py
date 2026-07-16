@@ -1,4 +1,4 @@
-"""Termination terms for the object-insertion task category."""
+"""Termination terms for the peg-insertion task category (archived, unregistered)."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 import torch
 
-from g3a_bench.tasks.insertion.mdp.commands import get_command as _command
+from g3a_bench.tasks.peg_insertion.mdp.commands import get_command as _command
 
 if TYPE_CHECKING:
     from mjlab.envs import ManagerBasedRlEnv

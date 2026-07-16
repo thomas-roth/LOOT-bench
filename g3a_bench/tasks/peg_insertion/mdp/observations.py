@@ -1,4 +1,4 @@
-"""Observation terms for the object-insertion task category."""
+"""Observation terms for the peg-insertion task category (archived, unregistered)."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import torch
 from mjlab.entity import Entity
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 
-from g3a_bench.tasks.insertion.mdp.commands import get_command as _command
+from g3a_bench.tasks.peg_insertion.mdp.commands import get_command as _command
 
 if TYPE_CHECKING:
     from mjlab.envs import ManagerBasedRlEnv

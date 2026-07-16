@@ -25,8 +25,8 @@ from g3a_bench.robots.trlc_dk1.dk1_constants import (
     get_unimanual_dk1_robot_cfg,
 )
 
-_PIECE_HALF_SIZE = 0.02  # [m], 40 mm box, tasks/cube-piece sized.
-_PIECE_MASS = 0.1  # [kg], tasks/cube PIECE_MASS.
+_PIECE_HALF_SIZE = 0.02  # [m], 40 mm box, tasks/stacking base-cube sized.
+_PIECE_MASS = 0.1  # [kg], tasks/stacking FORM_MASS["cube"].
 _SETTLE_STEPS = 300  # 3 s at the play timestep.
 _STEADY_WINDOW = 50
 

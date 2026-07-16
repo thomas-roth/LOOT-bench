@@ -548,7 +548,7 @@ def main() -> None:
     parser.add_argument(
         "--task",
         type=str,
-        default="G3a-Cube-Stack3-Dk1_uni",
+        default="G3a-Stacking-Stack3-Dk1_uni",
         help="MJLab task the demo was recorded on",
     )
     parser.add_argument(
