@@ -1,7 +1,10 @@
 """Termination terms for the ball task category.
 
-``ball_hits_wall`` / ``ball_off_platform`` are only registered for the
-variants where they can occur (throw / hole); see ``make_ball_env_cfg``.
+``ball_off_platform`` / ``ball_hits_wall`` are only registered for the
+variants where they can occur (minigolf / throw); see ``make_ball_env_cfg``.
+Both read the command's *live* field/wall pose instead of env-origin
+constants, since the field (and, for ThrowWallVariation, the wall) moves
+every reset.
 """
 
 from __future__ import annotations
@@ -16,7 +19,6 @@ from g3a_bench.tasks.ball.variants import (
     WALL_HALF_X,
     WALL_HALF_Y,
     WALL_HEIGHT,
-    WALL_X,
 )
 
 if TYPE_CHECKING:
@@ -46,15 +48,16 @@ def ball_off_platform(
     env: ManagerBasedRlEnv,
     command_name: str,
 ) -> torch.Tensor:
-    """Ball dropped below the platform top outside the pit (fell off an edge).
+    """Ball dropped below the platform's base level outside the pit.
 
-    The pit is a square of half-width ``target_radius``, so the "outside"
-    test uses the Chebyshev distance: a ball dropping into the pit near a
-    corner stays inside it, while a ball on the floor around the platform
-    is beyond it.
+    ``spawn_z`` is the platform's base elevation -- constant across every
+    minigolf layout, including Ramp's raised target section -- so a ball
+    anywhere on the platform (low section, incline, or raised section) stays
+    at or above it; the Chebyshev distance to the (possibly elevated) target
+    keeps the pit itself, which legitimately drops below this level, exempt.
     """
     command = _command(env, command_name)
-    below = command.ball_pos_w[:, 2] < command.surface_z
+    below = command.ball_pos_w[:, 2] < command.spawn_z
     d_cheb = (
         (command.ball_pos_w[:, :2] - command.target_pos_w[:, :2])
         .abs()
@@ -68,12 +71,15 @@ def ball_hits_wall(
     env: ManagerBasedRlEnv,
     command_name: str,
 ) -> torch.Tensor:
-    """Ball entered the throw wall's box (touched instead of cleared it)."""
+    """Ball entered the throw wall's box (touched instead of cleared it).
+
+    Uses the command's live ``wall_pos_w``: for ThrowWallVariation the wall
+    is a separately-moving fixed entity; for the other throw variants it's
+    baked into the field, offset by the field's own live pose.
+    """
     command = _command(env, command_name)
-    rel = command.ball_pos_w - env.scene.env_origins
-    in_wall_x = (rel[:, 0] >= WALL_X - WALL_HALF_X) & (
-        rel[:, 0] <= WALL_X + WALL_HALF_X
-    )
-    in_wall_y = (rel[:, 1] >= -WALL_HALF_Y) & (rel[:, 1] <= WALL_HALF_Y)
+    rel = command.ball_pos_w - command.wall_pos_w
+    in_wall_x = rel[:, 0].abs() <= WALL_HALF_X
+    in_wall_y = rel[:, 1].abs() <= WALL_HALF_Y
     in_wall_z = (rel[:, 2] >= 0) & (rel[:, 2] <= WALL_HEIGHT + BALL_RADIUS)
     return in_wall_x & in_wall_y & in_wall_z

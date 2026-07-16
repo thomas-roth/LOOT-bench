@@ -9,17 +9,17 @@ from mjlab.managers.termination_manager import TerminationTermCfg
 from mjlab.utils.noise import UniformNoiseCfg as Unoise
 
 from g3a_bench.tasks.ball import mdp as ball_mdp
-from g3a_bench.tasks.ball.assets import get_ball_spec, get_field_spec
-from g3a_bench.tasks.ball.variants import BallVariantCfg
+from g3a_bench.tasks.ball.assets import get_ball_spec, get_field_spec, get_wall_spec
+from g3a_bench.tasks.ball.variants import WALL_X, BallVariantCfg
 from g3a_bench.tasks.common.env_cfg import make_manipulation_env_cfg
 from g3a_bench.tasks.common.table import table_entity_cfg
 
-COMMAND_NAME = "ball_target"
+COMMAND_NAME = "task"
 
-REWARD_MODE_TERMS: dict[str, frozenset[str]] = {
-    "success": frozenset(["success"]),
-    "progress": frozenset(["success"]),
-}
+# Goal randomization: the field (and, for ThrowWallVariation, the wall) is
+# perturbed around its init pose every reset instead of pinned exactly.
+_FIELD_POSE_RANGE = {"x": (-0.02, 0.02), "y": (-0.03, 0.03)}
+_WALL_POSE_RANGE = {"x": (-0.06, 0.06), "z": (-0.08, 0.0)}
 
 
 def make_ball_env_cfg(
@@ -33,6 +33,15 @@ def make_ball_env_cfg(
         "ball": EntityCfg(spec_fn=get_ball_spec),
         "table": table_entity_cfg(),
     }
+    fixed_props = ["field", "table"]
+    wall_name = None
+    if variant.movable_wall:
+        entities["wall"] = EntityCfg(
+            spec_fn=get_wall_spec,
+            init_state=EntityCfg.InitialStateCfg(pos=(WALL_X, 0.0, 0.0)),
+        )
+        fixed_props.append("wall")
+        wall_name = "wall"
 
     grasp_cfg = SceneEntityCfg("robot", site_names=())  # Set per-robot.
 
@@ -57,7 +66,7 @@ def make_ball_env_cfg(
     task_rewards = {
         "success": RewardTermCfg(
             func=ball_mdp.success_reward,
-            weight=5.0,
+            weight=1.0,
             params={"command_name": COMMAND_NAME},
         ),
     }
@@ -72,7 +81,7 @@ def make_ball_env_cfg(
             params={"command_name": COMMAND_NAME, "max_radius": 1.2},
         ),
     }
-    if variant.has_platform:
+    if variant.task == "minigolf":
         task_terminations["off_platform"] = TerminationTermCfg(
             func=ball_mdp.ball_off_platform,
             params={"command_name": COMMAND_NAME},
@@ -83,17 +92,14 @@ def make_ball_env_cfg(
             params={"command_name": COMMAND_NAME},
         )
 
-    # push must guide the ball the full distance (target_x up to 0.68m, near
-    # the ~0.74m reach) and retreat -- longer than golf/throw's one strike.
-    # Estimate, not training-validated.
-    episode_length_s = 16.0 if variant.action == "push" else 12.0
-
-    return make_manipulation_env_cfg(
+    cfg = make_manipulation_env_cfg(
         entities=entities,
-        fixed_props=("field", "table"),
+        fixed_props=tuple(fixed_props),
         command_name=COMMAND_NAME,
         command_cfg=ball_mdp.BallCommandCfg(
             ball_name="ball",
+            field_name="field",
+            wall_name=wall_name,
             variant=variant,
             resampling_time_range=(1.0e9, 1.0e9),
             debug_vis=True,
@@ -105,7 +111,7 @@ def make_ball_env_cfg(
         task_rewards=task_rewards,
         task_terminations=task_terminations,
         env_spacing=2.5,
-        episode_length_s=episode_length_s,
+        episode_length_s=12.0,
         solver_iterations=12,
         solver_ls_iterations=20,
         nconmax=150,
@@ -114,3 +120,14 @@ def make_ball_env_cfg(
         viewer_elevation=-20.0,
         play=play,
     )
+
+    cfg.events["reset_field"].params["pose_range"] = _FIELD_POSE_RANGE
+    if wall_name is not None:
+        cfg.events["reset_wall"].params["pose_range"] = _WALL_POSE_RANGE
+
+    if play:
+        # live_bridge demo playback needs episodes to actually terminate on
+        # success.
+        cfg.terminations["success"] = task_terminations["success"]
+
+    return cfg
