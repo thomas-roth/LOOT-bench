@@ -2,7 +2,7 @@
 
 Port of **QC-FQL** (Action-Chunked Flow Q-Learning) from JAX/Flax to PyTorch,
 integrated into g3a-bench for offline-RL pretraining + online fine-tuning on
-mjlab tasks (cube stacking, insertion, ball).
+mjlab tasks (stacking, domino, shape sorter, ball).
 
 ## Quick start
 

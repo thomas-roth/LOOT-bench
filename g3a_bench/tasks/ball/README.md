@@ -58,8 +58,8 @@ target, at rest, and released) — no shaping, penalties, or regularization.
 | `G3a-Ball-ThrowMarkedArea`           | throw the ball over a wall onto a marked disk      |
 | `G3a-Ball-ThrowWallVariation`        | as MarkedArea, but the wall moves every reset      |
 
-Train e.g. with:
+Play e.g. with:
 
 ```bash
-uv run g3a-train G3a-Ball-MinigolfDirect-Dk1_uni --env.scene.num-envs 2048
+uv run g3a-play G3a-Ball-MinigolfDirect-Dk1_uni
 ```

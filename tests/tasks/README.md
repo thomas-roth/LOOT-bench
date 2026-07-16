@@ -9,12 +9,13 @@ The scripts and pytest suite here verify changes to task code; run everything fr
 Pytest suites for the simulator-free task logic:
 
 - `test_success.py` — the per-category success criteria in each
-  `tasks/<cat>/mdp/success.py` (`domino_upright_aligned`, `peg_inserted`,
-  `peg_axial_lateral`, `ball_in_target_zone`, `SorterLatch`) plus the shared
+  `tasks/<cat>/mdp/success.py` (`domino_upright_aligned`, `domino_fallen`,
+  `stack_reached`, `ball_in_target_zone`, `SorterLatch`) plus the shared
   gates: `SuccessGate` from `common/success.py` and `GripperOpenGate` from
   `common/commands.py`.
-- `test_scatter.py` — the `ScatterGrid` spawn sampler and `random_yaw` in
-  `common/scatter.py` (cell layout, jitter bounds, distinct-cells-per-env property).
+- `test_scatter.py` — the `ScatterGrid` spawn sampler in `common/scatter.py`
+  (`tiling`'s cell layout and jitter bounds, `sample_poses`'s distinct-cells,
+  determinism, and seed-prefix properties).
 
 Run them after touching a category's `mdp/success.py`, `tasks/common/success.py`,
 or `tasks/common/scatter.py`.
@@ -34,7 +35,7 @@ A fast smoke test that the env, managers, and MJCF assemble without error.
 Run it after touching any `*_env_cfg.py`, `assets.py`, or robot config.
 
 By default it saves one full-HD scene picture per task (env 0) to `out/render/<domain>/<task_id>.png`.
-`<domain>` is the task category parsed from the task id (`ball`, `cube`, `insertion`, …), so new categories are picked up automatically.
+`<domain>` is the task category parsed from the task id (`ball`, `stacking`, `domino`, `shapesorter`, …), so new categories are picked up automatically.
 Rendering is decoupled from PASS/FAIL: a missing GL context (headless CI) warns per task but never fails it.
 
 ```bash
@@ -47,8 +48,8 @@ uv run python tests/tasks/build_sim_registered_tasks.py --no-render
 
 ## Success-metric check (`check_success_reward.py`)
 
-Teleports objects to their goals for one representative task per category, plus structurally unusual variants (Domino5, Push3, Sorter3, Sorter6, TwoSheet, GolfHole, PushHole, PegCylinderH), and checks that the command term's success metric fires.
-The sorter check reorients the free cube so the target hole faces up, then drives the target piece through the mouth in two stations so the latched outside-to-inside crossing fires.
+Teleports objects to their goals for one representative task per category, plus structurally unusual variants (Stacking Stack3TwoStacks, Domino Domino3KnockOver, Ball MinigolfUsingWall, Ball ThrowU), and checks that the command term's success metric fires.
+The shape-sorter check reorients the free cube so the target hole faces up, then drives the piece through the mouth in two stations so the latched outside-to-inside crossing fires.
 This confirms the metric *can* fire when objects are placed correctly; it does not verify that reward shaping guides a policy there.
 Run it after touching a category's `mdp/commands.py` or success-metric logic.
 

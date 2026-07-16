@@ -6,16 +6,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `g3a-bench` is a suite of long-horizon robot-manipulation benchmark tasks for the
 KIT "G3A Praktikum" course, built on the **mjlab** framework (MuJoCo + PyTorch
-vectorized RL, RSL-RL PPO). It is an installable package (`g3a_bench`, hatchling,
+vectorized sim). It is an installable package (`g3a_bench`, hatchling,
 flat layout) whose job is to **register tasks into mjlab's global registry** and
-provide the robot assets and task definitions; the actual training/playing loop
-is mjlab's.
+provide the robot assets and task definitions; the play loop is mjlab's, and
+training is QC-FQL (offline-to-online RL; see `g3a_bench/scripts/qc_fql/`).
 
-Three task categories, each with variants, currently registered for one robot
+Four task categories, 37 tasks total, currently registered for one robot
 (`-Dk1_uni`) → task ids look like `G3a-<Category>-<Variant>-<Robot>`:
-`tasks/cube` (piece stacking / dominoes / maze push), `tasks/insertion` (peg
-insertion + shape sorter), `tasks/ball` (golf / push / throw a ball to a
-target).
+`tasks/stacking` (stack blocks to a target height), `tasks/domino` (place
+and optionally knock over a row of dominoes), `tasks/shape_sorter` (insert
+shapes into a sorter board), `tasks/ball` (minigolf / throw a ball to a
+target). `tasks/peg_insertion` is an archived, unregistered category kept
+importable for reference (see its README).
 
 ## Commands
 
@@ -32,9 +34,13 @@ uv run ruff format         # format
 uv run pyright             # type check (config in pyrightconfig.json, basic mode)
 uv run pre-commit run --all-files
 
-# Train / play a task (these wrap mjlab after importing g3a_bench to register tasks)
-uv run g3a-train G3a-Cube-Stack3-Dk1_uni --env.scene.num-envs 2048
-uv run g3a-play  G3a-Cube-Stack3-Dk1_uni
+# Play a task (wraps mjlab's player after importing g3a_bench to register tasks)
+uv run g3a-play G3a-Stacking-Stack3-Dk1_uni
+
+# Offline-to-online RL training (QC-FQL; see g3a_bench/scripts/qc_fql/README.md)
+uv run g3a-train-qcfql --dataset-path demos.npz --offline-steps 1000000 \
+    --online-steps 50000 --task G3a-Stacking-Stack3-Dk1_uni --checkpoint-path agent.pt
+uv run g3a-play-qcfql --checkpoint agent.pt --dataset-path demos.npz
 
 # Verification scripts (see tests/tasks/README.md), not installed as console scripts
 uv run python tests/tasks/build_sim_registered_tasks.py
@@ -61,37 +67,36 @@ adding/editing a category means mirroring an existing one:
 - `variants.py` — frozen dataclass `*VariantCfg` enumerating the task variations
   (forms, colors, targets…), collected in a `*_VARIANTS` dict keyed by name.
 - `assets.py` — `mujoco.MjSpec` builders for the scene objects (`get_*_spec`).
-  Most objects are built procedurally in code; the exception is insertion's
-  STL shape sorter and workstation decor, loaded from committed XML/STL files
-  (see the extra `xmls/`/`decor/` dirs below).
+  Most objects are built procedurally in code; the exception is
+  shape_sorter's STL cube and pieces, loaded from committed XML/STL files
+  (see the extra `xmls/` dir below).
 - `mdp/` — the per-category MDP terms: `success.py` (the category's pure
-  success criteria — simulator-free placement tests like `peg_inserted`, plus
-  category-specific latches like the sorter's `SorterLatch`; unit-tested in
-  `tests/tasks/test_success.py`), `commands.py` (a `CommandTerm` subclass that
-  samples goals, scatters objects on reset, and computes the success metric —
-  an *adapter* that gathers sim buffers for the success criteria and the
-  shared `tasks/common/success.py` / `scatter.py` helpers), `observations.py`,
-  `rewards.py`, `terminations.py`. `mdp/__init__.py` re-exports the terms.
+  success criteria — simulator-free placement tests like `domino_upright_aligned`
+  and `ball_in_target_zone`, plus category-specific latches like the sorter's
+  `SorterLatch`; unit-tested in `tests/tasks/test_success.py`), `commands.py`
+  (a `CommandTerm` subclass that samples goals, scatters objects on reset, and
+  computes the success metric — an *adapter* that gathers sim buffers for the
+  success criteria and the shared `tasks/common/success.py` / `scatter.py`
+  helpers), `observations.py`, `rewards.py`, `terminations.py`.
+  `mdp/__init__.py` re-exports the terms.
 - `<cat>_env_cfg.py` — `make_<cat>_env_cfg(variant, play)` builds only the
-  category-shaped parts (entities, command, task obs/reward/termination terms)
-  and hands them to `tasks/common/env_cfg.make_manipulation_env_cfg`, which
-  owns the shared skeleton (table, proprioceptive obs, actor/critic groups,
-  regularization rewards + curriculum, reset events, viewer/sim defaults, the
-  `play` strip-down).
+  category-shaped parts (entities, command, task obs/reward/termination terms:
+  `progress` + `success`, both weight 1.0, no shaping/penalties) and hands
+  them to `tasks/common/env_cfg.make_manipulation_env_cfg`, which owns the
+  shared skeleton (table, proprioceptive obs, actor/critic groups, reset
+  events, viewer/sim defaults, the `play` strip-down).
 - `config/__init__.py` — one `tasks/common/registration.register_category(...)`
   call: it loops robots × variants, wires the robot in (via
   `tasks/common/manipulator_wiring.wire_manipulator_into_env` with the
-  category's `grasp_obs_terms`/`ee_contact_sensors`), registers each task with
-  the shared PPO cfg (`tasks/common/rl_cfg.manipulation_ppo_runner_cfg`,
-  per-category `max_iterations`), and records the category's
-  `REWARD_MODE_TERMS` (defined in `<cat>_env_cfg.py`) in
-  `registration.TASK_TABLE` — which is what `g3a-train --reward-mode` reads
-  (unknown task/mode aborts loudly).
+  category's `grasp_obs_terms`/`ee_contact_sensors`), and registers each task
+  with mjlab's registry using the shared RSL-RL PPO cfg
+  (`tasks/common/rl_cfg.manipulation_ppo_runner_cfg`, per-category
+  `max_iterations`) — mjlab's registry requires an `rl_cfg`, but the actual
+  training path is QC-FQL (`g3a_bench/scripts/qc_fql/`), not RSL-RL PPO.
 - `__init__.py` — empty (discovery happens one level up, see below).
-- *(insertion only)* `xmls/` — committed STL shape-sorter assets (`sorter.xml`,
-  `piece_<shape>.xml`, STL meshes, `sorter_layout.json`), generated once by
-  `xmls/make_sorter_assets.py`; `decor/` — visual-only workstation dressing
-  (`workstation_decor.xml` + STL meshes from `decor/make_decor_meshes.py`).
+- *(shape_sorter only)* `xmls/` — committed STL shape-sorter assets
+  (`sorter.xml`, `piece_<shape>.xml`, STL meshes, `sorter_layout.json`),
+  generated once by `xmls/make_sorter_assets.py`.
 
 `tasks/common/` is the home of everything shared: the workbench builder, the
 manipulator wiring, the registration seam + PPO cfg, the shared success
@@ -99,16 +104,18 @@ gating (`success.py`: `OBJECT_VEL_THRESHOLD` and the `SuccessGate` that
 combines a category's success criterion with the at-rest + released
 conditions), the `GripperGateCommandCfg`/`GripperOpenGate` "gripper released"
 success gate (`commands.py`; the joints/threshold are robot-specific and
-injected by the manipulator wiring), the `ScatterGrid` spawn sampler, the
-table asset, and the debug markers.
+injected by the manipulator wiring), the `ScatterGrid` spawn sampler
+(`tiling`/`sample_poses`, seed-prefix safe), the shared `colors.py` palette,
+the table asset, and the debug markers.
 
 **Registration is automatic via discovery**: `tasks/__init__.py` calls mjlab's
-`import_packages` once (blacklist `["utils", ".mdp", "common"]`), which walks
-the category packages, imports each `config` subpackage and triggers
-`register_mjlab_task`. The `.mdp`/`common` blacklist entries keep the MDP and
-shared-helper modules from being scanned as task configs. Top-level
-`g3a_bench/__init__.py` imports `g3a_bench.tasks`, so a single
-`import g3a_bench` registers everything.
+`import_packages` once (blacklist `["utils", ".mdp", "common", "peg_insertion"]`),
+which walks the category packages, imports each `config` subpackage and
+triggers `register_mjlab_task`. The `.mdp`/`common` blacklist entries keep
+the MDP and shared-helper modules from being scanned as task configs;
+`peg_insertion` is blacklisted because it's an archived, unregistered
+category. Top-level `g3a_bench/__init__.py` imports `g3a_bench.tasks`, so a
+single `import g3a_bench` registers everything.
 
 ### Robot-agnostic design
 Tasks never hardcode robot details. `robots/interface.py` defines
@@ -161,14 +168,13 @@ actuated).
   "walls" (MuJoCo has no boolean subtraction). Non-primitive shapes
   (triangle/hex pegs) are convex-hull meshes added inline via
   `spec.add_mesh().uservert`. A *solid* box has no cavity, so a hole must be a
-  frame/ring around a gap. The exception is insertion's shape sorter and
-  workstation decor: committed XML+STL assets loaded via `MjSpec.from_file`
-  (`insertion/xmls/`, `insertion/decor/`), regenerated by their
-  `make_sorter_assets.py` / `make_decor_meshes.py` scripts — don't edit the
-  generated files by hand.
+  frame/ring around a gap. The exception is shape_sorter's STL board and
+  pieces: committed XML+STL assets loaded via `MjSpec.from_file`
+  (`shape_sorter/xmls/`), regenerated by `xmls/make_sorter_assets.py` — don't
+  edit the generated files by hand.
 - **Keep geometry and the success metric from drifting** by deriving both from one
-  source (e.g. `insertion/assets.socket_layout()` produces both the wall poses and
-  the goal/success poses).
+  source (e.g. `shape_sorter/assets.load_sorter_layout()` is the single source
+  for both the cube's hole geometry and the command term's success metric).
 - mujoco-heavy modules need `# pyright: reportAttributeAccessIssue=false` at the
   top (mujoco ships no stubs for the compiled `MjSpec`).
 - ruff line-length is 88; format with double quotes. Lint+format+pyright run as

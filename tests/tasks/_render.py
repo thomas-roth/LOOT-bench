@@ -30,8 +30,8 @@ def domain_of(task_id: str) -> str:
     """Task domain from a ``G3a-<Domain>-<Variant>-<Robot>`` id, lower-cased.
 
     Maps straight onto an ``out/render/<domain>/`` folder. Domains are *not*
-    enumerated anywhere: a new task category (beyond ball/cube/insertion) is
-    picked up automatically from its id.
+    enumerated anywhere: a new task category is picked up automatically from
+    its id.
     """
     return task_id.split("-")[1].lower()
 

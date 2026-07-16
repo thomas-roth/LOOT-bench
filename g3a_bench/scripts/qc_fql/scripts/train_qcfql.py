@@ -11,8 +11,8 @@ QC-FQL results through `main.py`. The structure is therefore two phases:
    sampled from the growing buffer.
 
 Installed as the `g3a-train-qcfql` console script (see pyproject.toml),
-sibling to `g3a-train`/`g3a-play`. The CLI (`main()`) runs the offline phase
-and optionally the online phase (`--online-steps N --task TASK_ID`).
+sibling to `g3a-play`/`g3a-play-qcfql`. The CLI (`main()`) runs the offline
+phase and optionally the online phase (`--online-steps N --task TASK_ID`).
 Requires `--task` for online fine-tuning or eval; raises ValueError if
 the task id is missing when needed.
 
