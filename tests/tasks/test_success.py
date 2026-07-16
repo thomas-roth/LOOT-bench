@@ -21,6 +21,13 @@ from g3a_bench.tasks.insertion.mdp.success import (
     peg_axis_cos_tilt,
     peg_inserted,
 )
+from g3a_bench.tasks.stacking.mdp.success import (
+    block_top_heights,
+    stack_reached,
+    stacking_progress,
+    two_stacks_progress,
+    two_stacks_success,
+)
 
 
 def _quat_axis_angle(axis: tuple[float, float, float], angle: float) -> torch.Tensor:
@@ -321,3 +328,84 @@ class TestGripperOpenGate:
         gate = GripperOpenGate(_gate_cfg(("nope",), 0.0))
         with pytest.raises(ValueError):
             gate(_fake_robot(["q1"], torch.zeros(1, 1)))
+
+
+# ---------------------------------------------------------------------------
+# stacking kernels
+# ---------------------------------------------------------------------------
+
+
+class TestStackHeight:
+    def test_top_heights_add_half_heights(self):
+        pos_z = torch.tensor([[0.02, 0.06]])
+        half_h = torch.tensor([0.02, 0.03])
+        top = block_top_heights(pos_z, half_h)
+        assert top[0].tolist() == pytest.approx([0.04, 0.09])
+
+    @pytest.mark.parametrize(
+        "top,expected",
+        [(0.11, True), (0.13, True), (0.1099, False), (0.1301, False)],
+    )
+    def test_reached_boundary_at_tol(self, top: float, expected: bool):
+        top_z = torch.tensor([[top]])
+        assert bool(stack_reached(top_z, 0.0, 0.12, 0.01)[0, 0]) is expected
+
+    def test_any_block_counts_regardless_of_position(self):
+        # Height-only semantics: exactly the blocks whose top face sits in
+        # the tol band count, wherever they are in xy; the rest do not.
+        half_h = torch.full((3,), 0.02)
+        pos_z = torch.tensor([[0.02, 0.02, 0.10]])  # 2 on the table, 1 on top
+        reached = stack_reached(block_top_heights(pos_z, half_h), 0.0, 0.12, 0.01)
+        assert reached.tolist() == [[False, False, True]]
+        assert bool(reached.any(dim=-1)[0])
+
+    def test_progress_clamps_to_unit_interval(self):
+        assert stacking_progress(torch.tensor([[0.20]]), 0.0, 0.12)[0] == 1.0
+        assert stacking_progress(torch.tensor([[-0.05]]), 0.0, 0.12)[0] == 0.0
+
+    def test_progress_tracks_tallest_block(self):
+        top_z = torch.tensor([[0.04, 0.08]])
+        assert stacking_progress(top_z, 0.0, 0.16)[0].item() == pytest.approx(0.5)
+
+
+# ---------------------------------------------------------------------------
+# two-stacks kernels
+# ---------------------------------------------------------------------------
+
+
+class TestTwoStacks:
+    def _success(self, reached: list[bool], xy: list[list[float]]) -> bool:
+        return bool(
+            two_stacks_success(
+                torch.tensor([reached]), torch.tensor([xy]), min_separation=0.06
+            )[0]
+        )
+
+    @pytest.mark.parametrize("dist,expected", [(0.06, True), (0.059, False)])
+    def test_separation_boundary(self, dist: float, expected: bool):
+        xy = [[0.0, 0.0], [dist, 0.0]]
+        assert self._success([True, True], xy) is expected
+
+    def test_requires_two_reached_blocks(self):
+        xy = [[0.0, 0.0], [0.2, 0.0]]
+        assert not self._success([True, False], xy)
+        assert self._success([True, True], xy)
+
+    def test_progress_ignores_unseparated_second_stack(self):
+        # Both height leaders within min_separation: one stack, second term 0.
+        top_z = torch.tensor([[0.12, 0.12]])
+        xy = torch.tensor([[[0.0, 0.0], [0.03, 0.0]]])
+        p = two_stacks_progress(top_z, xy, 0.0, 0.12, 0.06)
+        assert p[0].item() == pytest.approx(0.5)
+
+    def test_progress_mean_of_two_best_separated_leaders(self):
+        top_z = torch.tensor([[0.12, 0.06, 0.03]])
+        xy = torch.tensor([[[0.0, 0.0], [0.1, 0.0], [0.2, 0.0]]])
+        p = two_stacks_progress(top_z, xy, 0.0, 0.12, 0.06)
+        assert p[0].item() == pytest.approx(0.75)
+
+    def test_progress_clamps_at_two_full_stacks(self):
+        top_z = torch.tensor([[0.15, 0.14]])
+        xy = torch.tensor([[[0.0, 0.0], [0.1, 0.0]]])
+        p = two_stacks_progress(top_z, xy, 0.0, 0.12, 0.06)
+        assert p[0].item() == pytest.approx(1.0)
