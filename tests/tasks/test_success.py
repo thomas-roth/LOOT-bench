@@ -15,6 +15,7 @@ from g3a_bench.tasks.ball.mdp.success import ball_in_target_zone
 from g3a_bench.tasks.common.commands import GripperGateCommandCfg, GripperOpenGate
 from g3a_bench.tasks.common.success import SuccessGate
 from g3a_bench.tasks.cube.mdp.success import domino_upright_aligned
+from g3a_bench.tasks.domino.mdp.success import domino_fallen
 from g3a_bench.tasks.insertion.mdp.success import (
     SorterLatch,
     peg_axial_lateral,
@@ -409,3 +410,26 @@ class TestTwoStacks:
         xy = torch.tensor([[[0.0, 0.0], [0.1, 0.0]]])
         p = two_stacks_progress(top_z, xy, 0.0, 0.12, 0.06)
         assert p[0].item() == pytest.approx(1.0)
+
+
+# ---------------------------------------------------------------------------
+# domino_fallen
+# ---------------------------------------------------------------------------
+
+
+class TestDominoFallen:
+    def _fallen(self, tilt_deg: float) -> bool:
+        quat = _quat_axis_angle((1.0, 0.0, 0.0), math.radians(tilt_deg)).view(1, 1, 4)
+        return bool(domino_fallen(quat, tilt_deg=45.0)[0, 0])
+
+    def test_standing_domino_is_not_fallen(self):
+        assert not self._fallen(0.0)
+
+    @pytest.mark.parametrize("tilt_deg,expected", [(44.0, False), (46.0, True)])
+    def test_tilt_boundary_at_45_degrees(self, tilt_deg: float, expected: bool):
+        assert self._fallen(tilt_deg) is expected
+
+    def test_fallen_is_direction_free(self):
+        # Toppling either way about any horizontal axis counts the same.
+        quat = _quat_axis_angle((0.0, 1.0, 0.0), math.radians(90.0)).view(1, 1, 4)
+        assert bool(domino_fallen(quat, tilt_deg=45.0)[0, 0])

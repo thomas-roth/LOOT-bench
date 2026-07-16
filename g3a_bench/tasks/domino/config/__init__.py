@@ -1,0 +1,15 @@
+"""Task registration for all domino variants on all supported robots."""
+
+from g3a_bench.robots.trlc_dk1 import get_unimanual_dk1_interface
+from g3a_bench.tasks.common.registration import register_category
+from g3a_bench.tasks.domino.domino_env_cfg import make_domino_env_cfg
+from g3a_bench.tasks.domino.variants import DOMINO_VARIANTS
+
+register_category(
+    category="Domino",
+    variants=DOMINO_VARIANTS.values(),
+    make_env_cfg=make_domino_env_cfg,
+    robots=(get_unimanual_dk1_interface(),),
+    grasp_obs_terms=("dominoes_rel_grasp",),
+    max_iterations=10_000,
+)
