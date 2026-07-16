@@ -1,5 +1,5 @@
 """Shared workspace table, reused as fixed-base scene dressing by every task
-category (cube, ball, insertion).
+category.
 
 Purely visual (no collision): the ground ``plane`` terrain remains the actual
 physical resting/contact surface for every object, so this box never needs to
@@ -8,8 +8,10 @@ those objects sit on.
 
 One fixed size is shared unchanged across categories rather than sized per
 task, so it must cover the union of every category's workspace:
-- cube: piece scatter/goal region, x in (0.22, 0.40), y in (-0.18, 0.18).
-- insertion: board + parts tray, x in (0.08, 0.60), y in (-0.34, 0.34).
+- stacking/domino: object scatter region, x in (0.22, 0.42), y in
+  (-0.18, 0.18).
+- shape sorter: sorter cube + piece scatter, x in (0.08, 0.60), y in
+  (-0.34, 0.34).
 - ball: farthest target (the "hole" platform reaches x <= 0.975 now that
   golf/throw sit beyond the arm's ~0.74m reach), y in (-0.25, 0.25).
 plus a margin and the robot base itself (env origin) so the arm reads as
@@ -33,9 +35,9 @@ TABLE_POS = (0.48, 0.0, 0.0)
 TABLE_HALF_X = 0.53
 TABLE_HALF_Y = 0.35
 
-# Top surface sits a hair above the ground plane to avoid z-fighting (same
-# convention as the insertion decor mat). The block extends straight down
-# from there, so it's a solid cuboid, not a modeled table+legs.
+# Top surface sits a hair above the ground plane to avoid z-fighting. The
+# block extends straight down from there, so it's a solid cuboid, not a
+# modeled table+legs.
 TABLE_TOP_Z = 0.002
 TABLE_HEIGHT = 0.35
 

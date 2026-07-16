@@ -27,11 +27,6 @@ from g3a_bench.tasks.peg_insertion.variants import InsertionVariantCfg
 
 COMMAND_NAME = "task"
 
-REWARD_MODE_TERMS: dict[str, frozenset[str]] = {
-    "success": frozenset(["success"]),
-    "progress": frozenset(["inserted_count", "success"]),
-}
-
 
 def make_insertion_env_cfg(
     variant: InsertionVariantCfg,

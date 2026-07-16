@@ -42,7 +42,7 @@ settling/tumbling after latching).
 - all piece positions relative to the grasp site (object-major)
 - per-socket hole-mouth deltas (mouth minus piece position)
 - per-socket latched flags
-- the command: hole mouth positions (env-origin relative) and hole axes,
+- the command: per hole, its mouth position (env-origin relative) and axis,
   object-major — both track the cube's live pose
 
 ## Rewards

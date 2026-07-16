@@ -75,7 +75,7 @@ def make_shape_sorter_env_cfg(
         ),
     }
 
-    cfg = make_manipulation_env_cfg(
+    return make_manipulation_env_cfg(
         entities=entities,
         fixed_props=("table",),
         command_name=COMMAND_NAME,
@@ -101,10 +101,3 @@ def make_shape_sorter_env_cfg(
         njmax=2000,
         play=play,
     )
-
-    if play:
-        # live_bridge demo playback needs episodes to actually terminate on
-        # success.
-        cfg.terminations["success"] = task_terminations["success"]
-
-    return cfg

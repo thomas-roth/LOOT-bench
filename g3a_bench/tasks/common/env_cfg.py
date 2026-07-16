@@ -75,12 +75,13 @@ def make_manipulation_env_cfg(
             relative to the objects (the raw command would be redundant or
             constant).
         task_rewards: category reward terms.
-        task_terminations: category terminations, placed after ``time_out``
-            (``success`` must be one of them for the play block to strip).
+        task_terminations: category terminations, placed after ``time_out``.
         sensors: scene sensors (e.g. an end-effector contact sensor).
-        play: strip corruption/success-termination, make the
-            episode endless, and retune physics for real-time responsiveness
-            (see ``play_*`` args), for interactive play.
+        play: strip observation corruption, make the episode endless, and
+            retune physics for real-time responsiveness (see ``play_*``
+            args), for interactive play. The ``success`` termination is
+            kept — live_bridge demo playback needs episodes to terminate
+            on success.
         play_timestep, play_decimation, play_solver_iterations,
             play_solver_ls_iterations: physics knobs applied only when
             ``play=True``. A bigger timestep with fewer substeps
@@ -216,7 +217,6 @@ def make_manipulation_env_cfg(
     if play:
         cfg.episode_length_s = int(1e9)
         cfg.observations["actor"].enable_corruption = False
-        cfg.terminations.pop("success")
         cfg.sim.mujoco.timestep = play_timestep
         cfg.decimation = play_decimation
         cfg.sim.mujoco.iterations = play_solver_iterations

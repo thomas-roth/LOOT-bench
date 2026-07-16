@@ -43,10 +43,10 @@ _STEPS = 10
 
 def _make_env(task_id: str, device: str, *, play: bool = True) -> ManagerBasedRlEnv:
     cfg = load_env_cfg(task_id, play=play)
-    # Every category's play=True cfg re-adds the "success" termination (so
-    # live_bridge demo playback actually terminates on success); pop it here
-    # too, otherwise the env auto-resets the instant our teleported state
-    # scores, wiping the state before we read the fraction below.
+    # Play cfgs keep the "success" termination (live_bridge demo playback
+    # terminates on success); pop it here, otherwise the env auto-resets the
+    # instant our teleported state scores, wiping the state before we read
+    # the fraction below.
     cfg.terminations.pop("success", None)
     cfg.scene.num_envs = _NUM_ENVS
     env = ManagerBasedRlEnv(cfg=cfg, device=device)
@@ -466,7 +466,7 @@ def main() -> None:
     parser.add_argument(
         "--no-render",
         action="store_true",
-        help="Skip saving a goal-state picture per check to out/<cat>_check/.",
+        help="Skip saving a goal-state picture per check to out/render/<domain>/.",
     )
     args = parser.parse_args()
 

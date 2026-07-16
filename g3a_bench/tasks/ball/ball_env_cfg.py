@@ -125,9 +125,4 @@ def make_ball_env_cfg(
     if wall_name is not None:
         cfg.events["reset_wall"].params["pose_range"] = _WALL_POSE_RANGE
 
-    if play:
-        # live_bridge demo playback needs episodes to actually terminate on
-        # success.
-        cfg.terminations["success"] = task_terminations["success"]
-
     return cfg

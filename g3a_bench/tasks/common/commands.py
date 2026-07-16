@@ -1,7 +1,7 @@
 """Command-term helpers shared by the task categories.
 
-The success metrics of the object-arrangement categories (cube, insertion)
-share a "gripper released the object" gate on the robot's gripper joints.
+The success metrics of the object-arrangement categories share a "gripper
+released the object" gate on the robot's gripper joints.
 
 The robot-specific values come from the :class:`~g3a_bench.robots.interface.ManipulatorInterface` via
 ``manipulator_wiring.wire_manipulator_into_env``.

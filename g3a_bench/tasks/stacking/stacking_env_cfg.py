@@ -62,7 +62,7 @@ def make_stacking_env_cfg(
     }
 
     num_blocks = len(variant.blocks)
-    cfg = make_manipulation_env_cfg(
+    return make_manipulation_env_cfg(
         entities=entities,
         fixed_props=("table",),
         command_name=COMMAND_NAME,
@@ -88,10 +88,3 @@ def make_stacking_env_cfg(
         njmax=600 + 100 * num_blocks,
         play=play,
     )
-
-    if play:
-        # live_bridge demo playback needs episodes to actually terminate on
-        # success.
-        cfg.terminations["success"] = task_terminations["success"]
-
-    return cfg

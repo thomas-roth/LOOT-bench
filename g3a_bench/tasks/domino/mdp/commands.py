@@ -116,11 +116,19 @@ class DominoCommand(CommandTerm):
 
     @property
     def command(self) -> torch.Tensor:
-        """(E, G*3 + 2): env-local slot goal positions + cos/sin(row_yaw)."""
+        """(E, 2 + G*3): cos/sin(row_yaw), then env-local slot goal positions.
+
+        Shared dims first, per-slot dims in index order, so a shorter
+        variant's command is a tail-truncation of a longer one's (demo-cutoff
+        rule).
+        """
         goals = self.slot_goal_pos - self._env.scene.env_origins.unsqueeze(1)
-        out = goals.reshape(self.num_envs, -1)
         return torch.cat(
-            [out, torch.cos(self.row_yaw[:, None]), torch.sin(self.row_yaw[:, None])],
+            [
+                torch.cos(self.row_yaw[:, None]),
+                torch.sin(self.row_yaw[:, None]),
+                goals.reshape(self.num_envs, -1),
+            ],
             dim=-1,
         )
 
@@ -157,7 +165,10 @@ class DominoCommand(CommandTerm):
 
         if not self.variant.ordered:
             # Order-free assignment: match dominoes to slots by proximity so
-            # placement order never affects success (mono variants only).
+            # any domino may fill any slot. Only valid when all dominoes are
+            # identical (variants.py forbids different + not ordered). No
+            # registered variant uses this yet; the knob exists for manual
+            # experiments.
             dist = torch.cdist(self.slot_goal_pos, self.domino_pos_w)
             self.piece_for_slot = self._greedy_match(dist)
 

@@ -71,15 +71,17 @@ def ball_hits_wall(
     env: ManagerBasedRlEnv,
     command_name: str,
 ) -> torch.Tensor:
-    """Ball entered the throw wall's box (touched instead of cleared it).
+    """Ball touched the throw wall instead of clearing it.
 
     Uses the command's live ``wall_pos_w``: for ThrowWallVariation the wall
     is a separately-moving fixed entity; for the other throw variants it's
-    baked into the field, offset by the field's own live pose.
+    baked into the field, offset by the field's own live pose. The wall box
+    is inflated by the ball radius on every side — on contact the ball's
+    *center* stays a radius away from the wall surface.
     """
     command = _command(env, command_name)
     rel = command.ball_pos_w - command.wall_pos_w
-    in_wall_x = rel[:, 0].abs() <= WALL_HALF_X
-    in_wall_y = rel[:, 1].abs() <= WALL_HALF_Y
+    in_wall_x = rel[:, 0].abs() <= WALL_HALF_X + BALL_RADIUS
+    in_wall_y = rel[:, 1].abs() <= WALL_HALF_Y + BALL_RADIUS
     in_wall_z = (rel[:, 2] >= 0) & (rel[:, 2] <= WALL_HEIGHT + BALL_RADIUS)
     return in_wall_x & in_wall_y & in_wall_z

@@ -79,7 +79,7 @@ def make_domino_env_cfg(
 
     num_dominoes = variant.num_dominoes
     episode_length_s = 8.0 * num_dominoes + (8.0 if variant.knock_over else 0.0)
-    cfg = make_manipulation_env_cfg(
+    return make_manipulation_env_cfg(
         entities=entities,
         fixed_props=("table",),
         command_name=COMMAND_NAME,
@@ -103,10 +103,3 @@ def make_domino_env_cfg(
         njmax=600 + 100 * num_dominoes,
         play=play,
     )
-
-    if play:
-        # live_bridge demo playback needs episodes to actually terminate on
-        # success.
-        cfg.terminations["success"] = task_terminations["success"]
-
-    return cfg

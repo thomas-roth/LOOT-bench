@@ -188,12 +188,13 @@ class ShapeSorterCommand(CommandTerm):
 
     @property
     def command(self) -> torch.Tensor:
-        """(E, N*3 + N*3): env-local hole mouths, then hole axes."""
-        mouth = (
-            self.socket_mouth_w - self._env.scene.env_origins.unsqueeze(1)
-        ).reshape(self.num_envs, -1)
-        axis = self.socket_axis_w.reshape(self.num_envs, -1)
-        return torch.cat([mouth, axis], dim=-1)
+        """(E, N*6): per hole, in piece order: env-local mouth xyz, axis xyz.
+
+        Object-major layout so a smaller variant's command is a
+        tail-truncation of a larger one's (demo-cutoff rule).
+        """
+        mouth = self.socket_mouth_w - self._env.scene.env_origins.unsqueeze(1)
+        return torch.cat([mouth, self.socket_axis_w], dim=-1).reshape(self.num_envs, -1)
 
     # Helpers used by observation/reward/termination terms. ----------------
 
@@ -239,9 +240,9 @@ class ShapeSorterCommand(CommandTerm):
         all_latched = latched.all(dim=1)
         self.progress = latched.float().mean(dim=1)
 
-        speed = torch.stack(
-            [p.data.root_link_lin_vel_w for p in self.pieces], dim=1
-        ).norm(dim=-1)  # (E, N)
+        # The at-rest gate is disabled (vel_threshold=inf): a latched piece
+        # stays scored regardless of motion, so skip the speed computation.
+        speed = torch.zeros(E, device=self.device)
         released = self._gripper_gate(self._env.scene["robot"])
         self._gate.update(all_latched, speed, released)
 
