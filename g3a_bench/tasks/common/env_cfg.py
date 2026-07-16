@@ -1,11 +1,11 @@
 """Shared tabletop-manipulation env-cfg skeleton for all task categories.
 
 Every G3A task is the same workbench — a manipulator at a table with
-joint-position control, proprioceptive + task observations, regularization
-rewards with the standard curriculum, and a success/time-out episode — plus a
-category-shaped core (entities, command, task observations/rewards/
-terminations). :func:`make_manipulation_env_cfg` builds the skeleton and takes
-the core as parameters; the per-category ``make_*_env_cfg`` are thin caps.
+joint-position control, proprioceptive + task observations, and a
+success/time-out episode — plus a category-shaped core (entities, command,
+task observations/rewards/terminations). :func:`make_manipulation_env_cfg`
+builds the skeleton and takes the core as parameters; the per-category
+``make_*_env_cfg`` are thin caps.
 
 Robot-specific knobs are left as placeholders (empty grasp site, action scale
 0.5, empty friction geoms, empty viewer body, no ``"robot"`` scene entity).
@@ -14,15 +14,12 @@ wire_manipulator_into_env` with a concrete ``ManipulatorInterface`` before
 registering the task.
 """
 
-import copy
-
 from mjlab.entity import EntityCfg
 from mjlab.envs import ManagerBasedRlEnvCfg, mdp
 from mjlab.envs.mdp import dr
 from mjlab.envs.mdp.actions import JointPositionActionCfg
 from mjlab.managers.action_manager import ActionTermCfg
 from mjlab.managers.command_manager import CommandTermCfg
-from mjlab.managers.curriculum_manager import CurriculumTermCfg
 from mjlab.managers.event_manager import EventTermCfg
 from mjlab.managers.observation_manager import ObservationGroupCfg, ObservationTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
@@ -31,28 +28,9 @@ from mjlab.managers.termination_manager import TerminationTermCfg
 from mjlab.scene import SceneCfg
 from mjlab.sensor import SensorCfg
 from mjlab.sim import MujocoCfg, SimulationCfg
-from mjlab.tasks.manipulation import mdp as manipulation_mdp
 from mjlab.terrains import TerrainEntityCfg
 from mjlab.utils.noise import UniformNoiseCfg as Unoise
 from mjlab.viewer import ViewerConfig
-
-REGULARIZATION_TERMS = {
-    "action_rate_l2": RewardTermCfg(func=mdp.action_rate_l2, weight=-0.01),
-    "joint_pos_limits": RewardTermCfg(
-        func=mdp.joint_pos_limits,
-        weight=-10.0,
-        params={"asset_cfg": SceneEntityCfg("robot", joint_names=(".*",))},
-    ),
-    "joint_vel_hinge": RewardTermCfg(
-        func=manipulation_mdp.joint_velocity_hinge_penalty,
-        weight=-0.01,
-        params={
-            "max_vel": 0.5,
-            "asset_cfg": SceneEntityCfg("robot", joint_names=(".*",)),
-        },
-    ),
-}
-"""Regularization reward terms, stay active in every reward mode –> keep motions smooth and feasible."""
 
 
 def make_manipulation_env_cfg(
@@ -96,12 +74,11 @@ def make_manipulation_env_cfg(
             Disable when the task observations already encode the goal
             relative to the objects (the raw command would be redundant or
             constant).
-        task_rewards: category reward terms, placed before the shared
-            regularization terms.
+        task_rewards: category reward terms.
         task_terminations: category terminations, placed after ``time_out``
             (``success`` must be one of them for the play block to strip).
-        sensors: scene sensors (e.g. the insertion contact sensor).
-        play: strip corruption/curriculum/success-termination, make the
+        sensors: scene sensors (e.g. an end-effector contact sensor).
+        play: strip corruption/success-termination, make the
             episode endless, and retune physics for real-time responsiveness
             (see ``play_*`` args), for interactive play.
         play_timestep, play_decimation, play_solver_iterations,
@@ -189,29 +166,9 @@ def make_manipulation_env_cfg(
         ),
     }
 
-    rewards = {
-        **task_rewards,
-        **{name: copy.deepcopy(term) for name, term in REGULARIZATION_TERMS.items()},
-    }
-
     terminations = {
         "time_out": TerminationTermCfg(func=mdp.time_out, time_out=True),
         **task_terminations,
-    }
-
-    # TODO: do we need this with QC? (PPO specific?)
-    curriculum = {
-        "joint_vel_hinge_weight": CurriculumTermCfg(
-            func=manipulation_mdp.reward_curriculum,
-            params={
-                "reward_name": "joint_vel_hinge",
-                "stages": [
-                    {"step": 0, "weight": -0.01},
-                    {"step": 500 * 24, "weight": -0.1},
-                    {"step": 1000 * 24, "weight": -1.0},
-                ],
-            },
-        ),
     }
 
     cfg = ManagerBasedRlEnvCfg(
@@ -226,9 +183,8 @@ def make_manipulation_env_cfg(
         actions=actions,
         commands={command_name: command_cfg},
         events=events,
-        rewards=rewards,
+        rewards=dict(task_rewards),
         terminations=terminations,
-        curriculum=curriculum,
         viewer=ViewerConfig(
             origin_type=ViewerConfig.OriginType.ASSET_BODY,
             entity_name="robot",
@@ -260,7 +216,6 @@ def make_manipulation_env_cfg(
     if play:
         cfg.episode_length_s = int(1e9)
         cfg.observations["actor"].enable_corruption = False
-        cfg.curriculum = {}
         cfg.terminations.pop("success")
         cfg.sim.mujoco.timestep = play_timestep
         cfg.decimation = play_decimation
