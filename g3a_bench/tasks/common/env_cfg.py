@@ -32,6 +32,8 @@ from mjlab.terrains import TerrainEntityCfg
 from mjlab.utils.noise import UniformNoiseCfg as Unoise
 from mjlab.viewer import ViewerConfig
 
+from g3a_bench.tasks.common.observations import ee_pose_w
+
 
 def make_manipulation_env_cfg(
     *,
@@ -98,6 +100,11 @@ def make_manipulation_env_cfg(
         ),
         "joint_vel": ObservationTermCfg(
             func=mdp.joint_vel_rel, noise=Unoise(n_min=-1.5, n_max=1.5)
+        ),
+        "ee_pose": ObservationTermCfg(
+            func=ee_pose_w,
+            params={"asset_cfg": SceneEntityCfg("robot", site_names=())},
+            noise=Unoise(n_min=-0.01, n_max=0.01),
         ),
         **task_obs_terms,
         **(

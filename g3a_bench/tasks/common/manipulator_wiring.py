@@ -43,7 +43,7 @@ def wire_manipulator_into_env(
 
     grasp = (manipulator.grasp_site,)
     for group in cfg.observations.values():
-        for key in grasp_obs_terms:
+        for key in (*grasp_obs_terms, "ee_pose"):
             term = group.terms.get(key)
             if term is not None:
                 term.params["asset_cfg"].site_names = grasp
