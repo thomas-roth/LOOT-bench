@@ -46,6 +46,28 @@ uv run python tests/tasks/build_sim_registered_tasks.py --no-render
 
 ---
 
+## Sim-settings comparison (`compare_sim_settings.py`)
+
+Benchmarks the sim-setting profiles (current training settings, current play/demo
+settings, MuJoCo solver defaults, and the train timestep with default solver caps)
+against each other for speed and accuracy on one registered task.
+Accuracy is measured as qpos deviation from a high-accuracy `reference` profile
+along a seeded, deterministically scripted arm sweep, sampled every 0.02 s of sim
+time; speed as headless `env.step()` throughput after Warp warmup.
+`--viewer` adds a native-viewer play-mode pass (1x real-time and max speed) —
+needs a display, like the `tests/viewer/` checks.
+Run it when reconsidering timestep / decimation / solver iterations, or on a new
+machine to check that demo collection keeps up with real time under the training
+physics.
+
+```bash
+uv run python tests/tasks/compare_sim_settings.py
+uv run python tests/tasks/compare_sim_settings.py --cpu --sim-seconds 4
+uv run python tests/tasks/compare_sim_settings.py --viewer
+```
+
+---
+
 ## Success-metric check (`check_success_reward.py`)
 
 Teleports objects to their goals for one representative task per category, plus structurally unusual variants (Stack Low-TwoStacks, Domino 3Pieces-KnockOver, Ball Minigolf-UsingWall, Ball Throw-U), and checks that the command term's success metric fires.
