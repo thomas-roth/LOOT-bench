@@ -44,7 +44,5 @@ class ManipulatorInterface:
     loosened grip does not count."""
     ee_subtree: str
     """Body name whose subtree is monitored for illegal ground contact."""
-    finger_pad_geoms: str
-    """Regex matching the fingertip pad geoms (friction domain randomization)."""
     viewer_body: str
     """Body the viewer camera tracks."""

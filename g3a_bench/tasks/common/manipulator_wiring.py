@@ -26,8 +26,8 @@ def wire_manipulator_into_env(
 ) -> None:
     """Fill the robot placeholders left by a ``make_<cat>_env_cfg`` in place.
 
-    Adds the robot as the ``"robot"`` scene entity and sets the action scale,
-    finger-pad friction geoms, and viewer body. The grasp site is written to
+    Adds the robot as the ``"robot"`` scene entity and sets the action scale
+    and viewer body. The grasp site is written to
     the ``asset_cfg`` of every observation term named in ``grasp_obs_terms``
     (absent names are skipped, so one list fits every variant) and to any
     command cfg carrying a ``grasp_cfg``. Command cfgs deriving from
@@ -55,10 +55,6 @@ def wire_manipulator_into_env(
         if isinstance(command, GripperGateCommandCfg):
             command.gripper_joints = manipulator.gripper_joints
             command.gripper_open_threshold = manipulator.gripper_open_threshold
-
-    cfg.events["fingertip_friction_slide"].params[
-        "asset_cfg"
-    ].geom_names = manipulator.finger_pad_geoms
 
     if ee_contact_sensors:
         assert cfg.scene.sensors is not None

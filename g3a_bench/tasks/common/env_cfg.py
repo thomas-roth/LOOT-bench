@@ -8,7 +8,7 @@ builds the skeleton and takes the core as parameters; the per-category
 ``make_*_env_cfg`` are thin caps.
 
 Robot-specific knobs are left as placeholders (empty grasp site, action scale
-0.5, empty friction geoms, empty viewer body, no ``"robot"`` scene entity).
+0.5, empty viewer body, no ``"robot"`` scene entity).
 Fill them by calling :func:`~g3a_bench.tasks.common.manipulator_wiring.
 wire_manipulator_into_env` with a concrete ``ManipulatorInterface`` before
 registering the task.
@@ -16,7 +16,6 @@ registering the task.
 
 from mjlab.entity import EntityCfg
 from mjlab.envs import ManagerBasedRlEnvCfg, mdp
-from mjlab.envs.mdp import dr
 from mjlab.envs.mdp.actions import JointPositionActionCfg
 from mjlab.managers.action_manager import ActionTermCfg
 from mjlab.managers.command_manager import CommandTermCfg
@@ -159,17 +158,6 @@ def make_manipulation_env_cfg(
             )
             for name in fixed_props
         },
-        "fingertip_friction_slide": EventTermCfg(
-            mode="startup",
-            func=dr.geom_friction,
-            params={
-                "asset_cfg": SceneEntityCfg("robot", geom_names=()),  # Per-robot.
-                "operation": "abs",
-                "distribution": "uniform",
-                "axes": [0],
-                "ranges": (0.6, 1.5),
-            },
-        ),
     }
 
     terminations = {
