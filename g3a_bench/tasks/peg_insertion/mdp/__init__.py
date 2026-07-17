@@ -5,13 +5,13 @@ from g3a_bench.tasks.peg_insertion.mdp.commands import (
     InsertionCommandCfg as InsertionCommandCfg,
 )
 from g3a_bench.tasks.peg_insertion.mdp.observations import (
-    pegs_rel_grasp as pegs_rel_grasp,
+    board_pose as board_pose,
 )
 from g3a_bench.tasks.peg_insertion.mdp.observations import (
-    sheet_rel_grasp as sheet_rel_grasp,
+    peg_poses as peg_poses,
 )
 from g3a_bench.tasks.peg_insertion.mdp.observations import (
-    socket_deltas as socket_deltas,
+    sheet_pose as sheet_pose,
 )
 from g3a_bench.tasks.peg_insertion.mdp.observations import (
     socket_inserted_flags as socket_inserted_flags,

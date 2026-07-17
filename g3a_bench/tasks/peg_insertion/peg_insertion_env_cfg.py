@@ -9,7 +9,6 @@ from mjlab.entity import EntityCfg
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.managers.observation_manager import ObservationTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
-from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.managers.termination_manager import TerminationTermCfg
 from mjlab.utils.noise import UniformNoiseCfg as Unoise
 
@@ -58,16 +57,14 @@ def make_insertion_env_cfg(
             spec_fn=lambda s=shape, c=color, n=name: get_peg_spec(s, c, n)
         )
 
-    grasp_cfg = SceneEntityCfg("robot", site_names=())  # Set per-robot.
-
     task_obs_terms = {
-        "pegs_rel_grasp": ObservationTermCfg(
-            func=ins_mdp.pegs_rel_grasp,
-            params={"command_name": COMMAND_NAME, "asset_cfg": grasp_cfg},
+        "board_pose": ObservationTermCfg(
+            func=ins_mdp.board_pose,
+            params={"command_name": COMMAND_NAME},
             noise=Unoise(n_min=-0.01, n_max=0.01),
         ),
-        "socket_deltas": ObservationTermCfg(
-            func=ins_mdp.socket_deltas,
+        "peg_poses": ObservationTermCfg(
+            func=ins_mdp.peg_poses,
             params={"command_name": COMMAND_NAME},
             noise=Unoise(n_min=-0.01, n_max=0.01),
         ),
@@ -77,9 +74,9 @@ def make_insertion_env_cfg(
         ),
     }
     if two_sheet:
-        task_obs_terms["sheet_rel_grasp"] = ObservationTermCfg(
-            func=ins_mdp.sheet_rel_grasp,
-            params={"command_name": COMMAND_NAME, "asset_cfg": grasp_cfg},
+        task_obs_terms["sheet_pose"] = ObservationTermCfg(
+            func=ins_mdp.sheet_pose,
+            params={"command_name": COMMAND_NAME},
             noise=Unoise(n_min=-0.01, n_max=0.01),
         )
 

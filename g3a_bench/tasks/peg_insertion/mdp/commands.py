@@ -89,6 +89,7 @@ class InsertionCommand(CommandTerm):
         self.sheet: Entity | None = (
             env.scene[cfg.sheet_name] if cfg.sheet_name is not None else None
         )
+        self.board: Entity = env.scene[cfg.board_name]
         self.num_pegs = len(self.pegs)
         self.num_sockets = variant.num_sockets
         assert self.num_pegs == self.num_sockets
@@ -123,6 +124,11 @@ class InsertionCommand(CommandTerm):
         self._socket_mats = [np.stack(frame_axes(f.axis_out), axis=1) for f in frames]
 
         self.peg_pos_w = torch.zeros(E, self.num_pegs, 3, device=dev)
+        self.peg_quat_w = torch.zeros(E, self.num_pegs, 4, device=dev)
+        self.board_pos_w = torch.zeros(E, 3, device=dev)
+        self.board_quat_w = torch.zeros(E, 4, device=dev)
+        self.sheet_pos_w = torch.zeros(E, 3, device=dev)
+        self.sheet_quat_w = torch.zeros(E, 4, device=dev)
         self.inserted = torch.zeros(E, S, device=dev)
         self._gate = SuccessGate(E, dev, vel_threshold=cfg.peg_vel_threshold)
         self._gripper_gate = GripperOpenGate(cfg)
@@ -179,12 +185,16 @@ class InsertionCommand(CommandTerm):
     # CommandTerm interface. ------------------------------------------------
 
     def _update_metrics(self) -> None:
+        self.board_pos_w = self.board.data.root_link_pos_w
+        self.board_quat_w = self.board.data.root_link_quat_w
         self.peg_pos_w = torch.stack([p.data.root_link_pos_w for p in self.pegs], dim=1)
-        peg_quat = torch.stack([p.data.root_link_quat_w for p in self.pegs], dim=1)
+        self.peg_quat_w = torch.stack(
+            [p.data.root_link_quat_w for p in self.pegs], dim=1
+        )
         S = self.num_sockets
 
         pos = self.assigned_peg_pos()  # (E, S, 3)
-        quat = peg_quat[:, :S]
+        quat = self.peg_quat_w[:, :S]
         axis = self.socket_axis_w
         axial, lateral = peg_axial_lateral(pos, self.socket_mouth_w, axis)
         cos_tilt = peg_axis_cos_tilt(quat, axis)
@@ -199,8 +209,11 @@ class InsertionCommand(CommandTerm):
             tilt_cos=self.tilt_cos,
         )
         if self.sheet is not None:
-            sheet_xy = self.sheet.data.root_link_pos_w[:, :2]
-            align_err = torch.norm(sheet_xy - self.socket_mouth_w[:, 0, :2], dim=-1)
+            self.sheet_pos_w = self.sheet.data.root_link_pos_w
+            self.sheet_quat_w = self.sheet.data.root_link_quat_w
+            align_err = torch.norm(
+                self.sheet_pos_w[:, :2] - self.socket_mouth_w[:, 0, :2], dim=-1
+            )
             inserted = inserted & (align_err < self.cfg.sheet_align_tol).unsqueeze(1)
             self.metrics["sheet_align_error"] = align_err
 

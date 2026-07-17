@@ -5,8 +5,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import torch
-from mjlab.entity import Entity
-from mjlab.managers.scene_entity_config import SceneEntityCfg
 
 from g3a_bench.tasks.peg_insertion.mdp.commands import get_command as _command
 
@@ -14,46 +12,42 @@ if TYPE_CHECKING:
     from mjlab.envs import ManagerBasedRlEnv
 
 
-def pegs_rel_grasp(
-    env: ManagerBasedRlEnv,
-    command_name: str,
-    asset_cfg: SceneEntityCfg,
-) -> torch.Tensor:
-    """All peg positions relative to the grasp site, flattened (E, N*3)."""
+def board_pose(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
+    """The insertion board's pose in the env-local world frame (E, 7).
+
+    Board is fixed and constant per task; a single pose for the whole
+    rigid board/socket assembly, matching shape_sorter's cube_pose — every
+    bore's position/orientation is a fixed, learnable offset from it.
+    """
     command = _command(env, command_name)
-    robot: Entity = env.scene[asset_cfg.name]
-    ee_pos = robot.data.site_pos_w[:, asset_cfg.site_ids].squeeze(1)
-    peg_pos = torch.stack([p.data.root_link_pos_w for p in command.pegs], dim=1)
-    return (peg_pos - ee_pos.unsqueeze(1)).reshape(env.num_envs, -1)
+    pos = command.board_pos_w - env.scene.env_origins
+    return torch.cat([pos, command.board_quat_w], dim=-1)
 
 
-def socket_deltas(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
-    """Bore mouth minus assigned-peg position per socket, flattened (E, S*3)."""
+def peg_poses(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
+    """All peg poses in the env-local world frame, flattened (E, N*7).
+
+    Object-major (socket index order): each peg contributes (pos xyz,
+    quat wxyz). Dropping the trailing pegs' 7-dim slices adapts the
+    observation to an easier task (demo cutoff).
+    """
     command = _command(env, command_name)
-    delta = command.socket_mouth_w - command.assigned_peg_pos()
-    return delta.reshape(env.num_envs, -1)
+    pos = command.peg_pos_w - env.scene.env_origins.unsqueeze(1)
+    return torch.cat([pos, command.peg_quat_w], dim=-1).reshape(env.num_envs, -1)
+
+
+def sheet_pose(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
+    """Top-sheet pose in the env-local world frame (E, 7).
+
+    Two-sheet variants only; zeros if no sheet is present.
+    """
+    command = _command(env, command_name)
+    if command.sheet is None:
+        return torch.zeros(env.num_envs, 7, device=env.device)
+    pos = command.sheet_pos_w - env.scene.env_origins
+    return torch.cat([pos, command.sheet_quat_w], dim=-1)
 
 
 def socket_inserted_flags(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
     """Per-socket inserted flags (E, S)."""
     return _command(env, command_name).inserted
-
-
-def sheet_rel_grasp(
-    env: ManagerBasedRlEnv,
-    command_name: str,
-    asset_cfg: SceneEntityCfg,
-) -> torch.Tensor:
-    """Top-sheet position relative to grasp, and its offset from the bore (E, 6).
-
-    Two-sheet variants only. Zeros if no sheet is present.
-    """
-    command = _command(env, command_name)
-    if command.sheet is None:
-        return torch.zeros(env.num_envs, 6, device=env.device)
-    robot: Entity = env.scene[asset_cfg.name]
-    ee_pos = robot.data.site_pos_w[:, asset_cfg.site_ids].squeeze(1)
-    sheet_pos = command.sheet.data.root_link_pos_w
-    rel_grasp = sheet_pos - ee_pos
-    rel_bore = command.socket_mouth_w[:, 0] - sheet_pos
-    return torch.cat([rel_grasp, rel_bore], dim=-1)
