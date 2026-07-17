@@ -6,6 +6,14 @@ plus wall); like the other categories' boards, it is placed via
 ``EntityCfg.init_state.pos`` and its geoms use env-local workspace
 coordinates. ``ThrowWallVariation`` additionally uses ``get_wall_spec`` for a
 *separate* fixed-base wall entity that moves independently of the field.
+
+Every minigolf layout gets a perimeter railing around the platform edges
+(``_add_railing``), like real minigolf; it also serves as the bank for
+``using_wall``'s redirect shot, so there is no separate bank wall. The
+layouts are strictly additive: ``direct`` is the railing alone, ``using_wall``
+adds a blocker across the direct line, ``obstacle`` adds a box in the lane
+the blocker leaves open, and ``ramp`` additionally raises the pit onto an
+elevated section reached via an incline shifted past the blocker/obstacle.
 """
 # pyright: reportAttributeAccessIssue=false
 # (mujoco ships no type stubs for the compiled MjSpec module)
@@ -49,9 +57,18 @@ PLAT_Y = (-0.22, 0.22)
 
 # Ramp: the platform is low (PLATFORM_Z) up to _RAMP_X0, an inclined section
 # bridges to the raised (PLATFORM_Z + RAMP_RISE) section starting at
-# _RAMP_X1 that holds the pit.
-_RAMP_X0, _RAMP_X1 = 0.50, 0.62
+# _RAMP_X1 that holds the pit. Shifted beyond the blocker (x 0.58) and
+# obstacle (x 0.52) so both stay on the low section for every layout that
+# includes them.
+_RAMP_X0, _RAMP_X1 = 0.64, 0.76
 _INCLINE_THICKNESS = 0.02
+
+_RAIL_T = 0.012
+# Rail top heights: enough to contain the rolling ball (r 0.025) above the
+# local surface; the ramp layout uses one uniform (higher) top so a single
+# set of perimeter boxes also covers the raised section.
+_RAIL_TOP = PLATFORM_Z + 0.04
+_RAIL_TOP_RAMP = PLATFORM_Z + RAMP_RISE + 0.04
 
 
 def get_ball_spec(name: str = "ball") -> mujoco.MjSpec:
@@ -207,20 +224,34 @@ def _add_platform_with_hole(
 
 
 def _add_obstacle(body):
+    """A box in the open (-y) lane the blocker leaves, forcing a bank shot
+    through one of two narrow sub-lanes (rail side / blocker side)."""
     hz = 0.025
-    _add_box(body, "obstacle", 0.55, 0.0, PLATFORM_Z + hz, 0.02, 0.07, hz, WALL_RGBA)
+    _add_box(body, "obstacle", 0.52, -0.13, PLATFORM_Z + hz, 0.02, 0.025, hz, WALL_RGBA)
 
 
-def _add_using_wall_walls(body):
-    """A blocker across the direct spawn->pit line, plus a bank wall along
-    the platform's near edge for a redirect shot."""
+def _add_railing(body, z_top):
+    """Perimeter railing on the platform edges (like real minigolf)."""
+    x0, x1 = PLAT_X
+    y0, y1 = PLAT_Y
+    t = _RAIL_T / 2
+    zc, hz = (PLATFORM_Z + z_top) / 2, (z_top - PLATFORM_Z) / 2
+    xc, xhalf = (x0 + x1) / 2, (x1 - x0) / 2
+    yc, yhalf = (y0 + y1) / 2, (y1 - y0) / 2
+    _add_box(body, "rail_near", x0 + t, yc, zc, t, yhalf, hz, WALL_RGBA)
+    _add_box(body, "rail_far", x1 - t, yc, zc, t, yhalf, hz, WALL_RGBA)
+    _add_box(body, "rail_left", xc, y1 - t, zc, xhalf, t, hz, WALL_RGBA)
+    _add_box(body, "rail_right", xc, y0 + t, zc, xhalf, t, hz, WALL_RGBA)
+
+
+def _add_blocker(body):
+    """Blocker across the direct spawn->pit line; forces a bank shot off
+    the perimeter railing."""
     t, h = 0.012, 0.05
-    z = PLATFORM_Z + h / 2
-    _add_box(body, "blocker", 0.58, 0.09, z, t, 0.13, h / 2, WALL_RGBA)
-    _add_box(body, "bank_wall", 0.665, -0.22, z, 0.265, t, h / 2, WALL_RGBA)
+    _add_box(body, "blocker", 0.58, 0.09, PLATFORM_Z + h / 2, t, 0.13, h / 2, WALL_RGBA)
 
 
-def _add_ramp_platform(body, tcx):
+def _add_ramp_platform(body, tcx, tcy):
     x0, x1 = PLAT_X
     y0, y1 = PLAT_Y
     yc, yhalf = (y0 + y1) / 2, (y1 - y0) / 2
@@ -249,7 +280,7 @@ def _add_ramp_platform(body, tcx):
     )
     hz_raised = (PLATFORM_Z + RAMP_RISE) / 2
     _add_platform_with_hole(
-        body, tcx, 0.0, x_range=(_RAMP_X1, x1), z_half=hz_raised, prefix="raised_"
+        body, tcx, tcy, x_range=(_RAMP_X1, x1), z_half=hz_raised, prefix="raised_"
     )
 
 
@@ -260,13 +291,14 @@ def get_field_spec(variant: BallVariantCfg, name: str = "field") -> mujoco.MjSpe
     if variant.task == "minigolf":
         layout = variant.minigolf_layout
         if layout == "ramp":
-            _add_ramp_platform(field, TARGET_X)
+            _add_ramp_platform(field, TARGET_X, variant.pit_y)
         else:
             _add_platform_with_hole(field, TARGET_X, variant.pit_y)
-            if layout == "using_wall":
-                _add_using_wall_walls(field)
-            elif layout == "obstacle":
-                _add_obstacle(field)
+        _add_railing(field, _RAIL_TOP_RAMP if layout == "ramp" else _RAIL_TOP)
+        if layout != "direct":
+            _add_blocker(field)
+        if layout in ("obstacle", "ramp"):
+            _add_obstacle(field)
     else:  # throw
         r = variant.target_radius * variant.margin
         if variant.throw_target == "u":

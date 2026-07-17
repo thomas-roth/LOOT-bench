@@ -5,13 +5,18 @@ with its own set of layouts:
 
 - **minigolf**: a raised platform with a pit (a physical hole) at the
   target, out of the arm's direct reach — the ball must roll there after a
-  strike.
-  - `direct`: a clear line from spawn to the pit.
-  - `usingWall`: a blocker wall sits across the direct line; a bank wall
-    along the platform's near edge allows a redirect shot.
-  - `obstacle`: a box sits between the spawn area and the pit.
-  - `ramp`: the pit sits on a raised platform section, reached via an
-    inclined connector.
+  strike. Every layout has a perimeter railing around the platform edges
+  (like real minigolf), and the layouts are strictly additive — each one
+  contains everything the previous layout has, plus one more element. The
+  pit sits off-centre (local y +0.12) for every layout except `direct`, so
+  the target position stays consistent across `usingWall`/`obstacle`/`ramp`.
+  - `direct`: a clear line from spawn to the pit; the railing alone.
+  - `usingWall`: adds a blocker wall across the direct line; the perimeter
+    railing itself serves as the bank for a redirect shot.
+  - `obstacle`: `usingWall` plus a box in the lane the blocker leaves open.
+  - `ramp`: `obstacle` plus the pit raised onto an elevated platform
+    section, reached via an inclined connector positioned past the blocker
+    and obstacle.
 - **throw**: a flat field with a wall between the spawn area and the target
   (a marked disk or a U-shaped pocket), so the ball must clear the wall.
   - `U`: a U-shaped wall pocket open toward the incoming ball.
@@ -31,8 +36,9 @@ surface (for minigolf, when it has dropped below the pit's local surface).
 Success also requires the ball to be at rest and released from the gripper —
 the termination, the `success` reward, and the `episode_success` metric all
 use this same condition. The episode also terminates if the ball leaves the
-workspace, falls off the platform (minigolf), or hits the wall instead of
-clearing it (throw).
+workspace, falls off the platform (minigolf — the perimeter railing normally
+prevents this; the termination is a safety net for balls that bounce over
+it), or hits the wall instead of clearing it (throw).
 
 ## Observations (state-based)
 

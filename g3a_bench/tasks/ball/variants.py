@@ -2,9 +2,12 @@
 
 Two task families, each with its own set of layouts:
 
-- ``minigolf``: a raised platform with a pit (a physical hole) at the target.
-  The four layouts (``direct``/``using_wall``/``obstacle``/``ramp``) change
-  only what sits between the ball's spawn point and the pit.
+- ``minigolf``: a raised platform with a pit (a physical hole) at the target,
+  ringed by a perimeter railing on every layout (like real minigolf). The
+  four layouts are strictly additive (``direct`` ⊂ ``using_wall`` ⊂
+  ``obstacle`` ⊂ ``ramp``): each adds one more element between the
+  ball's spawn point and the pit on top of everything the previous layout
+  already has.
 - ``throw``: a flat field with a wall between the ball's spawn point and the
   target (a marked disk or a U-shaped pocket), so the ball must clear the
   wall. ``ThrowWallVariation`` additionally moves the wall (distance and
@@ -60,9 +63,11 @@ class BallVariantCfg:
     episode_length_s: float = 12.0
     """Per-variant time budget. Hand-picked by layout difficulty (no demo-time
     measurement yet -- see .scratch/sim-settings-review/report.md): a direct
-    shot/throw is the baseline, bank shots or obstacles/elevation add time,
-    and the every-reset-randomized wall gets the most since it can't be
-    solved by a fixed motion."""
+    shot/throw is the baseline; since the minigolf layouts are additive
+    (``direct`` ⊂ ``using_wall`` ⊂ ``obstacle`` ⊂ ``ramp``), each one's
+    budget grows on top of the previous layout's to cover its extra element
+    (bank shot, obstacle, ramp), and the every-reset-randomized wall gets the
+    most since it can't be solved by a fixed motion."""
 
     def __post_init__(self):
         if self.movable_wall:
@@ -70,8 +75,10 @@ class BallVariantCfg:
 
     @property
     def pit_y(self) -> float:
-        """Local y of the minigolf pit centre (UsingWall offsets it)."""
-        return 0.12 if self.minigolf_layout == "using_wall" else 0.0
+        """Local y of the minigolf pit centre (offset for every non-direct
+        layout, so the layouts stay additive: same offset for using_wall,
+        obstacle, and ramp)."""
+        return 0.0 if self.minigolf_layout == "direct" else 0.12
 
     @property
     def spawn_z(self) -> float:
@@ -109,13 +116,13 @@ BALL_VARIANTS: dict[str, BallVariantCfg] = {
             name="MinigolfObstacle",
             task="minigolf",
             minigolf_layout="obstacle",
-            episode_length_s=14.0,
+            episode_length_s=16.0,
         ),
         BallVariantCfg(
             name="MinigolfRamp",
             task="minigolf",
             minigolf_layout="ramp",
-            episode_length_s=14.0,
+            episode_length_s=20.0,
         ),
         BallVariantCfg(
             name="ThrowU", task="throw", throw_target="u", episode_length_s=12.0
