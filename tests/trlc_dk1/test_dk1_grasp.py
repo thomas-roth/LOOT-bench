@@ -57,7 +57,9 @@ def _build_grasp_model() -> mujoco.MjModel:
     spec.option.integrator = mujoco.mjtIntegrator.mjINT_IMPLICITFAST
     spec.option.cone = mujoco.mjtCone.mjCONE_ELLIPTIC
     spec.option.impratio = 10
-    spec.option.disableflags |= mujoco.mjtDisableBit.mjDSBL_NATIVECCD
+    # The env's nativeccd disable flag is not replicated: it only reroutes
+    # box-box dispatch in MuJoCo Warp; C MuJoCo uses the analytic box-box
+    # collider either way.
     # Zero gravity keeps the box at the grasp site without a table, so the
     # measured contacts are exclusively pad<->piece.
     spec.option.gravity = (0.0, 0.0, 0.0)

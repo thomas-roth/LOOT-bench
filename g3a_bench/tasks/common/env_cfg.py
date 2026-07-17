@@ -201,19 +201,23 @@ def make_manipulation_env_cfg(
             enable_shadows=False,
             enable_reflections=False,
         ),
+        # Same settings as the mjlab manipulation example, except task-specific
+        # values and nativeccd disabled.
         sim=SimulationCfg(
             nconmax=nconmax,
             njmax=njmax,
-            # same settings as mjlab manipulation task example
             mujoco=MujocoCfg(
                 timestep=0.005,
                 iterations=10,
                 ls_iterations=20,
                 impratio=10,
                 cone="elliptic",
-                disableflags=(
-                    "nativeccd",
-                ),  # Better box-to-box collisions between pieces.
+                # Disabling nativeccd makes MuJoCo Warp use the analytic
+                # box-box collider (up to 8 contacts with per-contact depth)
+                # instead of GJK/EPA (<=4 contacts sharing one depth/frame),
+                # which jitters. Affects all box-box pairs: objects on the
+                # table top and in the box finger pads. No-op for other pairs.
+                disableflags=("nativeccd",),
             ),
         ),
         decimation=4,
