@@ -410,7 +410,7 @@ def _check_minigolf_using_wall_blocks_direct_shots() -> str | None:
     corner to the pit crosses the blocker box, so a direct shot is never
     geometrically possible.
 
-    Blocker geometry (must match ``ball/assets.py._add_using_wall_walls``):
+    Blocker geometry (must match ``ball/assets.py._add_blocker``):
     box centred at (0.58, 0.09), half extents (0.012, 0.13). Spawn rectangle
     matches ``BallCommandCfg``'s defaults (``BALL_SPAWN_X`` +/- 0.03 x,
     +/- 0.08 y).
