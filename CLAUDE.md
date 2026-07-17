@@ -11,7 +11,7 @@ flat layout) whose job is to **register tasks into mjlab's global registry** and
 provide the robot assets and task definitions; the play loop is mjlab's, and
 training is QC-FQL (offline-to-online RL; see `g3a_bench/scripts/qc_fql/`).
 
-Four task categories, 37 tasks total, currently registered for one robot
+Four task categories, 40 tasks total, currently registered for one robot
 (`-Dk1_uni`) → task ids look like `G3A-<Category>-<Task>[-<Variation>]-<Robot>`:
 `tasks/stack` (stack blocks to a target height, registered as `Stack`),
 `tasks/domino` (place and optionally knock over a row of dominoes),

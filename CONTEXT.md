@@ -1,15 +1,20 @@
 # G3A Benchmark
 
-Long-horizon robot-manipulation benchmark tasks (cube arrangement, object
-insertion, ball-to-target) registered into mjlab and trained with RSL-RL PPO.
-Per-category deep dives live in `docs/` (e.g. `docs/cube_domain.md`).
+Long-horizon robot-manipulation benchmark tasks (block stacking, domino
+placement, shape insertion, ball-to-target) registered into mjlab. Training
+is QC-FQL (offline-to-online RL; see `g3a_bench/scripts/qc_fql/`); mjlab's
+registry also requires a PPO cfg per task, but that RSL-RL PPO cfg is only a
+registration requirement, not the training path used. See
+`docs/TaskCategories.md` and each category's `README.md` for the per-category
+deep dives.
 
 ## Language
 
 ### Tasks and registration
 
 **Category**:
-One of the three task families (cube, insertion, ball); a package under
+One of the four registered task families (stack, domino, shape sorter,
+ball) plus the archived, unregistered peg insertion; a package under
 `tasks/` with variants, assets and MDP terms.
 _Avoid_: domain (overloaded with domain randomization)
 
