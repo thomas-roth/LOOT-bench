@@ -36,10 +36,14 @@ clearing it (throw).
 
 ## Observations (state-based)
 
-- joint positions/velocities, last action
-- ball position relative to the grasp site
-- target position relative to the ball
+- joint positions/velocities, EE pose, last action
+- ball position (env-local; no orientation — a sphere's quaternion carries no
+  task-relevant signal)
+- field pose (env-local position + quaternion), and wall pose (only for
+  variants with an independently-moving wall entity, e.g. `WallVariation`)
 - ball linear velocity
+- the command: raw env-local target position (the field's pose is
+  per-episode randomized, so this is the only source of goal observability)
 
 ## Rewards
 

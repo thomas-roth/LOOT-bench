@@ -15,11 +15,11 @@ complete, and then additionally require every domino toppled past 45°.
 
 ## Observations (state-based)
 
-- joint positions/velocities, last action
-- all domino positions relative to the grasp site (object-major)
-- per-slot domino-to-goal deltas, per-slot placed indicator
-- the command: cos/sin of the row yaw, then slot goal positions
-  (env-origin relative)
+- joint positions/velocities, EE pose, last action
+- all domino poses (env-local position + quaternion, object-major)
+- per-slot placed indicator
+- the command: per-slot target pose (env-local position + upright/row-aligned
+  quaternion), object-major
 - `phase` (build/topple), KnockOver variants only
 
 ## Rewards

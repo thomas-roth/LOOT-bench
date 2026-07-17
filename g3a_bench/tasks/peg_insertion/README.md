@@ -47,11 +47,13 @@ condition.
 
 ## Observations (state-based)
 
-- joint positions/velocities, last action
-- all peg positions relative to the grasp site
-- bore-mouth deltas per socket (mouth minus assigned peg position)
+- joint positions/velocities, EE pose, last action
+- the board's own pose (env-local position + quaternion) — a single pose for
+  the whole rigid board/socket assembly (fixed and constant per task, but
+  included for completeness/parity with shape_sorter's cube pose)
+- all peg poses (env-local position + quaternion, object-major)
 - per-socket inserted flags
-- two-sheet only: top-sheet position relative to grasp and to the bore
+- two-sheet only: top-sheet pose (env-local position + quaternion)
 
 ## Rewards
 

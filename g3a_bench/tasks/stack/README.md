@@ -18,8 +18,8 @@ so demos for easier tasks can be cut from the hardest task's recordings
 
 ## Observations (state-based)
 
-- joint positions/velocities, last action
-- all block positions relative to the grasp site (object-major)
+- joint positions/velocities, EE pose, last action
+- all block poses (env-local position + quaternion, object-major)
 
 ## Rewards
 
