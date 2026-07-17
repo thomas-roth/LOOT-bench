@@ -27,7 +27,7 @@ register_category(
     variants=SHAPE_SORTER_VARIANTS.values(),
     make_env_cfg=make_shape_sorter_env_cfg,
     robots=(get_unimanual_dk1_interface(),),
-    grasp_obs_terms=("pegs_rel_grasp",),
+    grasp_obs_terms=(),
     task_id_parts=_task_id_parts,
     max_iterations=10_000,
 )

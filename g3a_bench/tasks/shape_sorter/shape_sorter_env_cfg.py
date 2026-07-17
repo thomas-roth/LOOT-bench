@@ -4,7 +4,6 @@ from mjlab.entity import EntityCfg
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.managers.observation_manager import ObservationTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
-from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.managers.termination_manager import TerminationTermCfg
 from mjlab.utils.noise import UniformNoiseCfg as Unoise
 
@@ -36,16 +35,14 @@ def make_shape_sorter_env_cfg(
             spec_fn=lambda s=shape, c=color: get_sorter_piece_spec(s, c)
         )
 
-    grasp_cfg = SceneEntityCfg("robot", site_names=())  # Set per-robot.
-
     task_obs_terms = {
-        "pegs_rel_grasp": ObservationTermCfg(
-            func=sorter_mdp.pegs_rel_grasp,
-            params={"command_name": COMMAND_NAME, "asset_cfg": grasp_cfg},
+        "cube_pose": ObservationTermCfg(
+            func=sorter_mdp.cube_pose,
+            params={"command_name": COMMAND_NAME},
             noise=Unoise(n_min=-0.01, n_max=0.01),
         ),
-        "socket_deltas": ObservationTermCfg(
-            func=sorter_mdp.socket_deltas,
+        "piece_poses": ObservationTermCfg(
+            func=sorter_mdp.piece_poses,
             params={"command_name": COMMAND_NAME},
             noise=Unoise(n_min=-0.01, n_max=0.01),
         ),
@@ -87,7 +84,9 @@ def make_shape_sorter_env_cfg(
             debug_vis=True,
         ),
         task_obs_terms=task_obs_terms,
-        command_obs=True,
+        # The cube's pose is already observed directly via cube_pose above;
+        # the raw command (mouth positions + axis vectors) would be redundant.
+        command_obs=False,
         task_rewards=task_rewards,
         task_terminations=task_terminations,
         env_spacing=2.0,

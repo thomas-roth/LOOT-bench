@@ -5,10 +5,10 @@ from g3a_bench.tasks.shape_sorter.mdp.commands import (
     ShapeSorterCommandCfg as ShapeSorterCommandCfg,
 )
 from g3a_bench.tasks.shape_sorter.mdp.observations import (
-    pegs_rel_grasp as pegs_rel_grasp,
+    cube_pose as cube_pose,
 )
 from g3a_bench.tasks.shape_sorter.mdp.observations import (
-    socket_deltas as socket_deltas,
+    piece_poses as piece_poses,
 )
 from g3a_bench.tasks.shape_sorter.mdp.observations import (
     socket_inserted as socket_inserted,

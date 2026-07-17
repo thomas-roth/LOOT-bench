@@ -178,7 +178,10 @@ class ShapeSorterCommand(CommandTerm):
 
         self.socket_mouth_w = torch.zeros(E, N, 3, device=dev)
         self.socket_axis_w = torch.zeros(E, N, 3, device=dev)
+        self.cube_pos_w = torch.zeros(E, 3, device=dev)
+        self.cube_quat_w = torch.zeros(E, 4, device=dev)
         self.piece_pos_w = torch.zeros(E, N, 3, device=dev)
+        self.piece_quat_w = torch.zeros(E, N, 4, device=dev)
         self.progress = torch.zeros(E, device=dev)
         self._gate = SuccessGate(E, dev, vel_threshold=math.inf)
         self._gripper_gate = GripperOpenGate(cfg)
@@ -190,8 +193,10 @@ class ShapeSorterCommand(CommandTerm):
     def command(self) -> torch.Tensor:
         """(E, N*6): per hole, in piece order: env-local mouth xyz, axis xyz.
 
-        Object-major layout so a smaller variant's command is a
-        tail-truncation of a larger one's (demo-cutoff rule).
+        Not exposed as an observation (``command_obs=False`` -- see
+        ``shape_sorter_env_cfg.py``): ``cube_pose`` already gives the policy
+        everything needed to infer hole poses. Kept for internal use
+        (debug-vis).
         """
         mouth = self.socket_mouth_w - self._env.scene.env_origins.unsqueeze(1)
         return torch.cat([mouth, self.socket_axis_w], dim=-1).reshape(self.num_envs, -1)
@@ -217,10 +222,10 @@ class ShapeSorterCommand(CommandTerm):
 
     def _update_metrics(self) -> None:
         E, N = self.num_envs, self.num_pieces
-        cube_pos = self.cube.data.root_link_pos_w
-        cube_quat = self.cube.data.root_link_quat_w
-        q = cube_quat.unsqueeze(1).expand(E, N, 4)
-        self.socket_mouth_w = cube_pos.unsqueeze(1) + quat_apply(
+        self.cube_pos_w = self.cube.data.root_link_pos_w
+        self.cube_quat_w = self.cube.data.root_link_quat_w
+        q = self.cube_quat_w.unsqueeze(1).expand(E, N, 4)
+        self.socket_mouth_w = self.cube_pos_w.unsqueeze(1) + quat_apply(
             q, self._mouth_local.unsqueeze(0).expand(E, N, 3)
         )
         self.socket_axis_w = quat_apply(
@@ -230,12 +235,14 @@ class ShapeSorterCommand(CommandTerm):
         self.piece_pos_w = torch.stack(
             [p.data.root_link_pos_w for p in self.pieces], dim=1
         )
-        piece_quat = torch.stack([p.data.root_link_quat_w for p in self.pieces], dim=1)
+        self.piece_quat_w = torch.stack(
+            [p.data.root_link_quat_w for p in self.pieces], dim=1
+        )
 
         axial, lateral = peg_axial_lateral(
             self.piece_pos_w, self.socket_mouth_w, self.socket_axis_w
         )
-        cos_tilt = peg_axis_cos_tilt(piece_quat, self.socket_axis_w)
+        cos_tilt = peg_axis_cos_tilt(self.piece_quat_w, self.socket_axis_w)
         latched = self._latch.update(axial, lateral, cos_tilt)
         all_latched = latched.all(dim=1)
         self.progress = latched.float().mean(dim=1)
