@@ -41,6 +41,7 @@ from mjlab.viewer import NativeMujocoViewer
 from mjlab.viewer.base import VerbosityLevel
 
 import g3a_bench  # noqa: F401
+from g3a_bench.scripts.live_bridge.dataset_extra_info import load_extra_info
 from g3a_bench.scripts.live_bridge.live_record import apply_teleop_contact_stability
 
 
@@ -113,13 +114,14 @@ def load_episode(dataset_dir: str, episode_index: int) -> Episode:
             "requires velocities. Re-record with the updated live_record.py."
         )
 
-    seed_val = ds.meta.info.get("episode_seeds", {}).get(str(episode_index))
+    extra_info = load_extra_info(ds.meta.root)
+    seed_val = extra_info.get("episode_seeds", {}).get(str(episode_index))
     return Episode(
         qpos=qpos,
         qvel=qvel,
         done=done.reshape(len(qpos)),
         seed=int(seed_val) if seed_val is not None else None,
-        seed_device=ds.meta.info.get("seed_device"),
+        seed_device=extra_info.get("seed_device"),
     )
 
 

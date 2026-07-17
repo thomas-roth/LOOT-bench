@@ -1,7 +1,8 @@
 import numpy as np
 import torch
-from lerobot.datasets.dataset_metadata import write_info
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
+
+from g3a_bench.scripts.live_bridge.dataset_extra_info import write_extra_info
 
 
 class Recorder:
@@ -81,6 +82,12 @@ class Recorder:
         # single shared counter mis-mapped seeds whenever the two were interleaved.
         self._episode_seeds: dict[bool, dict[str, int]] = {True: {}, False: {}}
         self._episodes_saved: dict[bool, int] = {True: 0, False: 0}
+        # g3a-bench's own recording metadata (seeds, operator, gravity
+        # compensation) doesn't fit lerobot's closed DatasetInfo schema — it's
+        # accumulated here and persisted to a sidecar file, one dict per
+        # dataset so a later write (e.g. close()'s operator_id) never clobbers
+        # an earlier one (e.g. _commit_staged()'s episode_seeds).
+        self._extra_info: dict[bool, dict] = {True: {}, False: {}}
 
     def _get_dataset(self, success: bool) -> LeRobotDataset:
         if success:
@@ -227,15 +234,16 @@ class Recorder:
         dataset.save_episode()
         ep_index = self._episodes_saved[success]
         self._episodes_saved[success] += 1
-        dataset.meta.info["gravity_compensate"] = self._gravity_compensate
+        extra = self._extra_info[success]
+        extra["gravity_compensate"] = self._gravity_compensate
         if seed is not None:
             seeds = self._episode_seeds[success]
             seeds[str(ep_index)] = int(seed)
-            dataset.meta.info["episode_seeds"] = seeds
+            extra["episode_seeds"] = seeds
             if self._device is not None:
                 # RNG streams differ between cuda and cpu — replay warns on mismatch.
-                dataset.meta.info["seed_device"] = self._device.split(":")[0]
-        write_info(dataset.meta.info, dataset.meta.root)
+                extra["seed_device"] = self._device.split(":")[0]
+        write_extra_info(dataset.meta.root, extra)
 
     def discard_episode(self) -> None:
         """Drop the current episode without saving (operator rejected the demo)."""
@@ -243,10 +251,14 @@ class Recorder:
 
     def close(self, operator_id: int | None = None) -> None:
         self._commit_staged()
-        for dataset in (self.dataset_success, self.dataset_failure):
+        for success, dataset in (
+            (True, self.dataset_success),
+            (False, self.dataset_failure),
+        ):
             if dataset is None:
                 continue
             if operator_id is not None:
-                dataset.meta.info["operator_id"] = operator_id
-                write_info(dataset.meta.info, dataset.meta.root)
+                extra = self._extra_info[success]
+                extra["operator_id"] = operator_id
+                write_extra_info(dataset.meta.root, extra)
             dataset.finalize()

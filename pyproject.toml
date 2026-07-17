@@ -5,14 +5,14 @@ description = "Long-horizon robot manipulation benchmark tasks (TRLC-DK1, mjlab)
 readme = "README.md"
 requires-python = ">=3.12, <3.14"
 dependencies = [
-    "lerobot>=0.4.4",
-    "mjlab>=1.4.0",
+    "lerobot[dataset]>=0.6.0",
+    "mjlab>=1.5.1",
     "torch",
     "torchvision",
-    "pre-commit>=3.7.1",
+    "pre-commit>=4.6.0",
     "pyright[nodejs]>=1.1.409",
-    "ruff>=0.15.15",
-    "lerobot-robot-trlc-dk1",
+    "ruff>=0.15.22",
+    "lerobot-robot-trlc-dk1>=0.3.0",
     "snakeviz>=2.2.2",
     "pyqt5>=5.15.11",
 ]

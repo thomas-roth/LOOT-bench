@@ -5,7 +5,8 @@ from typing import Any
 
 import numpy as np
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
-from lerobot.datasets.utils import DatasetInfo
+
+from g3a_bench.scripts.live_bridge.dataset_extra_info import load_extra_info
 
 # Hardware-specific imports — only needed for LiveReader (real robot).
 # Protected by try/except so the module can be imported on machines
@@ -98,9 +99,9 @@ class DatasetReader(Reader):
         self._frame_index = 0
 
     @property
-    def meta_info(self) -> DatasetInfo:
-        """The dataset's info.json (episode_seeds, seed_device, operator_id, ... via .get())."""
-        return self._ds.meta.info
+    def meta_info(self) -> dict:
+        """The dataset's sidecar extra info (episode_seeds, seed_device, operator_id, ... via .get())."""
+        return load_extra_info(self._ds.meta.root)
 
     def read(self) -> ReaderFrame:
         if self._frame_index >= (self._end - self._start):

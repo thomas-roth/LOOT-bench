@@ -68,6 +68,7 @@ from mjlab.rl import RslRlVecEnvWrapper
 from mjlab.tasks.registry import load_env_cfg
 
 import g3a_bench  # noqa: F401
+from g3a_bench.scripts.live_bridge.dataset_extra_info import load_extra_info
 from g3a_bench.scripts.live_bridge.live_record import (
     apply_teleop_contact_stability,
 )
@@ -136,7 +137,8 @@ def load_episode(dataset_dir: str, episode_index: int) -> Episode:
     assert actions is not None and state is not None
     assert done is not None and reward is not None
 
-    seed_val = ds.meta.info.get("episode_seeds", {}).get(str(episode_index))
+    extra_info = load_extra_info(ds.meta.root)
+    seed_val = extra_info.get("episode_seeds", {}).get(str(episode_index))
     return Episode(
         actions=actions,
         state=state,
@@ -145,7 +147,7 @@ def load_episode(dataset_dir: str, episode_index: int) -> Episode:
         done=done.reshape(len(actions)),
         reward=reward.reshape(len(actions)),
         seed=int(seed_val) if seed_val is not None else None,
-        seed_device=ds.meta.info.get("seed_device"),
+        seed_device=extra_info.get("seed_device"),
     )
 
 

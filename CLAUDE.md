@@ -154,7 +154,8 @@ actuated).
   `uv pip` interface, not `uv sync`/`uv lock` (uv issue #12994, unimplemented).
   Tradeoff: no lean CPU-only build on Linux/Windows — CPU-only boxes still run
   fine on the (larger, ~2.5 GB) cu128 wheels.
-- **mjlab is pinned to 1.4.0** and the API has drifted from older snippets. Use
+- **use the newest release of mjlab** and the API has drifted from older snippets.
+  Check the installed source code in .venv. E.g. use
   `mjlab.utils.lab_api.math` (not `mjlab.utils.math`), `RslRlOnPolicyRunnerCfg`
   with separate actor/critic `RslRlModelCfg` (not `RslRlPpoRunnerCfg`), and
   `mjlab.viewer.debug_visualizer`.
