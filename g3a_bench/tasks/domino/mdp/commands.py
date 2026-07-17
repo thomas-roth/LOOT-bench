@@ -14,7 +14,9 @@ At every resample the command:
 Every step it re-checks each domino's placement (position + upright/row
 alignment, ``success.py`` kernels) against its slot. ``KnockOver`` variants
 additionally latch a build/topple ``phase`` once every slot is placed
-simultaneously, then require every domino toppled; both phases are gated by
+simultaneously, then require the row to topple as a chain: every domino
+fallen along the row axis, all leaning the same way, and their first-fall
+steps monotonic along the row in that direction — both phases are gated by
 the shared at-rest + released check.
 """
 
@@ -34,7 +36,11 @@ from g3a_bench.tasks.common.commands import GripperGateCommandCfg, GripperOpenGa
 from g3a_bench.tasks.common.debug_markers import MARKER_INFLATE, marker_color
 from g3a_bench.tasks.common.scatter import ScatterGrid
 from g3a_bench.tasks.common.success import OBJECT_VEL_THRESHOLD, SuccessGate
-from g3a_bench.tasks.domino.mdp.success import domino_fallen, domino_upright_aligned
+from g3a_bench.tasks.domino.mdp.success import (
+    chain_topple_success,
+    domino_fallen_along_row,
+    domino_upright_aligned,
+)
 from g3a_bench.tasks.domino.variants import (
     BASE_HALF_EXTENTS,
     HARDEST_COUNT,
@@ -49,6 +55,8 @@ if TYPE_CHECKING:
 # Color for the row-slot debug markers (dominoes are all the same color).
 _SLOT_RGBA = (0.95, 0.55, 0.1, 1.0)
 _EDGE_MARGIN = 0.02
+_NEVER_FELL = 1.0e9
+"""Sentinel fall-order value for a domino that has not chain-fallen yet."""
 
 
 def get_command(env: ManagerBasedRlEnv, name: str) -> DominoCommand:
@@ -108,6 +116,7 @@ class DominoCommand(CommandTerm):
         self.slot_at_goal = torch.zeros(E, G, device=dev)
         self.phase = torch.zeros(E, device=dev)
         self.progress = torch.zeros(E, device=dev)
+        self.fall_order = torch.full((E, G), _NEVER_FELL, device=dev)
         self._gate = SuccessGate(E, dev, vel_threshold=cfg.domino_vel_threshold)
         self._gripper_gate = GripperOpenGate(cfg)
 
@@ -187,9 +196,20 @@ class DominoCommand(CommandTerm):
         released = self._gripper_gate(self._env.scene["robot"])
 
         if self.variant.knock_over:
-            fallen = domino_fallen(self.domino_quat_w, self.cfg.fallen_tilt_deg)
             self.phase = torch.maximum(self.phase, all_placed.float())
-            task_done = (self.phase > 0.5) & fallen.all(dim=-1)
+            fallen, sign = domino_fallen_along_row(
+                self.domino_quat_w, self.row_yaw, self.cfg.fallen_tilt_deg
+            )
+            # Latch first-fall steps, but only during the topple phase —
+            # accidents while building must not count toward the chain.
+            step = self._env.episode_length_buf.float().unsqueeze(-1)
+            newly = fallen & (self.phase > 0.5).unsqueeze(-1)
+            self.fall_order = torch.where(
+                newly & (self.fall_order >= _NEVER_FELL), step, self.fall_order
+            )
+            task_done = (self.phase > 0.5) & chain_topple_success(
+                fallen, sign, self.fall_order
+            )
             fallen_frac = fallen.float().mean(dim=-1)
             self.progress = torch.where(
                 self.phase > 0.5, 0.5 + 0.5 * fallen_frac, 0.5 * placed_frac
@@ -216,6 +236,7 @@ class DominoCommand(CommandTerm):
         self._gate.reset(env_ids)
         self.slot_at_goal[env_ids] = 0.0
         self.phase[env_ids] = 0.0
+        self.fall_order[env_ids] = _NEVER_FELL
         self.piece_for_slot[env_ids] = (
             torch.arange(G, device=dev).unsqueeze(0).repeat(n, 1)
         )

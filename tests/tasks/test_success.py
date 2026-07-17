@@ -14,7 +14,11 @@ from mjlab.entity import Entity
 from g3a_bench.tasks.ball.mdp.success import ball_in_target_zone
 from g3a_bench.tasks.common.commands import GripperGateCommandCfg, GripperOpenGate
 from g3a_bench.tasks.common.success import SuccessGate
-from g3a_bench.tasks.domino.mdp.success import domino_fallen, domino_upright_aligned
+from g3a_bench.tasks.domino.mdp.success import (
+    chain_topple_success,
+    domino_fallen_along_row,
+    domino_upright_aligned,
+)
 from g3a_bench.tasks.shape_sorter.mdp.success import SorterLatch
 from g3a_bench.tasks.shape_sorter.variants import SHAPE_SORTER_VARIANTS, allowed_faces
 from g3a_bench.tasks.stack.mdp.success import (
@@ -359,26 +363,68 @@ class TestTwoStacks:
 
 
 # ---------------------------------------------------------------------------
-# domino_fallen
+# domino_fallen_along_row / chain_topple_success
 # ---------------------------------------------------------------------------
 
 
-class TestDominoFallen:
-    def _fallen(self, tilt_deg: float) -> bool:
-        quat = _quat_axis_angle((1.0, 0.0, 0.0), math.radians(tilt_deg)).view(1, 1, 4)
-        return bool(domino_fallen(quat, tilt_deg=45.0)[0, 0])
+class TestDominoFallenAlongRow:
+    def _fallen(self, quat, row_yaw=0.0, tilt_deg=45.0):
+        yaw = torch.tensor([row_yaw])
+        return domino_fallen_along_row(quat.view(1, -1, 4), yaw, tilt_deg)
 
-    def test_standing_domino_is_not_fallen(self):
-        assert not self._fallen(0.0)
+    def test_standing_is_not_fallen(self):
+        fallen, sign = self._fallen(torch.tensor([[1.0, 0.0, 0.0, 0.0]]))
+        assert not fallen.any() and (sign == 0).all()
 
-    @pytest.mark.parametrize("tilt_deg,expected", [(44.0, False), (46.0, True)])
-    def test_tilt_boundary_at_45_degrees(self, tilt_deg: float, expected: bool):
-        assert self._fallen(tilt_deg) is expected
+    def test_fallen_forward_along_row(self):
+        # Row along +x; tip 80 deg about the y-axis -> leans toward +x.
+        q = _quat_axis_angle((0.0, 1.0, 0.0), math.radians(80.0))
+        fallen, sign = self._fallen(q.view(1, 1, 4))
+        assert fallen.all() and (sign == 1.0).all()
 
-    def test_fallen_is_direction_free(self):
-        # Toppling either way about any horizontal axis counts the same.
-        quat = _quat_axis_angle((0.0, 1.0, 0.0), math.radians(90.0)).view(1, 1, 4)
-        assert bool(domino_fallen(quat, tilt_deg=45.0)[0, 0])
+    def test_fallen_backward_along_row(self):
+        q = _quat_axis_angle((0.0, 1.0, 0.0), math.radians(-80.0))
+        fallen, sign = self._fallen(q.view(1, 1, 4))
+        assert fallen.all() and (sign == -1.0).all()
+
+    def test_fallen_sideways_does_not_count(self):
+        # Tipped past 45 deg but perpendicular to the row: the old bug.
+        q = _quat_axis_angle((1.0, 0.0, 0.0), math.radians(80.0))
+        fallen, sign = self._fallen(q.view(1, 1, 4))
+        assert not fallen.any() and (sign == 0).all()
+
+    def test_row_yaw_rotates_the_along_axis(self):
+        # Same sideways tip counts once the row itself runs along y.
+        q = _quat_axis_angle((1.0, 0.0, 0.0), math.radians(80.0))
+        fallen, sign = self._fallen(q.view(1, 1, 4), row_yaw=math.pi / 2)
+        assert fallen.all() and (sign == -1.0).all()
+
+
+class TestChainToppleSuccess:
+    def _run(self, signs, order):
+        fallen = torch.tensor([[s != 0 for s in signs]])
+        sign = torch.tensor([signs], dtype=torch.float32)
+        return chain_topple_success(
+            fallen, sign, torch.tensor([order], dtype=torch.float32)
+        )
+
+    def test_forward_chain_in_order_succeeds(self):
+        assert self._run([1, 1, 1], [3.0, 5.0, 8.0]).all()
+
+    def test_backward_chain_in_reverse_order_succeeds(self):
+        assert self._run([-1, -1, -1], [8.0, 5.0, 3.0]).all()
+
+    def test_simultaneous_falls_allowed(self):
+        assert self._run([1, 1, 1], [3.0, 3.0, 3.0]).all()
+
+    def test_out_of_order_fails(self):
+        assert not self._run([1, 1, 1], [5.0, 3.0, 8.0]).any()
+
+    def test_mixed_directions_fail(self):
+        assert not self._run([1, -1, 1], [3.0, 5.0, 8.0]).any()
+
+    def test_not_all_fallen_fails(self):
+        assert not self._run([1, 1, 0], [3.0, 5.0, 1e9]).any()
 
 
 # ---------------------------------------------------------------------------

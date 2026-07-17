@@ -11,7 +11,11 @@ the first step where every domino stands within `pos_threshold * margin` of
 its row slot and within `upright_threshold_deg * margin` of upright and
 row-aligned, all dominoes move slowly, and the gripper is open. `KnockOver`
 variants latch a `phase` (0 = build, 1 = topple) the first time the row is
-complete, and then additionally require every domino toppled past 45°.
+complete, and then additionally require the row to topple as a chain: every
+domino falls along the row axis (tilted past 45°, leaning toward the row
+direction rather than sideways), all leaning the same way, with first-fall
+times monotonic along the row in that direction — sideways or out-of-order
+toppling doesn't count.
 
 ## Observations (state-based)
 
