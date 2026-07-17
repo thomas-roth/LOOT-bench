@@ -12,10 +12,17 @@ def get_block_spec(block: BlockCfg, name: str = "block") -> mujoco.MjSpec:
     spec = mujoco.MjSpec()
     body = spec.worldbody.add_body(name=name)
     body.add_freejoint(name=f"{name}_joint")
+    half = FORM_HALF_EXTENTS[block.form]
+    geom_type = (
+        mujoco.mjtGeom.mjGEOM_CYLINDER
+        if block.form == "cylinder"
+        else mujoco.mjtGeom.mjGEOM_BOX
+    )
+    size = (half[0], half[2], 0.0) if block.form == "cylinder" else half
     body.add_geom(
         name=f"{name}_geom",
-        type=mujoco.mjtGeom.mjGEOM_BOX,
-        size=FORM_HALF_EXTENTS[block.form],
+        type=geom_type,
+        size=size,
         mass=FORM_MASS[block.form],
         rgba=PALETTE[block.color],
         condim=6,

@@ -56,8 +56,8 @@ class StackCommandCfg(GripperGateCommandCfg):
     block_names: tuple[str, ...]
     """All block entities, in the variant's (tail-extending) index order."""
     variant: StackVariantCfg
-    workspace_x: tuple[float, float] = (0.22, 0.42)
-    workspace_y: tuple[float, float] = (-0.18, 0.18)
+    workspace_x: tuple[float, float] = (0.21, 0.44)
+    workspace_y: tuple[float, float] = (-0.21, 0.21)
     block_vel_threshold: float = OBJECT_VEL_THRESHOLD
     """Max linear speed (m/s) of any block to count success."""
 

@@ -2,33 +2,51 @@
 
 A variant fixes the block set and the target height:
 
-- Stack{3,4,5}: n identical cubes, target height n * 0.04.
-- Stack{n}DifferentBlocks: mixed forms (rect bridging base, tall block) with
-  more material than needed, so block choice becomes a strategy.
-- Stack{n}TwoStacks: 2n cubes; two separate stacks must reach the target
-  height with xy separation.
+- Stack{3,4,5}: 2n identical cubes, target height n * 0.04. Block count is
+  strictly more than the minimum needed, so height, not block count, is the
+  binding constraint.
+- Stack{n}DifferentBlocks: a mixed prefix of four forms (tall, cylinder,
+  plate x2) followed by cubes, always with more material than needed, so
+  block choice becomes a real strategy.
+- Stack{n}TwoStacks: 2n+2 cubes; two separate stacks must each reach the
+  target height with xy separation.
+- Stack{n}TwoStacksDifferentBlocks: a doubled mixed prefix (tall, cylinder
+  x2, plate x2) followed by cubes; two separate stacks, each buildable from
+  a mix of forms.
 
-Block lists are *tail-extending* across the difficulty axis (Stack3's blocks
-are blocks 0..2 of Stack4, etc.) so demos for easier tasks can be cut from
-the hardest task's recordings (see ``docs/TaskCategories.md`` "General").
+All form heights are multiples of 0.02 m, and every variant's block set
+contains a subset whose heights sum exactly to the target height (a multiple
+of 0.04 m), so a target is always exactly reachable, not just exceedable.
+
+Block lists are *tail-extending* across the difficulty axis within each
+family (Stack3's blocks are blocks 0..2 of Stack4, etc.) so demos for easier
+tasks can be cut from the hardest task's recordings (see
+``docs/TaskCategories.md`` "General").
 """
 
 from dataclasses import dataclass
 from typing import Literal
 
-Form = Literal["cube", "rect", "tall"]
+Form = Literal["cube", "plate", "tall", "cylinder"]
 
-# Half extents (hx, hy, hz) and mass per form.
+# Half extents (hx, hy, hz) per form; the cylinder uses hx = hy = radius.
+# All heights are multiples of 0.02 so mixed sets can reach every target
+# height (a multiple of 0.04) exactly. Trade-offs: cube = balanced
+# baseline; plate = wide stabilizing cap/bridge, little height; tall =
+# most height per placement but slender and tippy; cylinder = good height
+# and yaw-free grasping, but rolls when tipped.
 FORM_HALF_EXTENTS: dict[Form, tuple[float, float, float]] = {
     "cube": (0.02, 0.02, 0.02),
-    "rect": (0.03, 0.02, 0.015),
-    "tall": (0.02, 0.02, 0.03),
+    "plate": (0.03, 0.02, 0.01),
+    "tall": (0.015, 0.015, 0.04),
+    "cylinder": (0.02, 0.02, 0.03),
 }
 
 FORM_MASS: dict[Form, float] = {
     "cube": 0.10,
-    "rect": 0.12,
+    "plate": 0.09,
     "tall": 0.06,
+    "cylinder": 0.08,
 }
 
 # Height of one standard cube; the target height is measured in cubes.
@@ -83,24 +101,33 @@ def _cubes(n: int, color: str = "red") -> tuple[BlockCfg, ...]:
     return tuple(BlockCfg(form="cube", color=color) for _ in range(n))
 
 
+# Mixed prefix: 0.08 + 0.06 + 2 * 0.02 = 0.18 m of material.
+_MIXED = (
+    BlockCfg(form="tall", color="yellow"),
+    BlockCfg(form="cylinder", color="cyan"),
+    BlockCfg(form="plate", color="purple"),
+    BlockCfg(form="plate", color="purple"),
+)
+# Doubled for TwoStacks: 0.32 m.
+_MIXED_TWO = _MIXED + (
+    BlockCfg(form="tall", color="yellow"),
+    BlockCfg(form="cylinder", color="cyan"),
+)
+
+
 def _different_blocks(n: int) -> tuple[BlockCfg, ...]:
-    """Mixed set: rect bridging bases + tall block first, cubes appended."""
-    return (
-        BlockCfg(form="rect", color="purple"),
-        BlockCfg(form="rect", color="purple"),
-        BlockCfg(form="tall", color="yellow"),
-    ) + _cubes(n - 1)
+    return _MIXED + _cubes(n - 1)
+
+
+def _two_stacks_different_blocks(n: int) -> tuple[BlockCfg, ...]:
+    return _MIXED_TWO + _cubes(2 * n - 6)
 
 
 STACK_VARIANTS: dict[str, StackVariantCfg] = {
     v.name: v
     for n in (3, 4, 5)
     for v in (
-        StackVariantCfg(
-            name=f"Stack{n}",
-            target_blocks=n,
-            blocks=_cubes(n),
-        ),
+        StackVariantCfg(name=f"Stack{n}", target_blocks=n, blocks=_cubes(2 * n)),
         StackVariantCfg(
             name=f"Stack{n}DifferentBlocks",
             target_blocks=n,
@@ -109,7 +136,13 @@ STACK_VARIANTS: dict[str, StackVariantCfg] = {
         StackVariantCfg(
             name=f"Stack{n}TwoStacks",
             target_blocks=n,
-            blocks=_cubes(2 * n),
+            blocks=_cubes(2 * n + 2),
+            two_stacks=True,
+        ),
+        StackVariantCfg(
+            name=f"Stack{n}TwoStacksDifferentBlocks",
+            target_blocks=n,
+            blocks=_two_stacks_different_blocks(n),
             two_stacks=True,
         ),
     )

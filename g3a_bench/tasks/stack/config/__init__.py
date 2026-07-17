@@ -10,11 +10,10 @@ _TASK_BY_TARGET_BLOCKS = {3: "Low", 4: "Medium", 5: "High"}
 
 def _task_id_parts(variant: StackVariantCfg) -> tuple[str, str]:
     task = _TASK_BY_TARGET_BLOCKS[variant.target_blocks]
+    mixed = any(b.form != "cube" for b in variant.blocks)
     if variant.two_stacks:
-        return task, "TwoStacks"
-    if any(b.form != "cube" for b in variant.blocks):
-        return task, "DifferentBlocks"
-    return task, ""
+        return task, "TwoStacksDifferentBlocks" if mixed else "TwoStacks"
+    return task, "DifferentBlocks" if mixed else ""
 
 
 register_category(
