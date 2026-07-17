@@ -46,13 +46,13 @@ def make_ball_env_cfg(
     grasp_cfg = SceneEntityCfg("robot", site_names=())  # Set per-robot.
 
     task_obs_terms = {
-        "ball_rel_grasp": ObservationTermCfg(
-            func=ball_mdp.ball_rel_grasp,
-            params={"command_name": COMMAND_NAME, "asset_cfg": grasp_cfg},
+        "ball_pose": ObservationTermCfg(
+            func=ball_mdp.ball_pose,
+            params={"command_name": COMMAND_NAME},
             noise=Unoise(n_min=-0.01, n_max=0.01),
         ),
-        "ball_to_target": ObservationTermCfg(
-            func=ball_mdp.ball_to_target,
+        "field_pose": ObservationTermCfg(
+            func=ball_mdp.field_pose,
             params={"command_name": COMMAND_NAME},
             noise=Unoise(n_min=-0.01, n_max=0.01),
         ),
@@ -62,6 +62,12 @@ def make_ball_env_cfg(
             noise=Unoise(n_min=-0.05, n_max=0.05),
         ),
     }
+    if wall_name is not None:
+        task_obs_terms["wall_pose"] = ObservationTermCfg(
+            func=ball_mdp.wall_pose,
+            params={"command_name": COMMAND_NAME},
+            noise=Unoise(n_min=-0.01, n_max=0.01),
+        )
 
     task_rewards = {
         "success": RewardTermCfg(
@@ -106,8 +112,10 @@ def make_ball_env_cfg(
             grasp_cfg=grasp_cfg,
         ),
         task_obs_terms=task_obs_terms,
-        # ball_to_target already encodes the goal; the raw command is redundant.
-        command_obs=False,
+        # The target position is per-episode random (the field is
+        # randomized each reset); command now carries the raw env-local
+        # target position (fixed from a ball-relative delta - see spec).
+        command_obs=True,
         task_rewards=task_rewards,
         task_terminations=task_terminations,
         env_spacing=2.5,

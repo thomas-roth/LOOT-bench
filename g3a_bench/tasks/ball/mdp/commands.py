@@ -95,7 +95,9 @@ class BallCommand(CommandTerm):
         self._wall_local = torch.tensor([WALL_X, 0.0, 0.0], device=dev)
 
         self.field_pos_w = torch.zeros(E, 3, device=dev)
+        self.field_quat_w = torch.zeros(E, 4, device=dev)
         self.wall_pos_w = torch.zeros(E, 3, device=dev)
+        self.wall_quat_w = torch.zeros(E, 4, device=dev)
         self.target_pos_w = torch.zeros(E, 3, device=dev)
         self.ball_pos_w = torch.zeros(E, 3, device=dev)
         self.ball_vel_w = torch.zeros(E, 3, device=dev)
@@ -108,7 +110,8 @@ class BallCommand(CommandTerm):
 
     @property
     def command(self) -> torch.Tensor:
-        return self.target_pos_w - self.ball_pos_w
+        """(E, 3): env-local target position (was a ball-relative delta)."""
+        return self.target_pos_w - self._env.scene.env_origins
 
     @property
     def success(self) -> torch.Tensor:
@@ -128,11 +131,14 @@ class BallCommand(CommandTerm):
 
     def _update_metrics(self) -> None:
         self.field_pos_w = self.field.data.root_link_pos_w
+        self.field_quat_w = self.field.data.root_link_quat_w
         self.target_pos_w = self.field_pos_w + self._local_target
         if self.wall is not None:
             self.wall_pos_w = self.wall.data.root_link_pos_w
+            self.wall_quat_w = self.wall.data.root_link_quat_w
         elif self.variant.has_wall:
             self.wall_pos_w = self.field_pos_w + self._wall_local
+            self.wall_quat_w = self.field_quat_w
 
         self.ball_pos_w = self.ball.data.root_link_pos_w
         self.ball_vel_w = self.ball.data.root_link_lin_vel_w

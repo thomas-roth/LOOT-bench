@@ -5,13 +5,16 @@ from g3a_bench.tasks.ball.mdp.commands import (
     BallCommandCfg as BallCommandCfg,
 )
 from g3a_bench.tasks.ball.mdp.observations import (
-    ball_rel_grasp as ball_rel_grasp,
-)
-from g3a_bench.tasks.ball.mdp.observations import (
-    ball_to_target as ball_to_target,
+    ball_pose as ball_pose,
 )
 from g3a_bench.tasks.ball.mdp.observations import (
     ball_velocity as ball_velocity,
+)
+from g3a_bench.tasks.ball.mdp.observations import (
+    field_pose as field_pose,
+)
+from g3a_bench.tasks.ball.mdp.observations import (
+    wall_pose as wall_pose,
 )
 from g3a_bench.tasks.ball.mdp.rewards import (
     success_reward as success_reward,
