@@ -9,10 +9,10 @@ The scripts and pytest suite here verify changes to task code; run everything fr
 Pytest suites for the simulator-free task logic:
 
 - `test_success.py` — the per-category success criteria in each
-  `tasks/<cat>/mdp/success.py` (`domino_upright_aligned`, `domino_fallen`,
-  `stack_reached`, `ball_in_target_zone`, `SorterLatch`) plus the shared
-  gates: `SuccessGate` from `common/success.py` and `GripperOpenGate` from
-  `common/commands.py`.
+  `tasks/<cat>/mdp/success.py` (`domino_upright_aligned`,
+  `domino_fallen_along_row`, `chain_topple_success`, `stack_reached`,
+  `ball_in_target_zone`, `SorterLatch`) plus the shared gates: `SuccessGate`
+  from `common/success.py` and `GripperOpenGate` from `common/commands.py`.
 - `test_scatter.py` — the `ScatterGrid` spawn sampler in `common/scatter.py`
   (`tiling`'s cell layout and jitter bounds, `sample_poses`'s distinct-cells,
   determinism, and seed-prefix properties).
@@ -49,6 +49,7 @@ uv run python tests/tasks/build_sim_registered_tasks.py --no-render
 ## Success-metric check (`check_success_reward.py`)
 
 Teleports objects to their goals for one representative task per category, plus structurally unusual variants (Stack Low-TwoStacks, Domino 3Pieces-KnockOver, Ball Minigolf-UsingWall, Ball Throw-U), and checks that the command term's success metric fires.
+The Domino KnockOver check builds the row (teleport), then tips only the first domino past its tip-over point and simulates the chain reaction, so it verifies the row topples along the row axis, all leaning the same way, in row order — not just that objects end up "fallen".
 The shape-sorter check reorients the free cube so the target hole faces up, then drives the piece through the mouth in two stations so the latched outside-to-inside crossing fires.
 This confirms the metric *can* fire when objects are placed correctly; it does not verify that reward shaping guides a policy there.
 Run it after touching a category's `mdp/commands.py` or success-metric logic.

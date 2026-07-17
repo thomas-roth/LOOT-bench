@@ -35,6 +35,10 @@ from g3a_bench.tasks.stack.variants import FORM_HALF_EXTENTS
 
 _NUM_ENVS = 8
 _STEPS = 10
+_KNOCKOVER_STEPS = 100
+"""Play-cfg control dt = play_timestep(0.01) * play_decimation(1) = 0.01 s, so
+100 steps is ~1.0 s -- enough for a 3-domino chain reaction to propagate and
+settle."""
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -179,26 +183,38 @@ def _teleport_dominoes_upright(cmd: DominoCommand, device: str) -> None:
         )
 
 
-def _lay_dominoes_flat(cmd: DominoCommand, env: ManagerBasedRlEnv, device: str) -> None:
-    """Topple every domino sideways (about the row axis), in place.
+def _tip_first_domino(cmd: DominoCommand, env: ManagerBasedRlEnv, device: str) -> None:
+    """Tilt only domino 0, ~25 deg toward slot 1, and let physics do the rest.
 
-    Rotating about the domino's own thin (row-aligned) body axis swings its
-    height into the direction perpendicular to the row, so neighbouring slots
-    (spaced along the row) never overlap.
+    The chain criterion (``domino_fallen_along_row`` / ``chain_topple_success``
+    in ``mdp/success.py``) requires the whole row to topple *along the row
+    axis*, all leaning the same way, in row order -- so instead of teleporting
+    every domino into a "fallen" pose (the old, now-invalid semantics), this
+    seeds only the first domino past its tip-over point and simulates the
+    chain reaction through the rest of the row.
+
+    A positive pitch about the domino's body y-axis (composed after the
+    upright/row-yaw quat, i.e. in the body frame) tips its body z-axis toward
+    its body x-axis -- which, upright, points along the row toward slot 1. A
+    domino tips over once past ~atan(hx/hz) =~ 12 deg, so 25 deg guarantees a
+    fall without an initial velocity kick.
     """
     n = cmd.num_envs
     origins = env.scene.env_origins
-    x_axis = torch.tensor([1.0, 0.0, 0.0], device=device).unsqueeze(0).expand(n, 3)
-    roll = quat_from_angle_axis(torch.full((n,), math.pi / 2, device=device), x_axis)
     zeros = torch.zeros(n, device=device)
     upright = quat_from_euler_xyz(zeros, zeros, cmd.row_yaw)
-    flat = quat_mul(upright, roll)
-    for i, domino in enumerate(cmd.dominoes):
-        half_w = cmd.variant.half_extents[i][1]  # width becomes the new "up" extent
-        pos = cmd.slot_goal_pos[:, i].clone()
-        pos[:, 2] = origins[:, 2] + half_w + 0.003
-        domino.write_root_link_pose_to_sim(torch.cat([pos, flat], dim=-1))
-        domino.write_root_link_velocity_to_sim(torch.zeros(n, 6, device=device))
+    y_axis = torch.tensor([0.0, 1.0, 0.0], device=device).unsqueeze(0).expand(n, 3)
+    theta = math.radians(25.0)
+    tip = quat_from_angle_axis(torch.full((n,), theta, device=device), y_axis)
+    tilted = quat_mul(upright, tip)
+
+    hx, _hy, hz = cmd.variant.half_extents[0]
+    pos = cmd.slot_goal_pos[:, 0].clone()
+    pos[:, 2] = origins[:, 2] + hz * math.cos(theta) + hx * math.sin(theta) + 0.002
+
+    domino = cmd.dominoes[0]
+    domino.write_root_link_pose_to_sim(torch.cat([pos, tilted], dim=-1))
+    domino.write_root_link_velocity_to_sim(torch.zeros(n, 6, device=device))
 
 
 def _check_domino_3pieces(device: str, *, render: bool = False) -> str | None:
@@ -217,6 +233,12 @@ def _check_domino_3pieces(device: str, *, render: bool = False) -> str | None:
 
 
 def _check_domino_knockover(device: str, *, render: bool = False) -> str | None:
+    """Build the row, then tip domino 0 and let the chain reaction propagate.
+
+    Verifies the new chain semantics physically: only the first domino is
+    seeded past its tip point, so the rest must fall from the actual contact
+    cascade, along the row axis, in row order, for ``progress`` to reach 1.0.
+    """
     task_id = "G3A-Domino-3Pieces-KnockOver-Dk1_uni"
     env = _make_env(task_id, device)
     cmd = cast(DominoCommand, env.command_manager.get_term("task"))
@@ -224,8 +246,8 @@ def _check_domino_knockover(device: str, *, render: bool = False) -> str | None:
     env.step(zeros)
     _teleport_dominoes_upright(cmd, device)
     env.step(zeros)  # all placed simultaneously -> phase latches to 1
-    _lay_dominoes_flat(cmd, env, device)
-    for _ in range(_STEPS):
+    _tip_first_domino(cmd, env, device)
+    for _ in range(_KNOCKOVER_STEPS):
         env.step(zeros)
     frac = cmd.progress.mean().item()
     _render_goal(env, task_id, render)
