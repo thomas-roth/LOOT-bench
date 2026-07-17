@@ -87,8 +87,6 @@ def make_domino_env_cfg(
         task_terminations=task_terminations,
         env_spacing=1.5,
         episode_length_s=episode_length_s,
-        solver_iterations=10,
-        solver_ls_iterations=20,
         nconmax=55 + 80 * num_dominoes,
         # nativeccd is disabled for better box-to-box collisions, which raises
         # the constraint count for multi-domino contacts; give njmax headroom.

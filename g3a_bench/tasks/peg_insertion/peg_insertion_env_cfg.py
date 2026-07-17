@@ -118,11 +118,10 @@ def make_insertion_env_cfg(
         task_rewards=task_rewards,
         task_terminations=task_terminations,
         env_spacing=2.0,
-        episode_length_s=10.0 + 8.0 * variant.num_sockets,
+        # Two-sheet gets an extra time budget for the alignment sub-task
+        episode_length_s=10.0 + 8.0 * variant.num_sockets + (8.0 if two_sheet else 0.0),
         # Two-sheet: two 16-box rings stacked on top of each other need extra
         # contact/constraint headroom.
-        solver_iterations=15,
-        solver_ls_iterations=25,
         nconmax=120 + 120 * num_pegs + (200 if two_sheet else 0),
         njmax=900 + 90 * num_pegs + (400 if two_sheet else 0),
         play=play,

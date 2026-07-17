@@ -76,12 +76,10 @@ def make_stack_env_cfg(
         task_rewards=task_rewards,
         task_terminations=task_terminations,
         env_spacing=1.5,
-        episode_length_s=10.0 * variant.target_blocks,
-        solver_iterations=10,
-        solver_ls_iterations=20,
+        episode_length_s=10.0 * variant.target_blocks * (variant.two_stacks + 1),
         nconmax=55 + 80 * num_blocks,
         # nativeccd is disabled for better box-to-box collisions, which raises
         # the constraint count for multi-block contacts; give njmax headroom.
-        njmax=600 + 100 * num_blocks,
+        njmax=600 + (200 if variant.two_stacks else 100) * num_blocks,
         play=play,
     )

@@ -48,8 +48,6 @@ def make_manipulation_env_cfg(
     sensors: tuple[SensorCfg, ...] = (),
     env_spacing: float,
     episode_length_s: float,
-    solver_iterations: int,
-    solver_ls_iterations: int,
     nconmax: int,
     njmax: int,
     viewer_distance: float = 1.5,
@@ -206,10 +204,11 @@ def make_manipulation_env_cfg(
         sim=SimulationCfg(
             nconmax=nconmax,
             njmax=njmax,
+            # same settings as mjlab manipulation task example
             mujoco=MujocoCfg(
                 timestep=0.005,
-                iterations=solver_iterations,
-                ls_iterations=solver_ls_iterations,
+                iterations=10,
+                ls_iterations=20,
                 impratio=10,
                 cone="elliptic",
                 disableflags=(

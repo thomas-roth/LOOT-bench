@@ -91,11 +91,8 @@ def make_shape_sorter_env_cfg(
         task_terminations=task_terminations,
         env_spacing=2.0,
         episode_length_s=10.0 * variant.num_pieces,
-        # Sorter physics knobs as the legacy insertion sorter kind used:
         # ~90 convex mesh parts on the cube colliding with pieces, table and
         # gripper need real contact/constraint headroom.
-        solver_iterations=15,
-        solver_ls_iterations=25,
         nconmax=500,
         njmax=2000,
         play=play,

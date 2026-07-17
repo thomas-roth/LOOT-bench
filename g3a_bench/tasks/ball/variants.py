@@ -57,6 +57,12 @@ class BallVariantCfg:
     """Throw success radius around the target centre, before ``margin``."""
     at_rest_speed: float = 0.06
     """Ball speed below which it counts as at rest."""
+    episode_length_s: float = 12.0
+    """Per-variant time budget. Hand-picked by layout difficulty (no demo-time
+    measurement yet -- see .scratch/sim-settings-review/report.md): a direct
+    shot/throw is the baseline, bank shots or obstacles/elevation add time,
+    and the every-reset-randomized wall gets the most since it can't be
+    solved by a fixed motion."""
 
     def __post_init__(self):
         if self.movable_wall:
@@ -88,22 +94,44 @@ BALL_VARIANTS: dict[str, BallVariantCfg] = {
     v.name: v
     for v in (
         BallVariantCfg(
-            name="MinigolfDirect", task="minigolf", minigolf_layout="direct"
+            name="MinigolfDirect",
+            task="minigolf",
+            minigolf_layout="direct",
+            episode_length_s=10.0,
         ),
         BallVariantCfg(
-            name="MinigolfUsingWall", task="minigolf", minigolf_layout="using_wall"
+            name="MinigolfUsingWall",
+            task="minigolf",
+            minigolf_layout="using_wall",
+            episode_length_s=12.0,
         ),
         BallVariantCfg(
-            name="MinigolfObstacle", task="minigolf", minigolf_layout="obstacle"
+            name="MinigolfObstacle",
+            task="minigolf",
+            minigolf_layout="obstacle",
+            episode_length_s=14.0,
         ),
-        BallVariantCfg(name="MinigolfRamp", task="minigolf", minigolf_layout="ramp"),
-        BallVariantCfg(name="ThrowU", task="throw", throw_target="u"),
-        BallVariantCfg(name="ThrowMarkedArea", task="throw", throw_target="marked"),
+        BallVariantCfg(
+            name="MinigolfRamp",
+            task="minigolf",
+            minigolf_layout="ramp",
+            episode_length_s=14.0,
+        ),
+        BallVariantCfg(
+            name="ThrowU", task="throw", throw_target="u", episode_length_s=12.0
+        ),
+        BallVariantCfg(
+            name="ThrowMarkedArea",
+            task="throw",
+            throw_target="marked",
+            episode_length_s=12.0,
+        ),
         BallVariantCfg(
             name="ThrowWallVariation",
             task="throw",
             throw_target="marked",
             movable_wall=True,
+            episode_length_s=16.0,
         ),
     )
 }
