@@ -52,8 +52,13 @@ Benchmarks the sim-setting profiles (current training settings, current play/dem
 settings, MuJoCo solver defaults, and the train timestep with default solver caps)
 against each other for speed and accuracy on one registered task.
 Accuracy is measured as qpos deviation from a high-accuracy `reference` profile
-along a seeded, deterministically scripted arm sweep, sampled every 0.02 s of sim
-time; speed as headless `env.step()` throughput after Warp warmup.
+along seeded, deterministically scripted scenarios sampled every 0.02 s of sim
+time: a contact-free arm `sweep`, a teleported block tower at rest (`stack`,
+reports the tower's absolute `drift`), and a `grasp` where a cube is pinned into
+the closing gripper and then lifted and shaken (reports the absolute grip
+`slip`; a dropped cube reads ~0.2 m). The contact scenarios need a
+`G3A-Stack-*` task and are skipped elsewhere. Speed is headless `env.step()`
+throughput after Warp warmup.
 `--viewer` adds a native-viewer play-mode pass (1x real-time and max speed) —
 needs a display, like the `tests/viewer/` checks.
 Run it when reconsidering timestep / decimation / solver iterations, or on a new
