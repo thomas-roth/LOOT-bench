@@ -285,6 +285,11 @@ def _check_shape_sorter_full(device: str, *, render: bool = False) -> str | None
     The cube can only present one hole up at a time, so pieces are latched in
     sequentially -- the latch is monotonic (never clears except on reset), so
     an earlier piece stays scored while later sockets are reoriented to.
+
+    Each piece is parked out of the cube right after its own crossing is
+    registered: three teleported pieces don't all fit in the small hollow
+    interior at once and the latch not clearing on relocation means this
+    doesn't affect what's being verified.
     """
     task_id = "G3A-Sorter-3Shapes-Full-Dk1_uni"
     env = _make_env(task_id, device)
@@ -332,6 +337,15 @@ def _check_shape_sorter_full(device: str, *, render: bool = False) -> str | None
         cmd.pieces[s].write_root_link_pose_to_sim(
             torch.cat([station2, upright], dim=-1)
         )
+        cmd.pieces[s].write_root_link_velocity_to_sim(
+            torch.zeros(_NUM_ENVS, 6, device=device)
+        )
+        env.step(zeros)  # registers the crossing for piece s
+
+        # Clear the cavity for the next piece (see docstring): the latch
+        # already fired and is monotonic, so relocating doesn't unscore it.
+        park = origins + torch.tensor([0.0, 0.0, -1.0], device=device)
+        cmd.pieces[s].write_root_link_pose_to_sim(torch.cat([park, upright], dim=-1))
         cmd.pieces[s].write_root_link_velocity_to_sim(
             torch.zeros(_NUM_ENVS, 6, device=device)
         )
