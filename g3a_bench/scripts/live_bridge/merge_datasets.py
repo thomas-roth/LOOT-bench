@@ -7,9 +7,9 @@ frame as terminal.
 
 Usage:
     uv run python g3a_bench/scripts/live_bridge/merge_datasets.py \
-        out/demos/success/2026-07-12_16-18-02_dataset.npz \
-        out/demos/success/2026-07-12_17-15-06_dataset.npz \
-        out/demos/success/2026-07-12_18-32-00_dataset.npz \
+        out/demos/success/G3A-Stack-Low-Dk1_uni/2026-07-12_16-18-02_dataset.npz \
+        out/demos/success/G3A-Stack-Low-Dk1_uni/2026-07-12_17-15-06_dataset.npz \
+        out/demos/success/G3A-Stack-Low-Dk1_uni/2026-07-12_18-32-00_dataset.npz \
         --output combined_45demos.npz
 """
 

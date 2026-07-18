@@ -666,8 +666,8 @@ def main():
         default=None,
         help=(
             "Output base directory. Defaults to out/demos/ at the repo root. "
-            "Episodes are saved to <base>/success/<timestamp>/ and "
-            "<base>/failure/<timestamp>/ (data is never overwritten)."
+            "Episodes are saved to <base>/success/<task>/<timestamp>/ and "
+            "<base>/failure/<task>/<timestamp>/ (data is never overwritten)."
         ),
     )
     parser.add_argument(
@@ -719,12 +719,12 @@ def main():
         print("[WARN] Ghost-at-home overlay disabled (could not locate MjModel)")
 
     # 4. Resolve dataset output directories — never wipe existing data.
-    #    Layout: <base>/success/<stamp>/ and <base>/failure/<stamp>/; each
-    #    dataset is only created once an episode of that kind is saved.
+    #    Layout: <base>/success/<task>/<stamp>/ and <base>/failure/<task>/<stamp>/;
+    #    each dataset is only created once an episode of that kind is saved.
     base_dir = Path(args.dataset_dir) if args.dataset_dir else DEMOS_DIR
     stamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    success_root = base_dir / "success" / stamp
-    failure_root = base_dir / "failure" / stamp
+    success_root = base_dir / "success" / args.task / stamp
+    failure_root = base_dir / "failure" / args.task / stamp
     for _path in (success_root, failure_root):
         if _path.exists():
             raise SystemExit(
@@ -746,7 +746,7 @@ def main():
         device=device,
     )
     print(
-        f"[INFO] Recording to {base_dir}/{{success,failure}}/{stamp} "
+        f"[INFO] Recording to {base_dir}/{{success,failure}}/{args.task}/{stamp} "
         f"(obs_dim={obs_dim}, qpos_dim={qpos_dim}, qvel_dim={qvel_dim})"
     )
 

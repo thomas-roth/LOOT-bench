@@ -9,7 +9,7 @@ bitwise-exact reproduction of the recorded trajectory.
 
 Usage:
     uv run python g3a_bench/scripts/live_bridge/state_replay.py \
-        --dataset-dir out/demos/success/2026-07-11_18-23-00
+        --dataset-dir out/demos/success/G3A-Stack-Low-Dk1_uni/2026-07-11_18-23-00
 
     # replay a specific episode
     uv run python g3a_bench/scripts/live_bridge/state_replay.py \
@@ -214,7 +214,7 @@ def main():
         "--dataset-dir",
         type=str,
         required=True,
-        help="live_record session/dataset dir (e.g. out/demos/success/<stamp>)",
+        help="live_record session/dataset dir (e.g. out/demos/success/<task>/<stamp>)",
     )
     parser.add_argument("--episode-index", type=int, default=0)
     parser.add_argument(
