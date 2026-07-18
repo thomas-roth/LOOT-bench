@@ -69,9 +69,6 @@ from mjlab.tasks.registry import load_env_cfg
 
 import g3a_bench  # noqa: F401
 from g3a_bench.scripts.live_bridge.dataset_extra_info import load_extra_info
-from g3a_bench.scripts.live_bridge.live_record import (
-    apply_teleop_contact_stability,
-)
 from g3a_bench.scripts.live_bridge.mapper import lerobot_to_mjlab_raw_action
 
 
@@ -154,15 +151,11 @@ def load_episode(dataset_dir: str, episode_index: int) -> Episode:
 def build_env_like_live_record(task: str, device: str) -> RslRlVecEnvWrapper:
     """Build the env with the exact same config mutations as live_record.main().
 
-    Any difference here (contact solref, timestep, ...) changes the physics
-    being compared, so this must stay in lockstep with live_record.py.
+    Any difference here changes the physics being compared, so this must stay
+    in lockstep with live_record.py.
     """
     cfg = load_env_cfg(task, play=True)
     cfg.terminations["time_out"].time_out = False
-
-    # Same finger-pad solref stabilization live_record applies before building
-    # the env — different contact parameters would diverge at first grip.
-    apply_teleop_contact_stability(cfg)
 
     # Unlike live_record, drop done-producing terminations: a done mid-replay
     # auto-resets the env inside step() and destroys the comparison.

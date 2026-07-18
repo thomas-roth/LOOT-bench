@@ -36,9 +36,8 @@ from g3a_bench.tasks.stack.variants import FORM_HALF_EXTENTS
 _NUM_ENVS = 8
 _STEPS = 10
 _KNOCKOVER_STEPS = 100
-"""Play-cfg control dt = play_timestep(0.01) * play_decimation(1) = 0.01 s, so
-100 steps is ~1.0 s -- enough for a 3-domino chain reaction to propagate and
-settle."""
+"""Control dt = timestep(0.005) * decimation(4) = 0.02 s, so 100 steps is
+~2.0 s -- enough for a 3-domino chain reaction to propagate and settle."""
 
 # ---------------------------------------------------------------------------
 # Helpers

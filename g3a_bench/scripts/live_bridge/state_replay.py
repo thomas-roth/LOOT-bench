@@ -42,7 +42,6 @@ from mjlab.viewer.base import VerbosityLevel
 
 import g3a_bench  # noqa: F401
 from g3a_bench.scripts.live_bridge.dataset_extra_info import load_extra_info
-from g3a_bench.scripts.live_bridge.live_record import apply_teleop_contact_stability
 
 
 # ── Episode loading ───────────────────────────────────────────────────────────
@@ -133,7 +132,6 @@ def build_env(task: str, device: str) -> RslRlVecEnvWrapper:
     cfg.terminations["time_out"].time_out = False
     cfg.terminations.pop("ee_ground_collision", None)
     cfg.terminations.pop("success", None)
-    apply_teleop_contact_stability(cfg)
     env = ManagerBasedRlEnv(cfg=cfg, device=device)
     return RslRlVecEnvWrapper(env)
 

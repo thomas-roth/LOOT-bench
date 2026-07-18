@@ -147,28 +147,6 @@ ORBIT_CAM_AZIMUTH = 200.0
 ORBIT_CAM_ELEVATION = -35.0
 
 
-def apply_teleop_contact_stability(cfg) -> None:
-    """Keep the finger-pad contact solref stable for the play/teleop timestep.
-
-    Raises any robot collision solref timeconst below 2x the sim timestep (the
-    stability floor) to stop grip jitter. Shared with record_replay.py and
-    verify_replay.py — replayed physics must run with the exact same contact
-    parameters as the recording, or trajectories diverge at first contact.
-    """
-    min_solref_timeconst = 2.0 * cfg.sim.mujoco.timestep
-    for _coll in cfg.scene.entities["robot"].collisions:
-        solref = getattr(_coll, "solref", None) or {}
-        for _key, _ref in list(solref.items()):
-            _timeconst, _dampratio = _ref
-            if _timeconst < min_solref_timeconst:
-                solref[_key] = (min_solref_timeconst, _dampratio)
-                print(
-                    f"[INFO] contact-stability: raised solref timeconst for "
-                    f"'{_key}' {_timeconst:g}->{min_solref_timeconst:g} s "
-                    f"(>=2x timestep {cfg.sim.mujoco.timestep:g}) to stop grip jitter"
-                )
-
-
 def ask_operator() -> int:
     """Block until the user enters a valid operator number (1–4)."""
     while True:
@@ -719,7 +697,6 @@ def main():
     cfg = load_env_cfg(args.task, play=True)
     cfg.terminations["time_out"].time_out = False
 
-    apply_teleop_contact_stability(cfg)
     # 2. Create environment.
     env = ManagerBasedRlEnv(cfg=cfg, device=device)
     env = RslRlVecEnvWrapper(env)
@@ -760,7 +737,7 @@ def main():
     qvel_dim = int(env.env.sim.data.qvel.shape[-1])
     recorder = Recorder(
         repo_id="live_record",
-        fps=50,
+        fps=round(1.0 / env.env.step_dt),
         obs_dim=obs_dim,
         success_root=str(success_root),
         failure_root=str(failure_root),

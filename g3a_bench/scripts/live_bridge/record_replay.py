@@ -37,7 +37,6 @@ from mjlab.tasks.registry import load_env_cfg
 from mjlab.viewer.base import VerbosityLevel
 
 import g3a_bench  # noqa: F401
-from g3a_bench.scripts.live_bridge.live_record import apply_teleop_contact_stability
 from g3a_bench.scripts.live_bridge.mapper import lerobot_to_mjlab_raw_action
 from g3a_bench.scripts.live_bridge.reader import DatasetReader, ReaderFrame
 from g3a_bench.scripts.live_bridge.recorder import Recorder
@@ -87,9 +86,6 @@ def main():
     cfg.terminations.pop(
         "success", None
     )  # replay runs through the full episode uninterrupted
-    # Same finger-pad solref stabilization live_record applies — without it the
-    # replayed contact physics differs from the recording at first grip.
-    apply_teleop_contact_stability(cfg)
 
     # 2. Create environment.
     env = ManagerBasedRlEnv(cfg=cfg, device=device)
@@ -149,15 +145,15 @@ def main():
         )
 
     # 4. Create recorder.
-    # Derive the sim observation width from the env rather than hardcoding it,
-    # so a different task (with a different actor-obs size) still records a
-    # correctly-shaped dataset.
+    # Derive the sim observation width and fps from the env rather than
+    # hardcoding them, so a different task (different actor-obs size or
+    # control rate) still records a correctly-shaped, correctly-timed dataset.
     obs_dim = int(env.get_observations()["actor"].shape[-1])
     qpos_dim = int(env.env.sim.data.qpos.shape[-1])
     qvel_dim = int(env.env.sim.data.qvel.shape[-1])
     recorder = Recorder(
         repo_id=repo_id_out,
-        fps=50,
+        fps=round(1.0 / env.env.step_dt),
         obs_dim=obs_dim,
         success_root=str(Path(out_root) / "success"),
         failure_root=str(Path(out_root) / "failure"),

@@ -52,10 +52,6 @@ def make_manipulation_env_cfg(
     viewer_distance: float = 1.5,
     viewer_elevation: float = -15.0,
     play: bool = False,
-    play_timestep: float = 0.01,
-    play_decimation: int = 1,
-    play_solver_iterations: int = 20,
-    play_solver_ls_iterations: int = 10,
 ) -> ManagerBasedRlEnvCfg:
     """Assemble the shared workbench around a category core.
 
@@ -76,20 +72,11 @@ def make_manipulation_env_cfg(
         task_rewards: category reward terms.
         task_terminations: category terminations, placed after ``time_out``.
         sensors: scene sensors (e.g. an end-effector contact sensor).
-        play: strip observation corruption, make the episode endless, and
-            retune physics for real-time responsiveness (see ``play_*``
-            args), for interactive play. The ``success`` termination is
-            kept — live_bridge demo playback needs episodes to terminate
+        play: strip observation corruption and make the episode endless, for
+            interactive play. Physics are unchanged, so demos and eval run
+            under the same dynamics as training. The ``success`` termination
+            is kept — live_bridge demo playback needs episodes to terminate
             on success.
-        play_timestep, play_decimation, play_solver_iterations,
-            play_solver_ls_iterations: physics knobs applied only when
-            ``play=True``. A bigger timestep with fewer substeps
-            (``decimation``) cuts wall-clock cost per ``env.step()`` for
-            live/teleop use; more solver iterations with a shorter
-            line-search partially offsets the coarser timestep for
-            constraint stability. Override per category if the default
-            (tuned against the cube task) causes instability, e.g. a fast
-            projectile tunneling through thin geometry.
     """
     actor_terms: dict[str, ObservationTermCfg] = {
         "joint_pos": ObservationTermCfg(
@@ -196,8 +183,8 @@ def make_manipulation_env_cfg(
             njmax=njmax,
             mujoco=MujocoCfg(
                 timestep=0.005,
-                iterations=10,
-                ls_iterations=20,
+                iterations=100,
+                ls_iterations=50,
                 impratio=10,
                 cone="elliptic",
                 # Disabling nativeccd makes MuJoCo Warp use the analytic
@@ -215,9 +202,5 @@ def make_manipulation_env_cfg(
     if play:
         cfg.episode_length_s = int(1e9)
         cfg.observations["actor"].enable_corruption = False
-        cfg.sim.mujoco.timestep = play_timestep
-        cfg.decimation = play_decimation
-        cfg.sim.mujoco.iterations = play_solver_iterations
-        cfg.sim.mujoco.ls_iterations = play_solver_ls_iterations
 
     return cfg
