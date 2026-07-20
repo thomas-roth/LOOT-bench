@@ -14,6 +14,7 @@ from dataclasses import dataclass
 import torch
 from mjlab.entity import Entity
 from mjlab.managers.command_manager import CommandTermCfg
+from mjlab.sensor import ContactSensor
 
 
 @dataclass(kw_only=True)
@@ -50,3 +51,37 @@ class GripperOpenGate:
             self._joint_idx = [names.index(j) for j in self._joints]
         q = robot.data.joint_pos[:, self._joint_idx]
         return (q > self._threshold).all(dim=-1)
+
+
+GRIP_CONTACT_SENSOR_NAME = "grip_contact"
+"""Sensor name every category's grip-release contact sensor is registered
+under (see ``manipulator_wiring.wire_manipulator_into_env``'s
+``grip_contact_sensor`` param)."""
+
+MIN_GRIP_FORCE = 0.5
+"""[N] contact-force threshold above which a finger pad counts as still
+gripping something. Not derived from actuator specs -- a conservative
+starting value; verify empirically (log force during a real wedge grasp vs.
+a genuine open release) and retune if wrong."""
+
+
+class ContactReleaseGate:
+    """Per-step "pads not exerting grip force" check for a command's
+    success gate.
+
+    Complements :class:`GripperOpenGate`: the joint gate alone can be
+    fooled by a wedged/diagonal grasp that crosses the open-joint threshold
+    while still gripping. This reads actual contact force at the finger
+    pads, independent of joint position. The sensor has no secondary
+    (object) filter -- it reports contact with anything, not just a
+    tracked object -- so this is deliberately coarser than "is it still
+    holding the scored object"; see the design doc for the trade-off.
+    """
+
+    def __init__(self, min_force: float = MIN_GRIP_FORCE):
+        self._min_force = min_force
+
+    def __call__(self, sensor: ContactSensor) -> torch.Tensor:
+        force = sensor.data.force
+        assert force is not None
+        return force.norm(dim=-1).amax(dim=-1) <= self._min_force

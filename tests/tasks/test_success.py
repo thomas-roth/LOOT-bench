@@ -10,9 +10,14 @@ from typing import NoReturn, cast
 import pytest
 import torch
 from mjlab.entity import Entity
+from mjlab.sensor import ContactSensor
 
 from g3a_bench.tasks.ball.mdp.success import ball_in_target_zone
-from g3a_bench.tasks.common.commands import GripperGateCommandCfg, GripperOpenGate
+from g3a_bench.tasks.common.commands import (
+    ContactReleaseGate,
+    GripperGateCommandCfg,
+    GripperOpenGate,
+)
 from g3a_bench.tasks.common.success import SuccessGate
 from g3a_bench.tasks.domino.mdp.success import (
     chain_topple_success,
@@ -279,6 +284,35 @@ class TestGripperOpenGate:
         gate = GripperOpenGate(_gate_cfg(("nope",), 0.0))
         with pytest.raises(ValueError):
             gate(_fake_robot(["q1"], torch.zeros(1, 1)))
+
+
+# ---------------------------------------------------------------------------
+# ContactReleaseGate
+# ---------------------------------------------------------------------------
+
+
+def _fake_contact_sensor(force: torch.Tensor) -> ContactSensor:
+    """Duck-typed ContactSensor stand-in: the gate only reads data.force."""
+    return cast(ContactSensor, SimpleNamespace(data=SimpleNamespace(force=force)))
+
+
+class TestContactReleaseGate:
+    def test_released_when_no_contact(self):
+        gate = ContactReleaseGate(min_force=0.5)
+        force = torch.zeros(2, 2, 3)  # (E=2, P=2 pads, 3)
+        assert gate(_fake_contact_sensor(force)).tolist() == [True, True]
+
+    def test_not_released_when_any_pad_over_threshold(self):
+        gate = ContactReleaseGate(min_force=0.5)
+        force = torch.zeros(2, 2, 3)
+        force[0, 1] = torch.tensor([1.0, 0.0, 0.0])  # env 0, right pad: 1 N
+        assert gate(_fake_contact_sensor(force)).tolist() == [False, True]
+
+    def test_boundary_at_threshold_counts_as_released(self):
+        gate = ContactReleaseGate(min_force=0.5)
+        force = torch.zeros(1, 2, 3)
+        force[0, 0] = torch.tensor([0.5, 0.0, 0.0])  # exactly at threshold
+        assert gate(_fake_contact_sensor(force)).tolist() == [True]
 
 
 # ---------------------------------------------------------------------------
