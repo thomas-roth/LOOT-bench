@@ -14,7 +14,8 @@ from __future__ import annotations
 
 import torch
 
-OBJECT_VEL_THRESHOLD = 0.05
+# TODO: check with real robot
+OBJECT_VEL_THRESHOLD = 0.01
 """Max linear speed (m/s) of a scored object to count success."""
 
 

@@ -58,11 +58,10 @@ GRIP_CONTACT_SENSOR_NAME = "grip_contact"
 under (see ``manipulator_wiring.wire_manipulator_into_env``'s
 ``grip_contact_sensor`` param)."""
 
-MIN_GRIP_FORCE = 0.5
+# TODO: check with real robot
+MIN_GRIP_FORCE = 0.1
 """[N] contact-force threshold above which a finger pad counts as still
-gripping something. Not derived from actuator specs -- a conservative
-starting value; verify empirically (log force during a real wedge grasp vs.
-a genuine open release) and retune if wrong."""
+gripping something."""
 
 
 class ContactReleaseGate:
