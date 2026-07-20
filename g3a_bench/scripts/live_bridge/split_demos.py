@@ -1,22 +1,27 @@
 # pyright: reportAttributeAccessIssue=false
-"""Split a recorded Stack demo dataset into easier Stack tasks (offline relabel).
+"""Split a recorded demo dataset into easier same-family tasks (offline relabel).
 
-Stack variants tail-extend (an easier task's blocks are the first ``k`` of the
-harder one) and reset randomness is seed-prefix safe (``ScatterGrid``), so an
-easier task's rollout is embedded in the hardest task's recording. Each source
-episode is relabeled into a target task WITHOUT re-simulating:
+Supported categories: **Stack** and **Domino** (base + DifferentDominoes;
+KnockOver is not splittable — its topple is a global chain over all pieces).
+Both tail-extend (an easier task's objects are the first ``k`` of the harder
+one) and reset randomness is seed-prefix safe (``ScatterGrid`` + the domino
+command's count-independent shared row draw), so an easier task's rollout is
+embedded in the hardest task's recording. Each source episode is relabeled
+WITHOUT re-simulating:
 
-- truncate the trailing blocks from ``observation.state``/``qpos``/``qvel``,
+- truncate the trailing objects from every object-major slice of
+  ``observation.state`` and from ``qpos``/``qvel``,
 - recompute the target's ``progress``/``success`` reward from the stored state
-  (``reward = step_dt * (progress + gate)``; ``gate = target-reached & at-rest &
+  (``reward = step_dt * (progress + gate)``; ``gate = task-done & at-rest &
   gripper-open``), reusing the env's own success kernels,
-- cut the episode at the first frame the target success gate holds (the env's
-  success termination fires there).
+- cut the episode at the first frame the target success gate holds.
 
 Only the gripper-open half of the release gate is available offline (the
-finger-pad contact force is not recorded); on recorded demos this reproduces
-the env's per-frame reward to <1e-4 (see the source self-check below), so the
-contact refinement is redundant in practice.
+finger-pad contact force is not recorded); on recorded Stack demos this
+reproduces the env reward to <1e-4. A per-episode source self-check asserts the
+recomputed source reward matches the recording, so a wrong obs/qpos layout,
+gripper index/threshold or step_dt is caught immediately (it also validates a
+category the first time real demos of it are split).
 
 Usage:
     uv run python g3a_bench/scripts/live_bridge/split_demos.py \\
@@ -24,7 +29,7 @@ Usage:
         --source-task G3A-Stack-High-Dk1_uni \\
         --output-dir dataset/demos_split            # all easier same-family tasks
     # or an explicit subset:
-        --target-task G3A-Stack-Low-Dk1_uni --target-task G3A-Stack-Medium-Dk1_uni
+        --target-task G3A-Domino-2Pieces-Dk1_uni
 """
 
 from __future__ import annotations
@@ -32,8 +37,10 @@ from __future__ import annotations
 import argparse
 import glob
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -45,7 +52,7 @@ from g3a_bench.scripts.live_bridge.dataset_extra_info import (
     write_extra_info,
 )
 from g3a_bench.tasks.common.success import OBJECT_VEL_THRESHOLD
-from g3a_bench.tasks.stack.config import _task_id_parts
+from g3a_bench.tasks.domino.mdp.success import domino_upright_aligned
 from g3a_bench.tasks.stack.mdp.success import (
     block_top_heights,
     stack_progress,
@@ -53,73 +60,197 @@ from g3a_bench.tasks.stack.mdp.success import (
     two_stacks_progress,
     two_stacks_success,
 )
-from g3a_bench.tasks.stack.variants import (
-    FORM_HALF_EXTENTS,
-    MIN_STACK_SEPARATION,
-    StackVariantCfg,
-)
+from g3a_bench.tasks.stack.variants import FORM_HALF_EXTENTS, MIN_STACK_SEPARATION
 
-# The reward stored per frame is step_dt * sum(progress, success). If either
-# were wrong the per-episode source self-check would fail
+# Env sim constants (tasks/common/env_cfg.py: timestep=0.005, decimation=4).
+# reward stored per frame is step_dt * (progress + success); a wrong value here
+# fails the per-episode source self-check.
 _STEP_DT = 0.005 * 4
 _ROBOT_GRIPPER_LEFT_QPOS_IDX = 6  # index of gripper_left within the robot qpos block
-_OBS_TAIL = 7  # last_action; stack has command_obs=False so nothing else trails
-# Mean per-frame reward residual allowed in the source self-check
+_OBS_TAIL = 7  # trailing last_action, shared by every category
+# Mean per-frame reward residual allowed in the source self-check. A wrong
+# layout/gripper-index/step_dt corrupts ~every frame (mean ~ 0.01-2.0); only
+# rare gripper-threshold float ties (a `>` compare that can't be reproduced
+# bit-exactly offline) slip through, and they barely move the mean.
 _REWARD_SELF_CHECK_MEAN_TOL = 1e-4
-# A dropped block counts as "disturbed" (the demo may have used it) if it moves
+# A dropped object counts as "disturbed" (the demo may have used it) if it moves
 # more than this from its spawn pose before the target-success cut.
 _DROPPED_XY_TOL = 0.02
 _DROPPED_Z_TOL = 0.02
+# Domino placement tolerances (DominoCommandCfg defaults; not overridden by the
+# env cfg).
+_DOMINO_POS_THRESHOLD = 0.015
+_DOMINO_UPRIGHT_DEG = 15.0
 
 _GRIPPER_OPEN_THRESHOLD = get_unimanual_dk1_interface().gripper_open_threshold
 
 
 # --------------------------------------------------------------------------- #
-# Task-id <-> variant resolution
+# Category adapters: everything that differs between Stack and Domino.
 # --------------------------------------------------------------------------- #
 
 
-def _variant_index() -> dict[tuple[str, str], StackVariantCfg]:
-    """(task, variation) -> variant, e.g. ("Low", "") / ("High", "TwoStacks")."""
+def _stack_progress_and_gate(
+    variant: Any,
+    sections: list[torch.Tensor],
+    speed: torch.Tensor,
+    grip_open: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Stack: height-only success over the block-pose section."""
+    blk = sections[0]  # (T, k, 7) env-local pos+quat
+    half_h = torch.tensor(
+        [FORM_HALF_EXTENTS[b.form][2] for b in variant.blocks], dtype=torch.float64
+    )
+    pos_z, xy = blk[:, :, 2], blk[:, :, :2]
+    top_z = block_top_heights(pos_z, half_h)
+    target, tol = variant.target_height, variant.height_tol
+    reached = stack_reached(top_z, 0.0, target, tol)
+    if variant.two_stacks:
+        task_done = two_stacks_success(reached, xy, MIN_STACK_SEPARATION)
+        progress = two_stacks_progress(top_z, xy, 0.0, target, MIN_STACK_SEPARATION)
+    else:
+        task_done = reached.any(dim=-1)
+        progress = stack_progress(top_z, 0.0, target)
+    at_rest = speed.amax(dim=-1) <= OBJECT_VEL_THRESHOLD
+    return progress, task_done & at_rest & grip_open
+
+
+def _domino_progress_and_gate(
+    variant: Any,
+    sections: list[torch.Tensor],
+    speed: torch.Tensor,
+    grip_open: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Domino (base/DifferentDominoes): every piece placed at its row slot.
+
+    The per-slot target pose lives in the command obs section; the row yaw is
+    recovered from its (shared) upright/row-aligned quaternion.
+    """
+    poses = sections[0]  # (T, k, 7) piece pose env-local
+    command = sections[2]  # (T, k, 7) per-slot target pose env-local
+    dom_pos, dom_quat = poses[:, :, :3], poses[:, :, 3:7]
+    slot_pos, slot_quat = command[:, :, :3], command[:, :, 3:7]
+    # slot_quat = quat_from_euler_xyz(0, 0, row_yaw) = [cos(y/2), 0, 0, sin(y/2)].
+    row_yaw = 2.0 * torch.atan2(slot_quat[:, 0, 3], slot_quat[:, 0, 0])  # (T,)
+    margin = variant.margin
+    error = (slot_pos - dom_pos).norm(dim=-1)  # (T, k)
+    at_goal = (error < _DOMINO_POS_THRESHOLD * margin) & domino_upright_aligned(
+        dom_quat, row_yaw, _DOMINO_UPRIGHT_DEG * margin
+    )
+    task_done = at_goal.all(dim=-1)
+    progress = at_goal.double().mean(dim=-1)
+    at_rest = speed.amax(dim=-1) <= OBJECT_VEL_THRESHOLD
+    return progress, task_done & at_rest & grip_open
+
+
+@dataclass(frozen=True)
+class CategoryAdapter:
+    category: str
+    obs_section_widths: tuple[int, ...]
+    """Per-object width of each object-major obs slice, in obs order.
+    Stack: (7,) = block poses. Domino: (7, 1, 7) = piece poses, slot_placed,
+    per-slot command."""
+    variants: dict[str, Any]
+    id_parts: Callable[[Any], tuple[str, str]]  # variant -> (task, variation)
+    n_objects: Callable[[Any], int]
+    object_signatures: Callable[
+        [Any], tuple
+    ]  # per-object identity for the prefix check
+    splittable: Callable[[Any], bool]
+    progress_and_gate: Callable[
+        [Any, list[torch.Tensor], torch.Tensor, torch.Tensor],
+        tuple[torch.Tensor, torch.Tensor],
+    ]
+
+    def variant_index(self) -> dict[tuple[str, str], Any]:
+        return {self.id_parts(v): v for v in self.variants.values()}
+
+
+def _make_stack_adapter() -> CategoryAdapter:
+    from g3a_bench.tasks.stack.config import _task_id_parts
     from g3a_bench.tasks.stack.variants import STACK_VARIANTS
 
-    return {_task_id_parts(v): v for v in STACK_VARIANTS.values()}
+    return CategoryAdapter(
+        category="Stack",
+        obs_section_widths=(7,),
+        variants=STACK_VARIANTS,
+        id_parts=_task_id_parts,
+        n_objects=lambda v: len(v.blocks),
+        object_signatures=lambda v: tuple(b.form for b in v.blocks),
+        splittable=lambda v: True,
+        progress_and_gate=_stack_progress_and_gate,
+    )
 
 
-def parse_stack_task_id(task_id: str) -> tuple[str, str, str]:
-    """Split ``G3A-Stack-<Task>[-<Variation>]-<Robot>`` -> (task, variation, robot)."""
+def _make_domino_adapter() -> CategoryAdapter:
+    from g3a_bench.tasks.domino.config import _task_id_parts
+    from g3a_bench.tasks.domino.variants import DOMINO_VARIANTS
+
+    return CategoryAdapter(
+        category="Domino",
+        obs_section_widths=(7, 1, 7),
+        variants=DOMINO_VARIANTS,
+        id_parts=_task_id_parts,
+        n_objects=lambda v: v.num_dominoes,
+        object_signatures=lambda v: v.half_extents,
+        splittable=lambda v: not v.knock_over,
+        progress_and_gate=_domino_progress_and_gate,
+    )
+
+
+_ADAPTERS: dict[str, Callable[[], CategoryAdapter]] = {
+    "Stack": _make_stack_adapter,
+    "Domino": _make_domino_adapter,
+}
+
+
+# --------------------------------------------------------------------------- #
+# Task-id <-> (adapter, variant) resolution
+# --------------------------------------------------------------------------- #
+
+
+def parse_task_id(task_id: str) -> tuple[str, str, str, str]:
+    """Split ``G3A-<Category>-<Task>[-<Variation>]-<Robot>`` into its parts."""
     parts = task_id.split("-")
-    if len(parts) < 4 or parts[0] != "G3A" or parts[1] != "Stack":
-        raise ValueError(f"not a G3A-Stack task id: {task_id!r}")
-    task = parts[2]
-    robot = parts[-1]
+    if len(parts) < 4 or parts[0] != "G3A":
+        raise ValueError(f"not a G3A task id: {task_id!r}")
+    category, task, robot = parts[1], parts[2], parts[-1]
     variation = "-".join(parts[3:-1])  # "" for the base family
-    return task, variation, robot
+    if category not in _ADAPTERS:
+        raise ValueError(f"category {category!r} is not splittable")
+    return category, task, variation, robot
 
 
-def variant_from_task_id(task_id: str) -> StackVariantCfg:
-    task, variation, _ = parse_stack_task_id(task_id)
-    index = _variant_index()
+def adapter_for(task_id: str) -> CategoryAdapter:
+    return _ADAPTERS[parse_task_id(task_id)[0]]()
+
+
+def variant_from_task_id(task_id: str) -> Any:
+    _, task, variation, _ = parse_task_id(task_id)
+    index = adapter_for(task_id).variant_index()
     if (task, variation) not in index:
-        raise ValueError(f"unknown Stack variant for task id {task_id!r}")
+        raise ValueError(f"unknown variant for task id {task_id!r}")
     return index[(task, variation)]
 
 
-def robot_from_task_id(task_id: str) -> str:
-    return parse_stack_task_id(task_id)[2]
-
-
 def easier_target_task_ids(source_task_id: str) -> list[str]:
-    """All registered same-family Stack tasks with a lower target height."""
+    """All registered same-family, splittable tasks with fewer objects."""
+    category, _, src_variation, robot = parse_task_id(source_task_id)
+    adapter = adapter_for(source_task_id)
     src = variant_from_task_id(source_task_id)
-    _, src_variation, robot = parse_stack_task_id(source_task_id)
+    if not adapter.splittable(src):
+        return []
+    n_src = adapter.n_objects(src)
     out = []
-    for (task, variation), v in _variant_index().items():
-        if variation == src_variation and v.target_blocks < src.target_blocks:
+    for (task, variation), v in adapter.variant_index().items():
+        if (
+            variation == src_variation
+            and adapter.splittable(v)
+            and adapter.n_objects(v) < n_src
+        ):
             suffix = f"-{variation}" if variation else ""
-            out.append(f"G3A-Stack-{task}{suffix}-{robot}")
-    # Hardest-first so the largest cut is listed first.
-    out.sort(key=lambda t: variant_from_task_id(t).target_blocks, reverse=True)
+            out.append(f"G3A-{category}-{task}{suffix}-{robot}")
+    out.sort(key=lambda t: adapter.n_objects(variant_from_task_id(t)), reverse=True)
     return out
 
 
@@ -130,33 +261,39 @@ def easier_target_task_ids(source_task_id: str) -> list[str]:
 
 @dataclass(frozen=True)
 class SplitPlan:
-    source: StackVariantCfg
-    target: StackVariantCfg
+    adapter: CategoryAdapter
+    source: Any
+    target: Any
 
     @property
     def n_src(self) -> int:
-        return len(self.source.blocks)
+        return self.adapter.n_objects(self.source)
 
     @property
     def k(self) -> int:
-        return len(self.target.blocks)
+        return self.adapter.n_objects(self.target)
 
     def validate(self) -> None:
-        s, t = self.source, self.target
-        assert t.two_stacks == s.two_stacks, "cannot split across TwoStacks families"
-        assert t.target_blocks < s.target_blocks, "target is not easier than source"
-        assert self.k <= self.n_src, "target has more blocks than source"
-        # Tail-extending: target blocks must be the source's block prefix.
-        for i in range(self.k):
-            assert t.blocks[i].form == s.blocks[i].form, (
-                f"block {i} form differs ({t.blocks[i].form} vs {s.blocks[i].form}): "
-                "not the same tail-extending family"
-            )
+        a = self.adapter
+        assert a.id_parts(self.source)[1] == a.id_parts(self.target)[1], (
+            "source and target are not the same family"
+        )
+        assert a.splittable(self.source) and a.splittable(self.target), (
+            "variant is not splittable (e.g. Domino KnockOver)"
+        )
+        assert self.k < self.n_src, "target is not easier than source"
+        # Tail-extending: target objects must be the source's object prefix.
+        assert (
+            a.object_signatures(self.target)
+            == a.object_signatures(self.source)[: self.k]
+        ), "target objects are not the source's prefix (not the same family)"
 
 
-def _half_heights(variant: StackVariantCfg) -> torch.Tensor:
-    return torch.tensor(
-        [FORM_HALF_EXTENTS[b.form][2] for b in variant.blocks], dtype=torch.float64
+def plan_for(source_task_id: str, target_task_id: str) -> SplitPlan:
+    return SplitPlan(
+        adapter_for(source_task_id),
+        variant_from_task_id(source_task_id),
+        variant_from_task_id(target_task_id),
     )
 
 
@@ -165,33 +302,21 @@ def _half_heights(variant: StackVariantCfg) -> torch.Tensor:
 # --------------------------------------------------------------------------- #
 
 
-def _progress_and_gate(
-    block_local: torch.Tensor,  # (T, N, 7) env-local pos+quat
-    block_speed: torch.Tensor,  # (T, N) linear speed
-    gripper_open: torch.Tensor,  # (T,) bool
-    variant: StackVariantCfg,
-    half_h: torch.Tensor,  # (N,)
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """Return (progress in [0,1], success gate bool) for the given block set.
+def _obs_sections(
+    obs: torch.Tensor, proprio: int, widths: tuple[int, ...], n_layout: int, take: int
+) -> list[torch.Tensor]:
+    """Extract the first ``take`` objects of each object-major obs slice.
 
-    Heights are env-local (local_z = world_z - env_origin_z, table_z = 0), which
-    equals the env's height-above-table since the origin offset cancels.
+    ``n_layout`` is the object count the obs is stored with (section spacing);
+    ``take`` (<= n_layout) is how many objects to return per slice.
     """
-    pos_z = block_local[:, :, 2]
-    xy = block_local[:, :, :2]
-    top_z = block_top_heights(pos_z, half_h)
-    target = variant.target_height
-    tol = variant.height_tol
-    reached = stack_reached(top_z, 0.0, target, tol)
-    if variant.two_stacks:
-        task_done = two_stacks_success(reached, xy, MIN_STACK_SEPARATION)
-        progress = two_stacks_progress(top_z, xy, 0.0, target, MIN_STACK_SEPARATION)
-    else:
-        task_done = reached.any(dim=-1)
-        progress = stack_progress(top_z, 0.0, target)
-    at_rest = block_speed.amax(dim=-1) <= OBJECT_VEL_THRESHOLD
-    gate = task_done & at_rest & gripper_open
-    return progress, gate
+    t = obs.shape[0]
+    off = proprio
+    out = []
+    for w in widths:
+        out.append(obs[:, off : off + take * w].reshape(t, take, w))
+        off += n_layout * w
+    return out
 
 
 @dataclass
@@ -203,25 +328,27 @@ class RelabeledEpisode:
     done: np.ndarray  # (T,1) bool
     qpos: np.ndarray
     qvel: np.ndarray
-    n_dropped_disturbed: int  # dropped blocks that moved before the cut
-    cut_frame: int  # index of the target-success frame (inclusive)
+    n_dropped_disturbed: int
+    cut_frame: int
 
 
 def relabel_episode(
     *,
-    obs: np.ndarray,  # (T, D_src)
-    qpos: np.ndarray,  # (T, Q)
-    qvel: np.ndarray,  # (T, V)
-    action: np.ndarray,  # (T, 7)
-    robot_state: np.ndarray,  # (T, 7)
-    reward: np.ndarray,  # (T,) recorded next.reward
+    obs: np.ndarray,
+    qpos: np.ndarray,
+    qvel: np.ndarray,
+    action: np.ndarray,
+    robot_state: np.ndarray,
+    reward: np.ndarray,
     plan: SplitPlan,
 ) -> RelabeledEpisode | None:
     """Relabel one source episode into the target task, or None if the target
     success is never reached (episode cannot be split to this task)."""
     plan.validate()
+    a = plan.adapter
     n_src, k = plan.n_src, plan.k
-    proprio = obs.shape[1] - n_src * 7 - _OBS_TAIL
+    widths = a.obs_section_widths
+    proprio = obs.shape[1] - n_src * sum(widths) - _OBS_TAIL
     assert proprio > 0, "unexpected obs layout"
 
     o = torch.from_numpy(obs.astype(np.float64))
@@ -229,20 +356,17 @@ def relabel_episode(
     v = torch.from_numpy(qvel.astype(np.float64))
     rew = torch.from_numpy(reward.astype(np.float64))
 
-    # Object-major sections. obs: [proprio | blocks N*7 | actions]. qpos/qvel:
-    # [blocks first | robot last].
-    blk = o[:, proprio : proprio + n_src * 7].reshape(-1, n_src, 7)
-    bvel = v[:, : n_src * 6].reshape(-1, n_src, 6)
-    speed = bvel[:, :, :3].norm(dim=-1)  # (T, N)
+    # qpos/qvel are object-major first (7 qpos / 6 qvel each), robot last.
+    speed_all = v[:, : n_src * 6].reshape(-1, n_src, 6)[:, :, :3].norm(dim=-1)  # (T, N)
     grip_l = q[:, n_src * 7 + _ROBOT_GRIPPER_LEFT_QPOS_IDX]
-    gripper_open = grip_l > _GRIPPER_OPEN_THRESHOLD
+    grip_open = grip_l > _GRIPPER_OPEN_THRESHOLD
 
     # --- self-check: recomputed SOURCE reward must match the recording ---
-    src_prog, src_gate = _progress_and_gate(
-        blk, speed, gripper_open, plan.source, _half_heights(plan.source)
+    src_sections = _obs_sections(o, proprio, widths, n_src, n_src)
+    src_prog, src_gate = a.progress_and_gate(
+        plan.source, src_sections, speed_all, grip_open
     )
-    src_reward = _STEP_DT * (src_prog + src_gate.double())
-    resid = (src_reward - rew).abs()
+    resid = (_STEP_DT * (src_prog + src_gate.double()) - rew).abs()
     mean_resid = resid.mean().item()
     assert mean_resid <= _REWARD_SELF_CHECK_MEAN_TOL, (
         f"source reward self-check failed (mean residual {mean_resid:.2e}, "
@@ -251,9 +375,9 @@ def relabel_episode(
     )
 
     # --- target relabel ---
-    tgt_half = _half_heights(plan.target)
-    tgt_prog, tgt_gate = _progress_and_gate(
-        blk[:, :k], speed[:, :k], gripper_open, plan.target, tgt_half
+    tgt_sections = _obs_sections(o, proprio, widths, n_src, k)
+    tgt_prog, tgt_gate = a.progress_and_gate(
+        plan.target, tgt_sections, speed_all[:, :k], grip_open
     )
     if not bool(tgt_gate.any()):
         return None
@@ -264,16 +388,15 @@ def relabel_episode(
     done = np.zeros((cut + 1, 1), dtype=bool)
     done[-1, 0] = True
 
-    # Structured truncation: obs keeps [proprio | first-k blocks | actions];
-    # qpos/qvel keep [first-k blocks | robot].
-    new_obs = np.concatenate(
-        [
-            obs[sl, :proprio],
-            obs[sl, proprio : proprio + k * 7],
-            obs[sl, proprio + n_src * 7 :],
-        ],
-        axis=1,
-    ).astype(np.float32)
+    # Structured truncation: obs keeps [proprio | first-k of each section | tail];
+    # qpos/qvel keep [first-k objects | robot].
+    obs_parts = [obs[sl, :proprio]]
+    off = proprio
+    for w in widths:
+        obs_parts.append(obs[sl, off : off + k * w])
+        off += n_src * w
+    obs_parts.append(obs[sl, off:])  # tail (off is now the tail start)
+    new_obs = np.concatenate(obs_parts, axis=1).astype(np.float32)
     new_qpos = np.concatenate(
         [qpos[sl, : k * 7], qpos[sl, n_src * 7 :]], axis=1
     ).astype(np.float32)
@@ -281,10 +404,10 @@ def relabel_episode(
         [qvel[sl, : k * 6], qvel[sl, n_src * 6 :]], axis=1
     ).astype(np.float32)
 
-    # --- dropped-block interference check (Ordered-collection sanity) ---
+    # --- dropped-object interference check (Ordered-collection sanity) ---
     n_disturbed = 0
     if k < n_src:
-        dropped = blk[sl, k:]  # (cut+1, n_src-k, 7)
+        dropped = src_sections[0][sl, k:]  # (cut+1, n_src-k, 7) pose section
         d_xy = (dropped[:, :, :2] - dropped[0:1, :, :2]).norm(dim=-1).amax(dim=0)
         d_z = (dropped[:, :, 2] - dropped[0:1, :, 2]).abs().amax(dim=0)
         n_disturbed = int(
@@ -359,20 +482,13 @@ def split_to_task(
     total_cut, total_src = 0, 0
 
     for src_ep, g in source_episodes:
-        obs = _col(g, "observation.state").astype(np.float32)
-        qpos = _col(g, "observation.qpos").astype(np.float32)
-        qvel = _col(g, "observation.qvel").astype(np.float32)
-        action = _col(g, "action").astype(np.float32)
-        robot_state = _col(g, "observation.robot_state").astype(np.float32)
-        reward = np.asarray(g["next.reward"].values, dtype=np.float32).reshape(-1)
-
         rel = relabel_episode(
-            obs=obs,
-            qpos=qpos,
-            qvel=qvel,
-            action=action,
-            robot_state=robot_state,
-            reward=reward,
+            obs=_col(g, "observation.state").astype(np.float32),
+            qpos=_col(g, "observation.qpos").astype(np.float32),
+            qvel=_col(g, "observation.qvel").astype(np.float32),
+            action=_col(g, "action").astype(np.float32),
+            robot_state=_col(g, "observation.robot_state").astype(np.float32),
+            reward=np.asarray(g["next.reward"].values, dtype=np.float32).reshape(-1),
             plan=plan,
         )
         total_src += len(g)
@@ -409,20 +525,20 @@ def split_to_task(
             )
         dataset.save_episode()
         # Seed carries over unchanged: seed-prefix reset reproduces the first-k
-        # block layout in the target env.
+        # objects in the target env.
         if str(src_ep) in src_seeds:
             new_seeds[str(written)] = int(src_seeds[str(src_ep)])
         written += 1
 
     if dataset is not None:
         extra = {
-            k: source_extra[k]
-            for k in ("gravity_compensate", "seed_device", "operator_id")
-            if k in source_extra
+            key: source_extra[key]
+            for key in ("gravity_compensate", "seed_device", "operator_id")
+            if key in source_extra
         }
         if new_seeds:
             extra["episode_seeds"] = new_seeds
-        extra["split_from"] = plan.source.name
+        extra["split_from"] = plan.adapter.id_parts(plan.source)
         write_extra_info(dataset.meta.root, extra)
         dataset.finalize()
 
@@ -443,7 +559,13 @@ def split_dataset(
     target_tasks: list[str] | None = None,
     stamp: str | None = None,
 ) -> list[dict]:
+    adapter = adapter_for(source_task)
     source_variant = variant_from_task_id(source_task)
+    if not adapter.splittable(source_variant):
+        raise ValueError(
+            f"{source_task} is not splittable (e.g. Domino KnockOver: the topple "
+            "is a global chain over all pieces)."
+        )
     targets = target_tasks or easier_target_task_ids(source_task)
     if not targets:
         raise ValueError(
@@ -456,7 +578,7 @@ def split_dataset(
 
     summaries = []
     for target_task in targets:
-        plan = SplitPlan(source_variant, variant_from_task_id(target_task))
+        plan = SplitPlan(adapter, source_variant, variant_from_task_id(target_task))
         out_root = str(Path(output_dir) / target_task / stamp)
         summary = split_to_task(
             source_episodes, source_extra, plan, target_task, out_root
@@ -476,8 +598,8 @@ def _print_summary(source_task: str, summaries: list[dict]) -> None:
         )
         if s["disturbed_eps"]:
             print(
-                f"     WARN dropped-block movement in eps {s['disturbed_eps']} "
-                "(a non-prefix block may have been used; check collection order)"
+                f"     WARN dropped-object movement in eps {s['disturbed_eps']} "
+                "(a non-prefix object may have been used; check collection order)"
             )
         print(f"     {s['out_root']}")
 
