@@ -1,0 +1,10 @@
+{
+    "gravity_compensate": true,
+    "episode_seeds": {
+        "0": 1189545966,
+        "1": 1031503566,
+        "2": 550482953
+    },
+    "seed_device": "cuda",
+    "operator_id": 1
+}
