@@ -30,9 +30,15 @@ import numpy as np
 import torch
 from mjlab.entity import Entity
 from mjlab.managers.command_manager import CommandTerm
+from mjlab.sensor import ContactSensor
 from mjlab.utils.lab_api.math import quat_from_euler_xyz
 
-from g3a_bench.tasks.common.commands import GripperGateCommandCfg, GripperOpenGate
+from g3a_bench.tasks.common.commands import (
+    GRIP_CONTACT_SENSOR_NAME,
+    ContactReleaseGate,
+    GripperGateCommandCfg,
+    GripperOpenGate,
+)
 from g3a_bench.tasks.common.debug_markers import MARKER_INFLATE, marker_color
 from g3a_bench.tasks.common.scatter import ScatterGrid, write_upright_spawn
 from g3a_bench.tasks.common.success import OBJECT_VEL_THRESHOLD, SuccessGate
@@ -119,6 +125,10 @@ class DominoCommand(CommandTerm):
         self.fall_order = torch.full((E, G), _NEVER_FELL, device=dev)
         self._gate = SuccessGate(E, dev, vel_threshold=cfg.domino_vel_threshold)
         self._gripper_gate = GripperOpenGate(cfg)
+        self._contact_gate = ContactReleaseGate()
+        self._grip_sensor = cast(
+            ContactSensor, env.scene.sensors[GRIP_CONTACT_SENSOR_NAME]
+        )
 
         self.metrics["placed_frac"] = torch.zeros(E, device=dev)
         self.metrics["phase"] = torch.zeros(E, device=dev)
@@ -193,7 +203,9 @@ class DominoCommand(CommandTerm):
         speed = torch.stack(
             [d.data.root_link_lin_vel_w for d in self.dominoes], dim=1
         ).norm(dim=-1)  # (E, G)
-        released = self._gripper_gate(self._env.scene["robot"])
+        released = self._gripper_gate(self._env.scene["robot"]) & self._contact_gate(
+            self._grip_sensor
+        )
 
         if self.variant.knock_over:
             self.phase = torch.maximum(self.phase, all_placed.float())
