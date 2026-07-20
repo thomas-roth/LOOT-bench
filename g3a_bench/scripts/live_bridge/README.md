@@ -40,6 +40,38 @@ directory is created only once an episode of that kind exists.
 Set `USE_FOLLOWER_STATE_FOR_SIM = True` in the script to drive the sim from follower
 joint states instead of leader actions.
 
+## split_demos.py
+
+Turn one recording of the *hardest* Stack task into demos for the easier tasks
+in the same family, so you only teleoperate the hard task. Stack variants
+tail-extend (an easier task's blocks are the first `k` of the harder one) and
+resets are seed-prefix safe, so an easier task's rollout is embedded in the hard
+recording. Each episode is relabeled **offline** (no re-sim): trailing blocks are
+truncated from `observation.state`/`qpos`/`qvel`, the target's
+`progress`/`success` reward is recomputed from the stored state
+(`reward = step_dt * (progress + gate)`, reusing the env's own success kernels),
+and the episode is cut at the first frame the target success holds. A per-episode
+self-check asserts the recomputed *source* reward matches the recording, so a
+wrong layout/threshold can't pass silently. No hardware, no GPU.
+
+```bash
+uv run python g3a_bench/scripts/live_bridge/split_demos.py \
+    --source-dir dataset/demos/G3A-Stack-High-Dk1_uni/<stamp> \
+    --source-task G3A-Stack-High-Dk1_uni \
+    --output-dir dataset/demos_split            # all easier same-family tasks
+# or a subset: --target-task G3A-Stack-Low-Dk1_uni [--target-task ...]
+```
+
+Output is a LeRobot dataset per target task (same format as `live_record.py`,
+so `lerobot_to_qc.py` and `verify_replay.py` work on it), with each source
+episode's seed carried over unchanged (seed-prefix reset reproduces the kept
+blocks in the target env). Splits only within a family, down the Low/Medium/High
+axis — only Stack is splittable, and only when demos are collected **Ordered**
+(build with low-index blocks first) and **settled at each intermediate height**:
+an episode with no settled+released frame at the target height is skipped, and
+movement of a dropped (non-prefix) block is flagged (see
+`docs/TaskCategories.md` "General").
+
 ## record_replay.py
 
 Replays a LeRobot dataset through the sim and records sim observations plus
