@@ -4,8 +4,7 @@ This is the single seam between the (robot-agnostic) task categories and a
 (task-agnostic) concrete robot: every robot-specific value is read from the
 interface, so adding a robot needs only its own ``get_<robot>_interface()``
 and zero task edits. Each category's ``config/__init__.py`` names its own
-grasp-site observation terms (and contact sensors, if any); everything else
-is identical across categories.
+contact sensors, if any; everything else is identical across categories.
 """
 
 from mjlab.envs import ManagerBasedRlEnvCfg
@@ -21,19 +20,17 @@ def wire_manipulator_into_env(
     cfg: ManagerBasedRlEnvCfg,
     manipulator: ManipulatorInterface,
     *,
-    grasp_obs_terms: tuple[str, ...] = (),
     ee_contact_sensors: tuple[str, ...] = (),
 ) -> None:
     """Fill the robot placeholders left by a ``make_<cat>_env_cfg`` in place.
 
     Adds the robot as the ``"robot"`` scene entity and sets the action scale
-    and viewer body. The grasp site is written to
-    the ``asset_cfg`` of every observation term named in ``grasp_obs_terms``
-    (absent names are skipped, so one list fits every variant) and to any
-    command cfg carrying a ``grasp_cfg``. Command cfgs deriving from
-    :class:`GripperGateCommandCfg` get the robot's gripper joints/threshold.
-    Sensors named in ``ee_contact_sensors`` get the end-effector subtree as
-    their primary match pattern.
+    and viewer body. The grasp site is written to the ``asset_cfg`` of the
+    ``ee_pose`` observation term (present in every category via the shared
+    env cfg) and to any command cfg carrying a ``grasp_cfg``. Command cfgs
+    deriving from :class:`GripperGateCommandCfg` get the robot's gripper
+    joints/threshold. Sensors named in ``ee_contact_sensors`` get the
+    end-effector subtree as their primary match pattern.
     """
     cfg.scene.entities["robot"] = manipulator.entity_cfg_fn()
 
@@ -43,10 +40,9 @@ def wire_manipulator_into_env(
 
     grasp = (manipulator.grasp_site,)
     for group in cfg.observations.values():
-        for key in (*grasp_obs_terms, "ee_pose"):
-            term = group.terms.get(key)
-            if term is not None:
-                term.params["asset_cfg"].site_names = grasp
+        term = group.terms.get("ee_pose")
+        if term is not None:
+            term.params["asset_cfg"].site_names = grasp
 
     for command in cfg.commands.values():
         grasp_cfg = getattr(command, "grasp_cfg", None)

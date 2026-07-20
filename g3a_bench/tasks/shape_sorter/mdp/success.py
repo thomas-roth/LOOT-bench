@@ -5,9 +5,10 @@ Plain tensor math, no mjlab or environment imports: the command term
 these, so the success semantics live (and are unit-tested in
 ``tests/tasks/test_success.py``) in exactly one place.
 
-``peg_axial_lateral``/``peg_axis_cos_tilt``/``SorterLatch`` are a copy of the
-STL-sorter half of ``insertion/mdp/success.py`` (the peg/two_sheet
-insertion-depth test stays specific to that archived category). Quaternions
+``peg_axial_lateral``/``peg_axis_cos_tilt`` are the shared bore/hole geometry
+kernels (``tasks/common/success.py``), also used by the archived
+``peg_insertion`` category. ``SorterLatch`` is specific to this category (the
+insertion-depth test in ``peg_insertion/mdp/success.py`` differs). Quaternions
 are wxyz, matching mjlab.
 """
 
@@ -15,44 +16,14 @@ from __future__ import annotations
 
 import torch
 
+from g3a_bench.tasks.common.success import (
+    bore_axial_lateral as peg_axial_lateral,
+)
+from g3a_bench.tasks.common.success import (
+    bore_axis_cos_tilt as peg_axis_cos_tilt,
+)
 
-def peg_axial_lateral(
-    pos: torch.Tensor, mouth: torch.Tensor, axis_out: torch.Tensor
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """Decompose piece-to-mouth offsets along/across the hole axis.
-
-    Args:
-        pos: (..., 3) piece centre positions.
-        mouth: (..., 3) hole mouth positions.
-        axis_out: (..., 3) unit outward hole axes.
-
-    Returns:
-        ``(axial, lateral)``, each (...,): signed distance along the axis
-        (+ is outside the hole) and distance from the hole centreline.
-    """
-    rel = pos - mouth
-    axial = torch.sum(rel * axis_out, dim=-1)
-    lateral = torch.norm(rel - axial.unsqueeze(-1) * axis_out, dim=-1)
-    return axial, lateral
-
-
-def peg_axis_cos_tilt(quat_wxyz: torch.Tensor, axis_out: torch.Tensor) -> torch.Tensor:
-    """|cos| of the angle between a piece's body z-axis and the hole axis.
-
-    Sign-free: a piece inserted "upside down" is equally aligned.
-
-    Args:
-        quat_wxyz: (..., 4) piece orientations.
-        axis_out: (..., 3) unit hole axes.
-
-    Returns:
-        (...,) in [0, 1].
-    """
-    w, x, y, z = quat_wxyz.unbind(-1)
-    piece_axis = torch.stack(
-        [2 * (x * z + w * y), 2 * (y * z - w * x), 1 - 2 * (x * x + y * y)], dim=-1
-    )
-    return torch.sum(piece_axis * axis_out, dim=-1).abs()
+__all__ = ["peg_axial_lateral", "peg_axis_cos_tilt", "SorterLatch"]
 
 
 class SorterLatch:

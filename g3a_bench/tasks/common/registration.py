@@ -22,7 +22,6 @@ def register_category(
     variants: Iterable,
     make_env_cfg: Callable[..., ManagerBasedRlEnvCfg],
     robots: tuple[ManipulatorInterface, ...],
-    grasp_obs_terms: tuple[str, ...],
     task_id_parts: Callable[..., tuple[str, str]],
     ee_contact_sensors: tuple[str, ...] = (),
     max_iterations: int = 15_000,
@@ -39,21 +38,33 @@ def register_category(
             task id).
         make_env_cfg: ``make_<cat>_env_cfg(variant, play=...)``.
         robots: manipulator interfaces to register against.
-        grasp_obs_terms / ee_contact_sensors: forwarded to
-            ``wire_manipulator_into_env``.
+        ee_contact_sensors: forwarded to ``wire_manipulator_into_env``.
         task_id_parts: ``(task, variation)`` for a variant, e.g.
             ``("Low", "DifferentBlocks")`` or ``("Low", "")`` for the base
             case.
         max_iterations: PPO iteration budget (kept so ``g3a-play`` and the
             mjlab registry tooling work; QC has its own trainer).
     """
+    seen_task_ids: dict[str, str] = {}
     for robot in robots:
         for variant in variants:
+            task, variation = task_id_parts(variant)
+            task_id = (
+                f"G3A-{category}-{task}-{variation}-{robot.name}"
+                if variation
+                else f"G3A-{category}-{task}-{robot.name}"
+            )
+            colliding_variant = seen_task_ids.get(task_id)
+            assert colliding_variant is None, (
+                f"task_id_parts collision: variants {colliding_variant!r} and "
+                f"{variant.name!r} both map to task id {task_id!r}"
+            )
+            seen_task_ids[task_id] = variant.name
+
             env_cfg = make_env_cfg(variant)
             wire_manipulator_into_env(
                 env_cfg,
                 robot,
-                grasp_obs_terms=grasp_obs_terms,
                 ee_contact_sensors=ee_contact_sensors,
             )
 
@@ -61,16 +72,9 @@ def register_category(
             wire_manipulator_into_env(
                 play_env_cfg,
                 robot,
-                grasp_obs_terms=grasp_obs_terms,
                 ee_contact_sensors=ee_contact_sensors,
             )
 
-            task, variation = task_id_parts(variant)
-            task_id = (
-                f"G3A-{category}-{task}-{variation}-{robot.name}"
-                if variation
-                else f"G3A-{category}-{task}-{robot.name}"
-            )
             register_mjlab_task(
                 task_id=task_id,
                 env_cfg=env_cfg,

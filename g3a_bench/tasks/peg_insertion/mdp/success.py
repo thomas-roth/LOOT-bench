@@ -7,51 +7,24 @@ returning bore-frame decompositions and bool insertion tests. No mjlab or
 environment imports: the command term (``commands.py``) acts as the adapter
 that gathers sim buffers and calls these.
 
-Quaternions are wxyz, matching mjlab.
+``peg_axial_lateral``/``peg_axis_cos_tilt`` are the shared bore/hole geometry
+kernels (``tasks/common/success.py``), also used by ``shape_sorter``.
+``peg_inserted`` (the instantaneous insertion-depth test) is specific to this
+category. Quaternions are wxyz, matching mjlab.
 """
 
 from __future__ import annotations
 
 import torch
 
+from g3a_bench.tasks.common.success import (
+    bore_axial_lateral as peg_axial_lateral,
+)
+from g3a_bench.tasks.common.success import (
+    bore_axis_cos_tilt as peg_axis_cos_tilt,
+)
 
-def peg_axial_lateral(
-    pos: torch.Tensor, mouth: torch.Tensor, axis_out: torch.Tensor
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """Decompose peg-to-mouth offsets along/across the bore axis.
-
-    Args:
-        pos: (..., 3) peg centre positions.
-        mouth: (..., 3) bore mouth positions.
-        axis_out: (..., 3) unit outward bore axes.
-
-    Returns:
-        ``(axial, lateral)``, each (...,): signed distance along the axis
-        (+ is outside the bore) and distance from the bore centreline.
-    """
-    rel = pos - mouth
-    axial = torch.sum(rel * axis_out, dim=-1)
-    lateral = torch.norm(rel - axial.unsqueeze(-1) * axis_out, dim=-1)
-    return axial, lateral
-
-
-def peg_axis_cos_tilt(quat_wxyz: torch.Tensor, axis_out: torch.Tensor) -> torch.Tensor:
-    """|cos| of the angle between a peg's body z-axis and the bore axis.
-
-    Sign-free: a peg inserted "upside down" is equally aligned.
-
-    Args:
-        quat_wxyz: (..., 4) peg orientations.
-        axis_out: (..., 3) unit bore axes.
-
-    Returns:
-        (...,) in [0, 1].
-    """
-    w, x, y, z = quat_wxyz.unbind(-1)
-    peg_axis = torch.stack(
-        [2 * (x * z + w * y), 2 * (y * z - w * x), 1 - 2 * (x * x + y * y)], dim=-1
-    )
-    return torch.sum(peg_axis * axis_out, dim=-1).abs()
+__all__ = ["peg_axial_lateral", "peg_axis_cos_tilt", "peg_inserted"]
 
 
 def peg_inserted(

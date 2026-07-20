@@ -20,11 +20,10 @@ import numpy as np
 import torch
 from mjlab.entity import Entity
 from mjlab.managers.command_manager import CommandTerm
-from mjlab.utils.lab_api.math import quat_from_euler_xyz
 
 from g3a_bench.tasks.common.commands import GripperGateCommandCfg, GripperOpenGate
 from g3a_bench.tasks.common.debug_markers import marker_color
-from g3a_bench.tasks.common.scatter import ScatterGrid
+from g3a_bench.tasks.common.scatter import ScatterGrid, write_upright_spawn
 from g3a_bench.tasks.common.success import OBJECT_VEL_THRESHOLD, SuccessGate
 from g3a_bench.tasks.stack.mdp.success import (
     block_top_heights,
@@ -156,7 +155,6 @@ class StackCommand(CommandTerm):
         n = len(env_ids)
         if n == 0:
             return
-        dev = self.device
         origins = self._env.scene.env_origins[env_ids]
 
         self._gate.reset(env_ids)
@@ -165,17 +163,7 @@ class StackCommand(CommandTerm):
         # No shared randomness; per-block draws in index order (seed-prefix
         # rule: an easier task's reset is a prefix of a harder task's).
         xy, spawn_yaw = self._scatter.sample_poses(n, self.num_blocks)
-
-        zeros = torch.zeros(n, device=dev)
-        for i, block in enumerate(self.blocks):
-            z = (self._half_h[i] + 0.002 + origins[:, 2]).unsqueeze(-1)
-            pos = torch.cat([xy[:, i, :] + origins[:, :2], z], dim=-1)
-            quat = quat_from_euler_xyz(zeros, zeros, spawn_yaw[:, i])
-            pose = torch.cat([pos, quat], dim=-1)
-            block.write_root_link_pose_to_sim(pose, env_ids=env_ids)
-            block.write_root_link_velocity_to_sim(
-                torch.zeros(n, 6, device=dev), env_ids=env_ids
-            )
+        write_upright_spawn(self.blocks, xy, spawn_yaw, self._half_h, origins, env_ids)
 
     def _update_command(self) -> None:
         pass

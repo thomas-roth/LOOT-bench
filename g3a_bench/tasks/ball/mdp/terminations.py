@@ -9,6 +9,7 @@ every reset.
 
 from __future__ import annotations
 
+from functools import partial
 from typing import TYPE_CHECKING
 
 import torch
@@ -20,17 +21,13 @@ from g3a_bench.tasks.ball.variants import (
     WALL_HALF_Y,
     WALL_HEIGHT,
 )
+from g3a_bench.tasks.common.terminations import command_success_termination
 
 if TYPE_CHECKING:
     from mjlab.envs import ManagerBasedRlEnv
 
-
-def ball_at_target(
-    env: ManagerBasedRlEnv,
-    command_name: str,
-) -> torch.Tensor:
-    """Ball in target, at rest, and released."""
-    return _command(env, command_name).success.bool()
+ball_at_target = partial(command_success_termination, get_command=_command)
+"""Ball in target, at rest, and released."""
 
 
 def ball_out_of_bounds(

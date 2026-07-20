@@ -34,7 +34,7 @@ from mjlab.utils.lab_api.math import quat_from_euler_xyz
 
 from g3a_bench.tasks.common.commands import GripperGateCommandCfg, GripperOpenGate
 from g3a_bench.tasks.common.debug_markers import MARKER_INFLATE, marker_color
-from g3a_bench.tasks.common.scatter import ScatterGrid
+from g3a_bench.tasks.common.scatter import ScatterGrid, write_upright_spawn
 from g3a_bench.tasks.common.success import OBJECT_VEL_THRESHOLD, SuccessGate
 from g3a_bench.tasks.domino.mdp.success import (
     chain_topple_success,
@@ -270,16 +270,9 @@ class DominoCommand(CommandTerm):
         # --- Scatter all dominoes upright on distinct jittered grid cells
         # (per-domino draws in index order). ---
         xy, spawn_yaw = self._scatter.sample_poses(n, G)
-        zeros = torch.zeros(n, device=dev)
-        for i, domino in enumerate(self.dominoes):
-            z = (self._half_h[i] + 0.002 + origins[:, 2]).unsqueeze(-1)
-            pos = torch.cat([xy[:, i, :] + origins[:, :2], z], dim=-1)
-            quat = quat_from_euler_xyz(zeros, zeros, spawn_yaw[:, i])
-            pose = torch.cat([pos, quat], dim=-1)
-            domino.write_root_link_pose_to_sim(pose, env_ids=env_ids)
-            domino.write_root_link_velocity_to_sim(
-                torch.zeros(n, 6, device=dev), env_ids=env_ids
-            )
+        write_upright_spawn(
+            self.dominoes, xy, spawn_yaw, self._half_h, origins, env_ids
+        )
 
     def _update_command(self) -> None:
         pass

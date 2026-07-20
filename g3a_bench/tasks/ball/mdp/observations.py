@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 import torch
 
 from g3a_bench.tasks.ball.mdp.commands import get_command as _command
+from g3a_bench.tasks.common.observations import flatten_pose
 
 if TYPE_CHECKING:
     from mjlab.envs import ManagerBasedRlEnv
@@ -24,8 +25,9 @@ def ball_pose(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
 def field_pose(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
     """Field pose in the env-local world frame (E, 7)."""
     command = _command(env, command_name)
-    pos = command.field_pos_w - env.scene.env_origins
-    return torch.cat([pos, command.field_quat_w], dim=-1)
+    return flatten_pose(
+        command.field_pos_w, command.field_quat_w, env.scene.env_origins
+    )
 
 
 def wall_pose(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
@@ -35,8 +37,7 @@ def wall_pose(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
     (``ThrowWallVariation``); other variants bake the wall into the field.
     """
     command = _command(env, command_name)
-    pos = command.wall_pos_w - env.scene.env_origins
-    return torch.cat([pos, command.wall_quat_w], dim=-1)
+    return flatten_pose(command.wall_pos_w, command.wall_quat_w, env.scene.env_origins)
 
 
 def ball_velocity(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:

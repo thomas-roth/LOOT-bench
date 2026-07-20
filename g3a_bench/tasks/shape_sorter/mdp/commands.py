@@ -42,7 +42,7 @@ from mjlab.utils.lab_api.math import (
 from g3a_bench.tasks.common.colors import PALETTE
 from g3a_bench.tasks.common.commands import GripperGateCommandCfg, GripperOpenGate
 from g3a_bench.tasks.common.debug_markers import marker_color
-from g3a_bench.tasks.common.scatter import ScatterGrid
+from g3a_bench.tasks.common.scatter import ScatterGrid, write_upright_spawn
 from g3a_bench.tasks.common.success import SuccessGate
 from g3a_bench.tasks.shape_sorter.assets import (
     BOARD_POS,
@@ -308,17 +308,9 @@ class ShapeSorterCommand(CommandTerm):
         # draws in index order via ``sample_poses``. ---
         scatter = self._wide_scatter if variant.wide_positions else self._normal_scatter
         xy, spawn_yaw = scatter.sample_poses(n, N)
-        for i, piece in enumerate(self.pieces):
-            half = float(self._latch.piece_half[i])
-            z = (half + 0.002 + origins[:, 2]).unsqueeze(-1)
-            pos = torch.cat([xy[:, i, :] + origins[:, :2], z], dim=-1)
-            quat = quat_from_euler_xyz(zeros, zeros, spawn_yaw[:, i])
-            piece.write_root_link_pose_to_sim(
-                torch.cat([pos, quat], dim=-1), env_ids=env_ids
-            )
-            piece.write_root_link_velocity_to_sim(
-                torch.zeros(n, 6, device=dev), env_ids=env_ids
-            )
+        write_upright_spawn(
+            self.pieces, xy, spawn_yaw, self._latch.piece_half, origins, env_ids
+        )
 
     def _update_command(self) -> None:
         pass

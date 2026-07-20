@@ -61,9 +61,9 @@ class BallVariantCfg:
     at_rest_speed: float = 0.06
     """Ball speed below which it counts as at rest."""
     episode_length_s: float = 12.0
-    """Per-variant time budget. Hand-picked by layout difficulty (no demo-time
-    measurement yet -- see .scratch/sim-settings-review/report.md): a direct
-    shot/throw is the baseline; since the minigolf layouts are additive
+    """Per-variant time budget. Hand-picked by layout difficulty (no
+    demo-time measurement yet): a direct shot/throw is the baseline; since
+    the minigolf layouts are additive
     (``direct`` ⊂ ``using_wall`` ⊂ ``obstacle`` ⊂ ``ramp``), each one's
     budget grows on top of the previous layout's to cover its extra element
     (bank shot, obstacle, ramp), and the every-reset-randomized wall gets the
