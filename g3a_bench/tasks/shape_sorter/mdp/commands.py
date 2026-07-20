@@ -32,6 +32,7 @@ from typing import TYPE_CHECKING, cast
 import torch
 from mjlab.entity import Entity
 from mjlab.managers.command_manager import CommandTerm
+from mjlab.sensor import ContactSensor
 from mjlab.utils.lab_api.math import (
     quat_apply,
     quat_from_angle_axis,
@@ -40,7 +41,12 @@ from mjlab.utils.lab_api.math import (
 )
 
 from g3a_bench.tasks.common.colors import PALETTE
-from g3a_bench.tasks.common.commands import GripperGateCommandCfg, GripperOpenGate
+from g3a_bench.tasks.common.commands import (
+    GRIP_CONTACT_SENSOR_NAME,
+    ContactReleaseGate,
+    GripperGateCommandCfg,
+    GripperOpenGate,
+)
 from g3a_bench.tasks.common.debug_markers import marker_color
 from g3a_bench.tasks.common.scatter import ScatterGrid, write_upright_spawn
 from g3a_bench.tasks.common.success import SuccessGate
@@ -185,6 +191,10 @@ class ShapeSorterCommand(CommandTerm):
         self.progress = torch.zeros(E, device=dev)
         self._gate = SuccessGate(E, dev, vel_threshold=math.inf)
         self._gripper_gate = GripperOpenGate(cfg)
+        self._contact_gate = ContactReleaseGate()
+        self._grip_sensor = cast(
+            ContactSensor, env.scene.sensors[GRIP_CONTACT_SENSOR_NAME]
+        )
 
         self.metrics["placed_frac"] = torch.zeros(E, device=dev)
         self.metrics["episode_success"] = torch.zeros(E, device=dev)
@@ -250,7 +260,9 @@ class ShapeSorterCommand(CommandTerm):
         # The at-rest gate is disabled (vel_threshold=inf): a latched piece
         # stays scored regardless of motion, so skip the speed computation.
         speed = torch.zeros(E, device=self.device)
-        released = self._gripper_gate(self._env.scene["robot"])
+        released = self._gripper_gate(self._env.scene["robot"]) & self._contact_gate(
+            self._grip_sensor
+        )
         self._gate.update(all_latched, speed, released)
 
         self.metrics["placed_frac"] = self.progress
