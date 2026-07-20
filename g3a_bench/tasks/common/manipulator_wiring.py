@@ -21,6 +21,7 @@ def wire_manipulator_into_env(
     manipulator: ManipulatorInterface,
     *,
     ee_contact_sensors: tuple[str, ...] = (),
+    grip_contact_sensor: str | None = None,
 ) -> None:
     """Fill the robot placeholders left by a ``make_<cat>_env_cfg`` in place.
 
@@ -30,7 +31,9 @@ def wire_manipulator_into_env(
     env cfg) and to any command cfg carrying a ``grasp_cfg``. Command cfgs
     deriving from :class:`GripperGateCommandCfg` get the robot's gripper
     joints/threshold. Sensors named in ``ee_contact_sensors`` get the
-    end-effector subtree as their primary match pattern.
+    end-effector subtree as their primary match pattern. The sensor named
+    ``grip_contact_sensor``, if any, gets the finger-pad geom pattern as its
+    primary match pattern (see ``tasks.common.commands.ContactReleaseGate``).
     """
     cfg.scene.entities["robot"] = manipulator.entity_cfg_fn()
 
@@ -58,5 +61,12 @@ def wire_manipulator_into_env(
             if sensor.name in ee_contact_sensors:
                 assert isinstance(sensor, ContactSensorCfg)
                 sensor.primary.pattern = manipulator.ee_subtree
+
+    if grip_contact_sensor is not None:
+        assert cfg.scene.sensors is not None
+        for sensor in cfg.scene.sensors:
+            if sensor.name == grip_contact_sensor:
+                assert isinstance(sensor, ContactSensorCfg)
+                sensor.primary.pattern = manipulator.pad_geoms
 
     cfg.viewer.body_name = manipulator.viewer_body

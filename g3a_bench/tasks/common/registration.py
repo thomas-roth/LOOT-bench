@@ -24,6 +24,7 @@ def register_category(
     robots: tuple[ManipulatorInterface, ...],
     task_id_parts: Callable[..., tuple[str, str]],
     ee_contact_sensors: tuple[str, ...] = (),
+    grip_contact_sensor: str | None = None,
     max_iterations: int = 15_000,
 ) -> None:
     """Register all robot x variant tasks of one category.
@@ -39,6 +40,7 @@ def register_category(
         make_env_cfg: ``make_<cat>_env_cfg(variant, play=...)``.
         robots: manipulator interfaces to register against.
         ee_contact_sensors: forwarded to ``wire_manipulator_into_env``.
+        grip_contact_sensor: forwarded to ``wire_manipulator_into_env``.
         task_id_parts: ``(task, variation)`` for a variant, e.g.
             ``("Low", "DifferentBlocks")`` or ``("Low", "")`` for the base
             case.
@@ -66,6 +68,7 @@ def register_category(
                 env_cfg,
                 robot,
                 ee_contact_sensors=ee_contact_sensors,
+                grip_contact_sensor=grip_contact_sensor,
             )
 
             play_env_cfg = make_env_cfg(variant, play=True)
@@ -73,6 +76,7 @@ def register_category(
                 play_env_cfg,
                 robot,
                 ee_contact_sensors=ee_contact_sensors,
+                grip_contact_sensor=grip_contact_sensor,
             )
 
             register_mjlab_task(
