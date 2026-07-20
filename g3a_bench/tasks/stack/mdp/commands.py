@@ -20,8 +20,14 @@ import numpy as np
 import torch
 from mjlab.entity import Entity
 from mjlab.managers.command_manager import CommandTerm
+from mjlab.sensor import ContactSensor
 
-from g3a_bench.tasks.common.commands import GripperGateCommandCfg, GripperOpenGate
+from g3a_bench.tasks.common.commands import (
+    GRIP_CONTACT_SENSOR_NAME,
+    ContactReleaseGate,
+    GripperGateCommandCfg,
+    GripperOpenGate,
+)
 from g3a_bench.tasks.common.debug_markers import marker_color
 from g3a_bench.tasks.common.scatter import ScatterGrid, write_upright_spawn
 from g3a_bench.tasks.common.success import OBJECT_VEL_THRESHOLD, SuccessGate
@@ -93,6 +99,10 @@ class StackCommand(CommandTerm):
         self.progress = torch.zeros(E, device=dev)
         self._gate = SuccessGate(E, dev, vel_threshold=cfg.block_vel_threshold)
         self._gripper_gate = GripperOpenGate(cfg)
+        self._contact_gate = ContactReleaseGate()
+        self._grip_sensor = cast(
+            ContactSensor, env.scene.sensors[GRIP_CONTACT_SENSOR_NAME]
+        )
 
         self.metrics["max_height_frac"] = torch.zeros(E, device=dev)
         self.metrics["episode_success"] = torch.zeros(E, device=dev)
@@ -145,7 +155,9 @@ class StackCommand(CommandTerm):
         speed = torch.stack(
             [b.data.root_link_lin_vel_w for b in self.blocks], dim=1
         ).norm(dim=-1)  # (E, N)
-        released = self._gripper_gate(self._env.scene["robot"])
+        released = self._gripper_gate(self._env.scene["robot"]) & self._contact_gate(
+            self._grip_sensor
+        )
         self._gate.update(task_done, speed, released)
 
         self.metrics["max_height_frac"] = self.progress

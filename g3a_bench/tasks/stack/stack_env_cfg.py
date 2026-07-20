@@ -5,8 +5,10 @@ from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.managers.observation_manager import ObservationTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.termination_manager import TerminationTermCfg
+from mjlab.sensor import ContactMatch, ContactSensorCfg
 from mjlab.utils.noise import UniformNoiseCfg as Unoise
 
+from g3a_bench.tasks.common.commands import GRIP_CONTACT_SENSOR_NAME
 from g3a_bench.tasks.common.env_cfg import make_manipulation_env_cfg
 from g3a_bench.tasks.common.table import table_entity_cfg
 from g3a_bench.tasks.stack import mdp as stack_mdp
@@ -59,6 +61,14 @@ def make_stack_env_cfg(
     }
 
     num_blocks = len(variant.blocks)
+    sensors = (
+        ContactSensorCfg(
+            name=GRIP_CONTACT_SENSOR_NAME,
+            primary=ContactMatch(mode="geom", pattern="", entity="robot"),
+            fields=("force",),
+        ),
+    )
+
     return make_manipulation_env_cfg(
         entities=entities,
         fixed_props=("table",),
@@ -75,6 +85,7 @@ def make_stack_env_cfg(
         command_obs=False,
         task_rewards=task_rewards,
         task_terminations=task_terminations,
+        sensors=sensors,
         env_spacing=1.5,
         episode_length_s=10.0 * variant.target_blocks * (variant.two_stacks + 1),
         nconmax=100 + 120 * num_blocks,
