@@ -1,28 +1,24 @@
 """Shared tabletop-manipulation env-cfg skeleton for all task categories.
 
 Every G3A task is the same workbench — a manipulator at a table with
-joint-position control, proprioceptive + task observations, regularization
-rewards with the standard curriculum, and a success/time-out episode — plus a
-category-shaped core (entities, command, task observations/rewards/
-terminations). :func:`make_manipulation_env_cfg` builds the skeleton and takes
-the core as parameters; the per-category ``make_*_env_cfg`` are thin caps.
+joint-position control, proprioceptive + task observations, and a
+success/time-out episode — plus a category-shaped core (entities, command,
+task observations/rewards/terminations). :func:`make_manipulation_env_cfg`
+builds the skeleton and takes the core as parameters; the per-category
+``make_*_env_cfg`` are thin caps.
 
 Robot-specific knobs are left as placeholders (empty grasp site, action scale
-0.5, empty friction geoms, empty viewer body, no ``"robot"`` scene entity).
+0.5, empty viewer body, no ``"robot"`` scene entity).
 Fill them by calling :func:`~g3a_bench.tasks.common.manipulator_wiring.
 wire_manipulator_into_env` with a concrete ``ManipulatorInterface`` before
 registering the task.
 """
 
-import copy
-
 from mjlab.entity import EntityCfg
 from mjlab.envs import ManagerBasedRlEnvCfg, mdp
-from mjlab.envs.mdp import dr
 from mjlab.envs.mdp.actions import JointPositionActionCfg
 from mjlab.managers.action_manager import ActionTermCfg
 from mjlab.managers.command_manager import CommandTermCfg
-from mjlab.managers.curriculum_manager import CurriculumTermCfg
 from mjlab.managers.event_manager import EventTermCfg
 from mjlab.managers.observation_manager import ObservationGroupCfg, ObservationTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
@@ -31,28 +27,11 @@ from mjlab.managers.termination_manager import TerminationTermCfg
 from mjlab.scene import SceneCfg
 from mjlab.sensor import SensorCfg
 from mjlab.sim import MujocoCfg, SimulationCfg
-from mjlab.tasks.manipulation import mdp as manipulation_mdp
 from mjlab.terrains import TerrainEntityCfg
 from mjlab.utils.noise import UniformNoiseCfg as Unoise
 from mjlab.viewer import ViewerConfig
 
-REGULARIZATION_TERMS = {
-    "action_rate_l2": RewardTermCfg(func=mdp.action_rate_l2, weight=-0.01),
-    "joint_pos_limits": RewardTermCfg(
-        func=mdp.joint_pos_limits,
-        weight=-10.0,
-        params={"asset_cfg": SceneEntityCfg("robot", joint_names=(".*",))},
-    ),
-    "joint_vel_hinge": RewardTermCfg(
-        func=manipulation_mdp.joint_velocity_hinge_penalty,
-        weight=-0.01,
-        params={
-            "max_vel": 0.5,
-            "asset_cfg": SceneEntityCfg("robot", joint_names=(".*",)),
-        },
-    ),
-}
-"""Regularization reward terms, stay active in every reward mode –> keep motions smooth and feasible."""
+from g3a_bench.tasks.common.observations import ee_pose_w
 
 
 def make_manipulation_env_cfg(
@@ -68,17 +47,11 @@ def make_manipulation_env_cfg(
     sensors: tuple[SensorCfg, ...] = (),
     env_spacing: float,
     episode_length_s: float,
-    solver_iterations: int,
-    solver_ls_iterations: int,
     nconmax: int,
     njmax: int,
     viewer_distance: float = 1.5,
     viewer_elevation: float = -15.0,
     play: bool = False,
-    play_timestep: float = 0.01,
-    play_decimation: int = 1,
-    play_solver_iterations: int = 20,
-    play_solver_ls_iterations: int = 10,
 ) -> ManagerBasedRlEnvCfg:
     """Assemble the shared workbench around a category core.
 
@@ -96,23 +69,14 @@ def make_manipulation_env_cfg(
             Disable when the task observations already encode the goal
             relative to the objects (the raw command would be redundant or
             constant).
-        task_rewards: category reward terms, placed before the shared
-            regularization terms.
-        task_terminations: category terminations, placed after ``time_out``
-            (``success`` must be one of them for the play block to strip).
-        sensors: scene sensors (e.g. the insertion contact sensor).
-        play: strip corruption/curriculum/success-termination, make the
-            episode endless, and retune physics for real-time responsiveness
-            (see ``play_*`` args), for interactive play.
-        play_timestep, play_decimation, play_solver_iterations,
-            play_solver_ls_iterations: physics knobs applied only when
-            ``play=True``. A bigger timestep with fewer substeps
-            (``decimation``) cuts wall-clock cost per ``env.step()`` for
-            live/teleop use; more solver iterations with a shorter
-            line-search partially offsets the coarser timestep for
-            constraint stability. Override per category if the default
-            (tuned against the cube task) causes instability, e.g. a fast
-            projectile tunneling through thin geometry.
+        task_rewards: category reward terms.
+        task_terminations: category terminations, placed after ``time_out``.
+        sensors: scene sensors (e.g. an end-effector contact sensor).
+        play: strip observation corruption and make the episode endless, for
+            interactive play. Physics are unchanged, so demos and eval run
+            under the same dynamics as training. The ``success`` termination
+            is kept — live_bridge demo playback needs episodes to terminate
+            on success.
     """
     actor_terms: dict[str, ObservationTermCfg] = {
         "joint_pos": ObservationTermCfg(
@@ -120,6 +84,11 @@ def make_manipulation_env_cfg(
         ),
         "joint_vel": ObservationTermCfg(
             func=mdp.joint_vel_rel, noise=Unoise(n_min=-1.5, n_max=1.5)
+        ),
+        "ee_pose": ObservationTermCfg(
+            func=ee_pose_w,
+            params={"asset_cfg": SceneEntityCfg("robot", site_names=())},
+            noise=Unoise(n_min=-0.01, n_max=0.01),
         ),
         **task_obs_terms,
         **(
@@ -176,42 +145,11 @@ def make_manipulation_env_cfg(
             )
             for name in fixed_props
         },
-        "fingertip_friction_slide": EventTermCfg(
-            mode="startup",
-            func=dr.geom_friction,
-            params={
-                "asset_cfg": SceneEntityCfg("robot", geom_names=()),  # Per-robot.
-                "operation": "abs",
-                "distribution": "uniform",
-                "axes": [0],
-                "ranges": (0.6, 1.5),
-            },
-        ),
-    }
-
-    rewards = {
-        **task_rewards,
-        **{name: copy.deepcopy(term) for name, term in REGULARIZATION_TERMS.items()},
     }
 
     terminations = {
         "time_out": TerminationTermCfg(func=mdp.time_out, time_out=True),
         **task_terminations,
-    }
-
-    # TODO: do we need this with QC? (PPO specific?)
-    curriculum = {
-        "joint_vel_hinge_weight": CurriculumTermCfg(
-            func=manipulation_mdp.reward_curriculum,
-            params={
-                "reward_name": "joint_vel_hinge",
-                "stages": [
-                    {"step": 0, "weight": -0.01},
-                    {"step": 500 * 24, "weight": -0.1},
-                    {"step": 1000 * 24, "weight": -1.0},
-                ],
-            },
-        ),
     }
 
     cfg = ManagerBasedRlEnvCfg(
@@ -226,9 +164,8 @@ def make_manipulation_env_cfg(
         actions=actions,
         commands={command_name: command_cfg},
         events=events,
-        rewards=rewards,
+        rewards=dict(task_rewards),
         terminations=terminations,
-        curriculum=curriculum,
         viewer=ViewerConfig(
             origin_type=ViewerConfig.OriginType.ASSET_BODY,
             entity_name="robot",
@@ -239,18 +176,23 @@ def make_manipulation_env_cfg(
             enable_shadows=False,
             enable_reflections=False,
         ),
+        # Same settings as the mjlab manipulation example, except task-specific
+        # values and nativeccd disabled.
         sim=SimulationCfg(
             nconmax=nconmax,
             njmax=njmax,
             mujoco=MujocoCfg(
                 timestep=0.005,
-                iterations=solver_iterations,
-                ls_iterations=solver_ls_iterations,
+                iterations=100,
+                ls_iterations=50,
                 impratio=10,
                 cone="elliptic",
-                disableflags=(
-                    "nativeccd",
-                ),  # Better box-to-box collisions between pieces.
+                # Disabling nativeccd makes MuJoCo Warp use the analytic
+                # box-box collider (up to 8 contacts with per-contact depth)
+                # instead of GJK/EPA (<=4 contacts sharing one depth/frame),
+                # which jitters. Affects all box-box pairs: objects on the
+                # table top and in the box finger pads. No-op for other pairs.
+                disableflags=("nativeccd",),
             ),
         ),
         decimation=4,
@@ -260,11 +202,5 @@ def make_manipulation_env_cfg(
     if play:
         cfg.episode_length_s = int(1e9)
         cfg.observations["actor"].enable_corruption = False
-        cfg.curriculum = {}
-        cfg.terminations.pop("success")
-        cfg.sim.mujoco.timestep = play_timestep
-        cfg.decimation = play_decimation
-        cfg.sim.mujoco.iterations = play_solver_iterations
-        cfg.sim.mujoco.ls_iterations = play_solver_ls_iterations
 
     return cfg

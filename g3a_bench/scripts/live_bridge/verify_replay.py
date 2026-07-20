@@ -30,7 +30,7 @@ and require *every* compared frame to match.
 Usage:
     # verify episode 0 of a recorded session
     uv run python g3a_bench/scripts/live_bridge/verify_replay.py \\
-        --dataset-dir out/demos/success/2026-07-11_18-23-00
+        --dataset-dir out/demos/success/G3A-Stack-Low-Dk1_uni/2026-07-11_18-23-00
 
     # verify a specific episode, stricter tolerance, per-frame CSV
     uv run python g3a_bench/scripts/live_bridge/verify_replay.py \\
@@ -38,8 +38,8 @@ Usage:
 
     # offline: diff an existing record_replay.py output against the original
     uv run python g3a_bench/scripts/live_bridge/verify_replay.py \\
-        --dataset-dir out/demos/success/<stamp> --episode-index 0 \\
-        --sim-replay-dir out/demos/success/<stamp>/sim_replay/episode_0
+        --dataset-dir out/demos/success/<task>/<stamp> --episode-index 0 \\
+        --sim-replay-dir out/demos/success/<task>/<stamp>/sim_replay/episode_0
 """
 
 import os
@@ -68,9 +68,7 @@ from mjlab.rl import RslRlVecEnvWrapper
 from mjlab.tasks.registry import load_env_cfg
 
 import g3a_bench  # noqa: F401
-from g3a_bench.scripts.live_bridge.live_record import (
-    apply_teleop_contact_stability,
-)
+from g3a_bench.scripts.live_bridge.dataset_extra_info import load_extra_info
 from g3a_bench.scripts.live_bridge.mapper import lerobot_to_mjlab_raw_action
 
 
@@ -136,7 +134,8 @@ def load_episode(dataset_dir: str, episode_index: int) -> Episode:
     assert actions is not None and state is not None
     assert done is not None and reward is not None
 
-    seed_val = ds.meta.info.get("episode_seeds", {}).get(str(episode_index))
+    extra_info = load_extra_info(ds.meta.root)
+    seed_val = extra_info.get("episode_seeds", {}).get(str(episode_index))
     return Episode(
         actions=actions,
         state=state,
@@ -145,22 +144,18 @@ def load_episode(dataset_dir: str, episode_index: int) -> Episode:
         done=done.reshape(len(actions)),
         reward=reward.reshape(len(actions)),
         seed=int(seed_val) if seed_val is not None else None,
-        seed_device=ds.meta.info.get("seed_device"),
+        seed_device=extra_info.get("seed_device"),
     )
 
 
 def build_env_like_live_record(task: str, device: str) -> RslRlVecEnvWrapper:
     """Build the env with the exact same config mutations as live_record.main().
 
-    Any difference here (contact solref, timestep, ...) changes the physics
-    being compared, so this must stay in lockstep with live_record.py.
+    Any difference here changes the physics being compared, so this must stay
+    in lockstep with live_record.py.
     """
     cfg = load_env_cfg(task, play=True)
     cfg.terminations["time_out"].time_out = False
-
-    # Same finger-pad solref stabilization live_record applies before building
-    # the env — different contact parameters would diverge at first grip.
-    apply_teleop_contact_stability(cfg)
 
     # Unlike live_record, drop done-producing terminations: a done mid-replay
     # auto-resets the env inside step() and destroys the comparison.
@@ -542,13 +537,13 @@ def main() -> None:
         "--dataset-dir",
         type=str,
         required=True,
-        help="live_record session/dataset dir (e.g. out/demos/success/<stamp>)",
+        help="live_record session/dataset dir (e.g. out/demos/success/<task>/<stamp>)",
     )
     parser.add_argument("--episode-index", type=int, default=0)
     parser.add_argument(
         "--task",
         type=str,
-        default="G3a-Cube-Stack3-Dk1_uni",
+        default="G3A-Stack-Low-Dk1_uni",
         help="MJLab task the demo was recorded on",
     )
     parser.add_argument(

@@ -28,7 +28,7 @@ Key bindings:
     D  discard episode
     U  undo the last saved episode
     Q  stop session and finalize dataset
-    C         toggle viewer between orbit camera and the robot's wrist camera
+    C         toggle viewer between the front camera and the robot's wrist camera
               (clearer gripper view while teleoperating demos)
 
     Main-row digit keys are NOT usable here — MuJoCo's native viewer swallows
@@ -139,34 +139,32 @@ KEY_WRIST_CAM = KEY_C
 WRIST_CAMERA_NAME = "wrist_camera"
 
 
-# Default orbit/free-camera framing for the teleop viewer (the view you start in,
-# before pressing C for the wrist cam). Positioned above and behind the robot
+FRONT_CAMERA_NAME = "front_cam"
+
+
+# Fallback free-camera framing, used only if FRONT_CAMERA_NAME isn't found in
+# the model (and as the view C's wrist-cam toggle restores in that case).
 ORBIT_CAM_LOOKAT = (0.20, 0.0, 0.15)  # world point the camera aims at (≈ workspace)
 ORBIT_CAM_DISTANCE = 1.3
 ORBIT_CAM_AZIMUTH = 200.0
 ORBIT_CAM_ELEVATION = -35.0
 
+GRASP_SITE_NAME = "grasp_site"
+# Compiled-model body-name prefix for the "robot" scene entity (see
+# manipulator_wiring.wire_manipulator_into_env) — used to walk the gripper
+# laser past the robot's own geoms instead of stopping on a fingertip.
+ROBOT_ENTITY_PREFIX = "robot/"
 
-def apply_teleop_contact_stability(cfg) -> None:
-    """Keep the finger-pad contact solref stable for the play/teleop timestep.
-
-    Raises any robot collision solref timeconst below 2x the sim timestep (the
-    stability floor) to stop grip jitter. Shared with record_replay.py and
-    verify_replay.py — replayed physics must run with the exact same contact
-    parameters as the recording, or trajectories diverge at first contact.
-    """
-    min_solref_timeconst = 2.0 * cfg.sim.mujoco.timestep
-    for _coll in cfg.scene.entities["robot"].collisions:
-        solref = getattr(_coll, "solref", None) or {}
-        for _key, _ref in list(solref.items()):
-            _timeconst, _dampratio = _ref
-            if _timeconst < min_solref_timeconst:
-                solref[_key] = (min_solref_timeconst, _dampratio)
-                print(
-                    f"[INFO] contact-stability: raised solref timeconst for "
-                    f"'{_key}' {_timeconst:g}->{min_solref_timeconst:g} s "
-                    f"(>=2x timestep {cfg.sim.mujoco.timestep:g}) to stop grip jitter"
-                )
+# Bright magenta
+GRIPPER_LASER_COLOR = (1.0, 0.0, 1.0, 1.0)
+GRIPPER_LASER_ROD_RADIUS = 0.0025  # m
+GRIPPER_LASER_DOT_RADIUS = 0.015  # m
+GRIPPER_LASER_DOT_LIFT = 0.001  # m above the hit surface, avoids z-fighting
+GRIPPER_LASER_DOT_THICKNESS = 0.002  # m
+# Generous upper bound on robot geoms (fingers, wrist, forearm...) the ray
+# may pierce before reaching a non-robot surface.
+_GRIPPER_RAY_MAX_BOUNCES = 15
+_GRIPPER_RAY_NUDGE = 1e-4  # m, push past a pierced surface before recasting
 
 
 def ask_operator() -> int:
@@ -327,6 +325,9 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
         self._vis_task: MujocoNativeDebugVisualizer | None = None
         self._vis_ghost: MujocoNativeDebugVisualizer | None = None
         self._vis_wrist: MujocoNativeDebugVisualizer | None = None
+        self._vis_gripper_laser: MujocoNativeDebugVisualizer | None = None
+        # Grasp-site id, resolved once in setup() (see GRASP_SITE_NAME).
+        self._grasp_site_id: int = -1
         # Wrist-camera offscreen renderer (PiP window). Built by the caller
         # (main(), before the hw thread starts — see _build_wrist_pip) rather
         # than lazily here in setup()/__init__: constructing mujoco.Renderer's
@@ -361,6 +362,17 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
         assert self.viewer is not None
         self._baseline_visflags = self.viewer.opt.flags.copy()
         assert self.mjm is not None
+
+        front_cam_id = _find_camera_id(self.mjm, FRONT_CAMERA_NAME)
+        if front_cam_id >= 0:
+            self.viewer.cam.type = _mujoco.mjtCamera.mjCAMERA_FIXED.value
+            self.viewer.cam.fixedcamid = front_cam_id
+        else:
+            print(
+                f"[WARN] No '{FRONT_CAMERA_NAME}' camera in model — "
+                "starting in free/orbit view instead"
+            )
+
         # Pre-construct both debug visualizers once, reusing the same MjData
         # throughout the session instead of allocating a new one every frame.
         self._vis_task = MujocoNativeDebugVisualizer(
@@ -369,6 +381,14 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
         self._vis_ghost = MujocoNativeDebugVisualizer(
             self.viewer.user_scn, self.mjm, self.env_idx, self._show_all_envs
         )
+        self._vis_gripper_laser = MujocoNativeDebugVisualizer(
+            self.viewer.user_scn, self.mjm, self.env_idx, self._show_all_envs
+        )
+        self._grasp_site_id = _find_site_id(self.mjm, GRASP_SITE_NAME)
+        if self._grasp_site_id < 0:
+            print(
+                f"[WARN] No '{GRASP_SITE_NAME}' site in model — gripper laser disabled"
+            )
         # The wrist-cam PiP is a *separate* offscreen mujoco.Renderer with its
         # own internal MjvScene — task-command debug_vis geoms (target marks)
         # drawn into viewer.user_scn above never reach it. Give it its own
@@ -428,9 +448,39 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
         # per-frame deepcopy (that cost ~5 FPS before).
         current_color = self._get_ghost_color()
         ghost_model = self._get_ghost_model_with_color(current_color)
+        ngeom_before = viewer.user_scn.ngeom
         self._vis_ghost.add_ghost_mesh(
             self._ghost_qpos, model=ghost_model, label="ghost"
         )
+        # Don't cast shadows for ghost geoms through tagging them as DECOR
+        for i in range(ngeom_before, viewer.user_scn.ngeom):
+            viewer.user_scn.geoms[i].category = _mujoco.mjtCatBit.mjCAT_DECOR
+
+        # Gripper laser: straight-down raycast from the grasp site to whatever
+        # is actually underneath (table or an object), with a beam + landing
+        # dot. An exact, viewpoint-independent depth cue — unlike a shadow it
+        # can't blur, soften at grazing angles, or duplicate.
+        if self._grasp_site_id >= 0 and self._vis_gripper_laser is not None:
+            assert self.mjd is not None
+            grasp_pos = self.mjd.site_xpos[self._grasp_site_id].copy()
+            hit = _cast_gripper_ray(self.mjm, self.mjd, grasp_pos)
+            if hit is not None:
+                self._vis_gripper_laser.add_cylinder(
+                    start=grasp_pos,
+                    end=hit,
+                    radius=GRIPPER_LASER_ROD_RADIUS,
+                    color=GRIPPER_LASER_COLOR,
+                )
+                dot_bottom = hit.copy()
+                dot_bottom[2] += GRIPPER_LASER_DOT_LIFT
+                dot_top = dot_bottom.copy()
+                dot_top[2] += GRIPPER_LASER_DOT_THICKNESS
+                self._vis_gripper_laser.add_cylinder(
+                    start=dot_bottom,
+                    end=dot_top,
+                    radius=GRIPPER_LASER_DOT_RADIUS,
+                    color=GRIPPER_LASER_COLOR,
+                )
 
         # PiP: render wrist camera offscreen → show in PyQt window. Throttled
         # (see _WRIST_PIP_INTERVAL) — this must never run at full frame_rate.
@@ -534,11 +584,12 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
             self._interrupted = True
 
     def _toggle_wrist_cam(self) -> None:
-        """Toggle the viewer between the orbit/free camera and the robot's
-        wrist camera. Seeing the live wrist view makes gripper alignment much
-        easier to judge while teleoperating demos.
+        """Toggle the viewer between the front camera (or whatever view the
+        operator has navigated to) and the robot's wrist camera. Seeing the
+        live wrist view makes gripper alignment much easier to judge while
+        teleoperating demos.
 
-        Toggling back restores the exact orbit framing the operator had, so C
+        Toggling back restores the exact framing the operator had, so C
         is non-destructive to whatever view they set up.
         """
         v = self.viewer
@@ -565,7 +616,7 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
             v.cam.type = _mujoco.mjtCamera.mjCAMERA_FIXED.value
             v.cam.fixedcamid = self._wrist_cam_id
             self._wrist_cam_on = True
-            print("[INFO] Wrist camera ON (press C to return to orbit view)")
+            print("[INFO] Wrist camera ON (press C to return to previous view)")
         else:
             if self._saved_cam is not None:
                 ctype, fcam, tbody, lookat, dist, azi, elev = self._saved_cam
@@ -579,7 +630,7 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
             else:
                 v.cam.type = _mujoco.mjtCamera.mjCAMERA_FREE.value
             self._wrist_cam_on = False
-            print("[INFO] Wrist camera OFF (orbit view restored)")
+            print("[INFO] Wrist camera OFF (previous view restored)")
 
     # Recording state machine (_handle_custom_action, _end_episode, _handle_done,
     # _execute_step, ghost-color helpers) is inherited from RecordingViewerMixin.
@@ -597,6 +648,50 @@ def _find_camera_id(mj_model: "_mujoco.MjModel", suffix: str) -> int:
         if name == suffix or name.endswith("/" + suffix):
             return ci
     return -1
+
+
+def _find_site_id(mj_model: "_mujoco.MjModel", suffix: str) -> int:
+    """Return the id of the first site whose name is, or ends with, ``suffix``.
+
+    Same suffix-match rationale as _find_camera_id: the compiled model
+    prefixes entity sites (e.g. "robot/grasp_site"). Returns -1 if none match.
+    """
+    for si in range(mj_model.nsite):
+        name = _mujoco.mj_id2name(mj_model, _mujoco.mjtObj.mjOBJ_SITE, si) or ""
+        if name == suffix or name.endswith("/" + suffix):
+            return si
+    return -1
+
+
+def _cast_gripper_ray(
+    mjm: "_mujoco.MjModel", mjd: "_mujoco.MjData", origin: np.ndarray
+) -> np.ndarray | None:
+    """Straight-down raycast from ``origin`` to the first non-robot surface.
+
+    mj_ray only supports excluding a single body per call, which isn't enough
+    to skip an entire robot arm (fingers, wrist, forearm...) in one shot. So
+    instead of exclusion, walk the ray forward: recast from just past each
+    pierced surface until a non-robot body is hit. Returns the world-space
+    hit point, or None if the ray escapes without hitting anything.
+    """
+    vec = np.array([0.0, 0.0, -1.0])
+    pnt = origin.copy()
+    geomid = np.zeros(1, dtype=np.int32)
+    for _ in range(_GRIPPER_RAY_MAX_BOUNCES):
+        dist = _mujoco.mj_ray(mjm, mjd, pnt, vec, None, True, -1, geomid)
+        if dist < 0:
+            return None
+        hit = pnt + dist * vec
+        body_name = (
+            _mujoco.mj_id2name(
+                mjm, _mujoco.mjtObj.mjOBJ_BODY, mjm.geom_bodyid[geomid[0]]
+            )
+            or ""
+        )
+        if not body_name.startswith(ROBOT_ENTITY_PREFIX):
+            return hit
+        pnt = hit + _GRIPPER_RAY_NUDGE * vec
+    return None
 
 
 def _build_wrist_pip(mj_model: "_mujoco.MjModel | None"):
@@ -679,7 +774,7 @@ def main():
     parser.add_argument(
         "--task",
         type=str,
-        default="G3a-Cube-Stack3-Dk1_uni",
+        default="G3A-Stack-Low-Dk1_uni",
         help="MJLab task name",
     )
     parser.add_argument(
@@ -688,8 +783,8 @@ def main():
         default=None,
         help=(
             "Output base directory. Defaults to out/demos/ at the repo root. "
-            "Episodes are saved to <base>/success/<timestamp>/ and "
-            "<base>/failure/<timestamp>/ (data is never overwritten)."
+            "Episodes are saved to <base>/success/<task>/<timestamp>/ and "
+            "<base>/failure/<task>/<timestamp>/ (data is never overwritten)."
         ),
     )
     parser.add_argument(
@@ -719,14 +814,15 @@ def main():
     cfg = load_env_cfg(args.task, play=True)
     cfg.terminations["time_out"].time_out = False
 
-    apply_teleop_contact_stability(cfg)
     # 2. Create environment.
     env = ManagerBasedRlEnv(cfg=cfg, device=device)
     env = RslRlVecEnvWrapper(env)
     print("[INFO] Environment created")
 
     # Override the task's default (body-tracking) viewer camera with a static
-    # world-frame orbit view tuned for teleop recording
+    # world-frame free-camera framing — only used as a fallback (see
+    # FRONT_CAMERA_NAME in _LiveRecordingViewer.setup) and as the view the
+    # wrist-cam toggle restores to if front_cam isn't found in the model.
     vcfg = env.cfg.viewer
     vcfg.origin_type = ViewerConfig.OriginType.WORLD
     vcfg.entity_name = None
@@ -742,12 +838,12 @@ def main():
         print("[WARN] Ghost-at-home overlay disabled (could not locate MjModel)")
 
     # 4. Resolve dataset output directories — never wipe existing data.
-    #    Layout: <base>/success/<stamp>/ and <base>/failure/<stamp>/; each
-    #    dataset is only created once an episode of that kind is saved.
+    #    Layout: <base>/success/<task>/<stamp>/ and <base>/failure/<task>/<stamp>/;
+    #    each dataset is only created once an episode of that kind is saved.
     base_dir = Path(args.dataset_dir) if args.dataset_dir else DEMOS_DIR
     stamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    success_root = base_dir / "success" / stamp
-    failure_root = base_dir / "failure" / stamp
+    success_root = base_dir / "success" / args.task / stamp
+    failure_root = base_dir / "failure" / args.task / stamp
     for _path in (success_root, failure_root):
         if _path.exists():
             raise SystemExit(
@@ -760,7 +856,7 @@ def main():
     qvel_dim = int(env.env.sim.data.qvel.shape[-1])
     recorder = Recorder(
         repo_id="live_record",
-        fps=50,
+        fps=round(1.0 / env.env.step_dt),
         obs_dim=obs_dim,
         success_root=str(success_root),
         failure_root=str(failure_root),
@@ -769,7 +865,7 @@ def main():
         device=device,
     )
     print(
-        f"[INFO] Recording to {base_dir}/{{success,failure}}/{stamp} "
+        f"[INFO] Recording to {base_dir}/{{success,failure}}/{args.task}/{stamp} "
         f"(obs_dim={obs_dim}, qpos_dim={qpos_dim}, qvel_dim={qvel_dim})"
     )
 

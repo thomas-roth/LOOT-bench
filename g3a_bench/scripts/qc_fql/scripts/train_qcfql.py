@@ -11,8 +11,8 @@ QC-FQL results through `main.py`. The structure is therefore two phases:
    sampled from the growing buffer.
 
 Installed as the `g3a-train-qcfql` console script (see pyproject.toml),
-sibling to `g3a-train`/`g3a-play`. The CLI (`main()`) runs the offline phase
-and optionally the online phase (`--online-steps N --task TASK_ID`).
+sibling to `g3a-play`/`g3a-play-qcfql`. The CLI (`main()`) runs the offline
+phase and optionally the online phase (`--online-steps N --task TASK_ID`).
 Requires `--task` for online fine-tuning or eval; raises ValueError if
 the task id is missing when needed.
 
@@ -114,7 +114,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--task",
         type=str,
         default=None,
-        help="mjlab task id for online fine-tuning (e.g. G3a-Cube-Stack3-Dk1_uni)",
+        help="mjlab task id for online fine-tuning (e.g. G3A-Stack-Low-Dk1_uni)",
     )
     parser.add_argument(
         "--device",

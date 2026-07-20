@@ -5,31 +5,39 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import torch
-from mjlab.entity import Entity
-from mjlab.managers.scene_entity_config import SceneEntityCfg
 
 from g3a_bench.tasks.ball.mdp.commands import get_command as _command
+from g3a_bench.tasks.common.observations import flatten_pose
 
 if TYPE_CHECKING:
     from mjlab.envs import ManagerBasedRlEnv
 
 
-def ball_rel_grasp(
-    env: ManagerBasedRlEnv,
-    command_name: str,
-    asset_cfg: SceneEntityCfg,
-) -> torch.Tensor:
-    """Ball position relative to the EEF position (E, 3)."""
+def ball_pose(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
+    """Ball position in the env-local world frame (E, 3).
+
+    No quaternion: a sphere's orientation carries no task-relevant signal.
+    """
     command = _command(env, command_name)
-    robot: Entity = env.scene[asset_cfg.name]
-    ee_pos = robot.data.site_pos_w[:, asset_cfg.site_ids].squeeze(1)
-    return command.ball_pos_w - ee_pos
+    return command.ball_pos_w - env.scene.env_origins
 
 
-def ball_to_target(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
-    """Target position relative to the ball (E, 3)."""
+def field_pose(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
+    """Field pose in the env-local world frame (E, 7)."""
     command = _command(env, command_name)
-    return command.target_pos_w - command.ball_pos_w
+    return flatten_pose(
+        command.field_pos_w, command.field_quat_w, env.scene.env_origins
+    )
+
+
+def wall_pose(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
+    """Wall pose in the env-local world frame (E, 7).
+
+    Only registered for variants with an independently-moving wall entity
+    (``ThrowWallVariation``); other variants bake the wall into the field.
+    """
+    command = _command(env, command_name)
+    return flatten_pose(command.wall_pos_w, command.wall_quat_w, env.scene.env_origins)
 
 
 def ball_velocity(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:

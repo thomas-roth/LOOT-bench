@@ -1,4 +1,4 @@
-"""Gym-style single-env adapter over a real mjlab task (cube family, DK1 unimanual).
+"""Gym-style single-env adapter over a real mjlab task (G3a tasks, DK1 unimanual).
 
 The training/eval loops (ported from a repo whose envs are gym-style) expect
 flat numpy observations, scalar rewards, and an explicit `reset()` after
@@ -11,8 +11,8 @@ tests/test_mjlab_env.py, which constructs the actual task).
 Three impedance mismatches this class absorbs, each checked against the
 live env rather than assumed:
 
-1. Observations: cube tasks expose two groups, {"actor": (1,53), "critic":
-   (1,53)} -- same terms, but "actor" has observation corruption enabled.
+1. Observations: G3a tasks expose two groups, {"actor": (1,D), "critic":
+   (1,D)} -- same terms, but "actor" has observation corruption enabled.
    Default here is "actor": train/eval on what a deployed policy would see.
 
 2. Actions: the policy emits [-1, 1]; mjlab applies `target = raw * scale +
@@ -67,11 +67,11 @@ class MjlabSingleEnv:
         return self._normalizer.denormalize(action)
 
     def _get_success(self) -> float | None:
-        # mjlab has no framework-level success flag; cube tasks track it on
-        # their command term. Returns None (key omitted from info) for tasks
-        # without this term rather than failing.
+        # mjlab has no framework-level success flag; every G3a task tracks it
+        # on its "task" command term. Returns None (key omitted from info) for
+        # tasks without this term rather than failing.
         try:
-            command = self.env.command_manager.get_term("arrangement")
+            command = self.env.command_manager.get_term("task")
             return float(command.episode_success[0].item())
         except (KeyError, AttributeError):
             return None

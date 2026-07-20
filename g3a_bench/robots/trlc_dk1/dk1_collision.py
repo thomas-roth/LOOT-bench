@@ -16,11 +16,10 @@ self-collision (the bimanual default).
 
 from mjlab.utils.spec_config import CollisionCfg
 
-# Single source of truth for the finger-pad geoms. The ManipulatorInterface
-# (task-side matching) uses the bare pattern; the collision config anchors it
-# with `.*` so the bimanual `left_`/`right_` body prefixes still match.
+# Bare finger-pad pattern; anchored below with `.*` so the bimanual
+# `left_`/`right_` body prefixes still match.
 DK1_PAD_GEOM_PATTERN = r"finger_(left|right)_pad_collision"
-_PAD_GEOMS = rf".*{DK1_PAD_GEOM_PATTERN}"
+DK1_PAD_GEOMS_PATTERN = rf".*{DK1_PAD_GEOM_PATTERN}"
 
 # The gripper geoms: wrist link, fingers, and finger pads. Anchored with `.*`
 # so the bimanual `left_`/`right_` body prefixes still match.
@@ -42,18 +41,18 @@ def _collision_with_pad_tuning(
         contype=contype,
         conaffinity=conaffinity,
         condim={
-            _PAD_GEOMS: 6,
+            DK1_PAD_GEOMS_PATTERN: 6,
             ".*_collision": 3,
         },
         friction={
-            _PAD_GEOMS: (1, 5e-3, 5e-4),
+            DK1_PAD_GEOMS_PATTERN: (1, 5e-3, 5e-4),
             ".*_collision": (0.6,),
         },
         solref={
-            _PAD_GEOMS: (0.01, 1),
+            DK1_PAD_GEOMS_PATTERN: (0.01, 1),
         },
         priority={
-            _PAD_GEOMS: 1,
+            DK1_PAD_GEOMS_PATTERN: 1,
         },
     )
 

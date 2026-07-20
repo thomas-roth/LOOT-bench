@@ -1,10 +1,13 @@
 import time
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TypeVar
 
 import numpy as np
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
+
+from g3a_bench.scripts.live_bridge.dataset_extra_info import load_extra_info
 
 # Hardware-specific imports — only needed for LiveReader (real robot).
 # Protected by try/except so the module can be imported on machines
@@ -23,6 +26,37 @@ except ImportError:
     DK1FollowerConfig: Any = None
     DK1Leader: Any = None
     DK1LeaderConfig: Any = None
+
+_T = TypeVar("_T")
+_CONNECT_RETRIES = 3
+_CONNECT_RETRY_DELAY_S = 1.0
+
+
+def _connect_with_retry(
+    make_device: Callable[[], _T],
+    retries: int = _CONNECT_RETRIES,
+    delay_s: float = _CONNECT_RETRY_DELAY_S,
+) -> _T:
+    """Instantiate + `.connect()` a device, retrying on a transient `ConnectionError`.
+
+    A fresh device is built on every attempt: a device that already got as
+    far as opening its serial port (`bus.connect()` succeeded) before the
+    handshake failed would raise `DeviceAlreadyConnectedError` if we called
+    `.connect()` again on the same instance.
+    """
+    last_exc: ConnectionError | None = None
+    for attempt in range(1, retries + 1):
+        device = make_device()
+        try:
+            device.connect()
+            return device
+        except ConnectionError as exc:
+            last_exc = exc
+            print(f"[HW] connect attempt {attempt}/{retries} failed ({exc})")
+            if attempt < retries:
+                time.sleep(delay_s)
+    assert last_exc is not None
+    raise last_exc
 
 
 @dataclass
@@ -98,8 +132,8 @@ class DatasetReader(Reader):
 
     @property
     def meta_info(self) -> dict:
-        """The dataset's info.json dict (episode_seeds, seed_device, operator_id, ...)."""
-        return self._ds.meta.info
+        """The dataset's sidecar extra info (episode_seeds, seed_device, operator_id, ... via .get())."""
+        return load_extra_info(self._ds.meta.root)
 
     def read(self) -> ReaderFrame:
         if self._frame_index >= (self._end - self._start):
@@ -175,13 +209,22 @@ class LiveReader(Reader):
             self.connect()
 
     def connect(self):
-        """Open serial connection(s) to the leader, and the follower if enabled."""
+        """Open serial connection(s) to the leader, and the follower if enabled.
+
+        The vendored dk1 `configure()` handshake calls `disable_torque()`
+        with `num_retry=0` — one dropped status packet on that very first
+        write (e.g. a USB-serial adapter that hasn't settled yet right after
+        the port opens) raises `ConnectionError` with no retry margin at
+        all. Retry the whole handshake here instead of failing the session.
+        """
         if self.use_follower:
-            self._follower = DK1Follower(DK1FollowerConfig(port=self.follower_port))
-            self._follower.connect()
+            self._follower = _connect_with_retry(
+                lambda: DK1Follower(DK1FollowerConfig(port=self.follower_port))
+            )
         if self.leader_port:
-            self._leader = DK1Leader(DK1LeaderConfig(port=self.leader_port))
-            self._leader.connect()
+            self._leader = _connect_with_retry(
+                lambda: DK1Leader(DK1LeaderConfig(port=self.leader_port))
+            )
 
     def read(self) -> ReaderFrame:
         if self.use_follower and self._follower is None:

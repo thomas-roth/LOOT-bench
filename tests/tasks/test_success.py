@@ -10,16 +10,28 @@ from typing import NoReturn, cast
 import pytest
 import torch
 from mjlab.entity import Entity
+from mjlab.sensor import ContactSensor
 
 from g3a_bench.tasks.ball.mdp.success import ball_in_target_zone
-from g3a_bench.tasks.common.commands import GripperGateCommandCfg, GripperOpenGate
+from g3a_bench.tasks.common.commands import (
+    ContactReleaseGate,
+    GripperGateCommandCfg,
+    GripperOpenGate,
+)
 from g3a_bench.tasks.common.success import SuccessGate
-from g3a_bench.tasks.cube.mdp.success import domino_upright_aligned
-from g3a_bench.tasks.insertion.mdp.success import (
-    SorterLatch,
-    peg_axial_lateral,
-    peg_axis_cos_tilt,
-    peg_inserted,
+from g3a_bench.tasks.domino.mdp.success import (
+    chain_topple_success,
+    domino_fallen_along_row,
+    domino_upright_aligned,
+)
+from g3a_bench.tasks.shape_sorter.mdp.success import SorterLatch
+from g3a_bench.tasks.shape_sorter.variants import SHAPE_SORTER_VARIANTS, allowed_faces
+from g3a_bench.tasks.stack.mdp.success import (
+    block_top_heights,
+    stack_progress,
+    stack_reached,
+    two_stacks_progress,
+    two_stacks_success,
 )
 
 
@@ -86,55 +98,6 @@ class TestDominoUprightAligned:
         yaw = 0.7
         quat = _quat_axis_angle((0.0, 0.0, 1.0), yaw + math.pi)
         assert self._check(quat, yaw)
-
-
-# ---------------------------------------------------------------------------
-# peg criteria
-# ---------------------------------------------------------------------------
-
-
-class TestPegKernels:
-    def test_axial_lateral_decomposition(self):
-        mouth = torch.zeros(1, 1, 3)
-        axis = torch.tensor([[[0.0, 0.0, 1.0]]])
-        pos = torch.tensor([[[0.03, 0.04, -0.02]]])
-        axial, lateral = peg_axial_lateral(pos, mouth, axis)
-        assert axial[0, 0].item() == pytest.approx(-0.02)
-        assert lateral[0, 0].item() == pytest.approx(0.05)
-
-    def test_cos_tilt_of_upright_peg_along_z(self):
-        quat = torch.tensor([[[1.0, 0.0, 0.0, 0.0]]])
-        axis = torch.tensor([[[0.0, 0.0, 1.0]]])
-        assert peg_axis_cos_tilt(quat, axis)[0, 0].item() == pytest.approx(1.0)
-
-    def test_cos_tilt_is_sign_free(self):
-        # A peg inserted "upside down" is still aligned with the bore axis.
-        quat = _quat_axis_angle((1.0, 0.0, 0.0), math.pi).view(1, 1, 4)
-        axis = torch.tensor([[[0.0, 0.0, 1.0]]])
-        assert peg_axis_cos_tilt(quat, axis)[0, 0].item() == pytest.approx(1.0)
-
-    def test_inserted_requires_depth_lateral_and_tilt(self):
-        kw = {
-            "half_len": 0.05,
-            "insert_depth": 0.01,
-            "lateral_tol": 0.004,
-            "tilt_cos": 0.9,
-        }
-        one = torch.ones(1, 1)
-
-        def check(axial: float, lateral: float, cos_tilt: float) -> bool:
-            return bool(
-                peg_inserted(axial * one, lateral * one, cos_tilt * one, **kw)[0, 0]
-            )
-
-        # Center 1 cm below the mouth, tip well past insert_depth.
-        assert check(-0.01, 0.0, 1.0)
-        # Center above the mouth but tip still deep enough (tip depth
-        # = -axial + half_len * cos_tilt).
-        assert check(0.03, 0.0, 1.0)
-        assert not check(0.05, 0.0, 1.0)  # tip 0 mm deep
-        assert not check(-0.01, 0.005, 1.0)  # off-center
-        assert not check(-0.01, 0.0, 0.8)  # tilted
 
 
 # ---------------------------------------------------------------------------
@@ -321,3 +284,200 @@ class TestGripperOpenGate:
         gate = GripperOpenGate(_gate_cfg(("nope",), 0.0))
         with pytest.raises(ValueError):
             gate(_fake_robot(["q1"], torch.zeros(1, 1)))
+
+
+# ---------------------------------------------------------------------------
+# ContactReleaseGate
+# ---------------------------------------------------------------------------
+
+
+def _fake_contact_sensor(force: torch.Tensor) -> ContactSensor:
+    """Duck-typed ContactSensor stand-in: the gate only reads data.force."""
+    return cast(ContactSensor, SimpleNamespace(data=SimpleNamespace(force=force)))
+
+
+class TestContactReleaseGate:
+    def test_released_when_no_contact(self):
+        gate = ContactReleaseGate(min_force=0.5)
+        force = torch.zeros(2, 2, 3)  # (E=2, P=2 pads, 3)
+        assert gate(_fake_contact_sensor(force)).tolist() == [True, True]
+
+    def test_not_released_when_any_pad_over_threshold(self):
+        gate = ContactReleaseGate(min_force=0.5)
+        force = torch.zeros(2, 2, 3)
+        force[0, 1] = torch.tensor([1.0, 0.0, 0.0])  # env 0, right pad: 1 N
+        assert gate(_fake_contact_sensor(force)).tolist() == [False, True]
+
+    def test_boundary_at_threshold_counts_as_released(self):
+        gate = ContactReleaseGate(min_force=0.5)
+        force = torch.zeros(1, 2, 3)
+        force[0, 0] = torch.tensor([0.5, 0.0, 0.0])  # exactly at threshold
+        assert gate(_fake_contact_sensor(force)).tolist() == [True]
+
+
+# ---------------------------------------------------------------------------
+# stack kernels
+# ---------------------------------------------------------------------------
+
+
+class TestStackHeight:
+    def test_top_heights_add_half_heights(self):
+        pos_z = torch.tensor([[0.02, 0.06]])
+        half_h = torch.tensor([0.02, 0.03])
+        top = block_top_heights(pos_z, half_h)
+        assert top[0].tolist() == pytest.approx([0.04, 0.09])
+
+    @pytest.mark.parametrize(
+        "top,expected",
+        [(0.11, True), (0.13, True), (0.1099, False), (0.1301, False)],
+    )
+    def test_reached_boundary_at_tol(self, top: float, expected: bool):
+        top_z = torch.tensor([[top]])
+        assert bool(stack_reached(top_z, 0.0, 0.12, 0.01)[0, 0]) is expected
+
+    def test_any_block_counts_regardless_of_position(self):
+        # Height-only semantics: exactly the blocks whose top face sits in
+        # the tol band count, wherever they are in xy; the rest do not.
+        half_h = torch.full((3,), 0.02)
+        pos_z = torch.tensor([[0.02, 0.02, 0.10]])  # 2 on the table, 1 on top
+        reached = stack_reached(block_top_heights(pos_z, half_h), 0.0, 0.12, 0.01)
+        assert reached.tolist() == [[False, False, True]]
+        assert bool(reached.any(dim=-1)[0])
+
+    def test_progress_clamps_to_unit_interval(self):
+        assert stack_progress(torch.tensor([[0.20]]), 0.0, 0.12)[0] == 1.0
+        assert stack_progress(torch.tensor([[-0.05]]), 0.0, 0.12)[0] == 0.0
+
+    def test_progress_tracks_tallest_block(self):
+        top_z = torch.tensor([[0.04, 0.08]])
+        assert stack_progress(top_z, 0.0, 0.16)[0].item() == pytest.approx(0.5)
+
+
+# ---------------------------------------------------------------------------
+# two-stacks kernels
+# ---------------------------------------------------------------------------
+
+
+class TestTwoStacks:
+    def _success(self, reached: list[bool], xy: list[list[float]]) -> bool:
+        return bool(
+            two_stacks_success(
+                torch.tensor([reached]), torch.tensor([xy]), min_separation=0.06
+            )[0]
+        )
+
+    @pytest.mark.parametrize("dist,expected", [(0.06, True), (0.059, False)])
+    def test_separation_boundary(self, dist: float, expected: bool):
+        xy = [[0.0, 0.0], [dist, 0.0]]
+        assert self._success([True, True], xy) is expected
+
+    def test_requires_two_reached_blocks(self):
+        xy = [[0.0, 0.0], [0.2, 0.0]]
+        assert not self._success([True, False], xy)
+        assert self._success([True, True], xy)
+
+    def test_progress_ignores_unseparated_second_stack(self):
+        # Both height leaders within min_separation: one stack, second term 0.
+        top_z = torch.tensor([[0.12, 0.12]])
+        xy = torch.tensor([[[0.0, 0.0], [0.03, 0.0]]])
+        p = two_stacks_progress(top_z, xy, 0.0, 0.12, 0.06)
+        assert p[0].item() == pytest.approx(0.5)
+
+    def test_progress_mean_of_two_best_separated_leaders(self):
+        top_z = torch.tensor([[0.12, 0.06, 0.03]])
+        xy = torch.tensor([[[0.0, 0.0], [0.1, 0.0], [0.2, 0.0]]])
+        p = two_stacks_progress(top_z, xy, 0.0, 0.12, 0.06)
+        assert p[0].item() == pytest.approx(0.75)
+
+    def test_progress_clamps_at_two_full_stacks(self):
+        top_z = torch.tensor([[0.15, 0.14]])
+        xy = torch.tensor([[[0.0, 0.0], [0.1, 0.0]]])
+        p = two_stacks_progress(top_z, xy, 0.0, 0.12, 0.06)
+        assert p[0].item() == pytest.approx(1.0)
+
+
+# ---------------------------------------------------------------------------
+# domino_fallen_along_row / chain_topple_success
+# ---------------------------------------------------------------------------
+
+
+class TestDominoFallenAlongRow:
+    def _fallen(self, quat, row_yaw=0.0, tilt_deg=45.0):
+        yaw = torch.tensor([row_yaw])
+        return domino_fallen_along_row(quat.view(1, -1, 4), yaw, tilt_deg)
+
+    def test_standing_is_not_fallen(self):
+        fallen, sign = self._fallen(torch.tensor([[1.0, 0.0, 0.0, 0.0]]))
+        assert not fallen.any() and (sign == 0).all()
+
+    def test_fallen_forward_along_row(self):
+        # Row along +x; tip 80 deg about the y-axis -> leans toward +x.
+        q = _quat_axis_angle((0.0, 1.0, 0.0), math.radians(80.0))
+        fallen, sign = self._fallen(q.view(1, 1, 4))
+        assert fallen.all() and (sign == 1.0).all()
+
+    def test_fallen_backward_along_row(self):
+        q = _quat_axis_angle((0.0, 1.0, 0.0), math.radians(-80.0))
+        fallen, sign = self._fallen(q.view(1, 1, 4))
+        assert fallen.all() and (sign == -1.0).all()
+
+    def test_fallen_sideways_does_not_count(self):
+        # Tipped past 45 deg but perpendicular to the row: the old bug.
+        q = _quat_axis_angle((1.0, 0.0, 0.0), math.radians(80.0))
+        fallen, sign = self._fallen(q.view(1, 1, 4))
+        assert not fallen.any() and (sign == 0).all()
+
+    def test_row_yaw_rotates_the_along_axis(self):
+        # Same sideways tip counts once the row itself runs along y.
+        q = _quat_axis_angle((1.0, 0.0, 0.0), math.radians(80.0))
+        fallen, sign = self._fallen(q.view(1, 1, 4), row_yaw=math.pi / 2)
+        assert fallen.all() and (sign == -1.0).all()
+
+
+class TestChainToppleSuccess:
+    def _run(self, signs, order):
+        fallen = torch.tensor([[s != 0 for s in signs]])
+        sign = torch.tensor([signs], dtype=torch.float32)
+        return chain_topple_success(
+            fallen, sign, torch.tensor([order], dtype=torch.float32)
+        )
+
+    def test_forward_chain_in_order_succeeds(self):
+        assert self._run([1, 1, 1], [3.0, 5.0, 8.0]).all()
+
+    def test_backward_chain_in_reverse_order_succeeds(self):
+        assert self._run([-1, -1, -1], [8.0, 5.0, 3.0]).all()
+
+    def test_simultaneous_falls_allowed(self):
+        assert self._run([1, 1, 1], [3.0, 3.0, 3.0]).all()
+
+    def test_out_of_order_fails(self):
+        assert not self._run([1, 1, 1], [5.0, 3.0, 8.0]).any()
+
+    def test_mixed_directions_fail(self):
+        assert not self._run([1, -1, 1], [3.0, 5.0, 8.0]).any()
+
+    def test_not_all_fallen_fails(self):
+        assert not self._run([1, 1, 0], [3.0, 5.0, 1e9]).any()
+
+
+# ---------------------------------------------------------------------------
+# shape_sorter: no_rotation allowed-face sets
+# ---------------------------------------------------------------------------
+
+
+class TestNoRotationFaces:
+    def _allowed(self, name: str) -> set[int]:
+        return set(allowed_faces(SHAPE_SORTER_VARIANTS[name].shapes))
+
+    def test_allowed_faces_shrink_and_nest_with_shape_count(self):
+        a3 = self._allowed("ShapeSorter3NoRotation")
+        a4 = self._allowed("ShapeSorter4NoRotation")
+        a5 = self._allowed("ShapeSorter5NoRotation")
+        assert a5 <= a4 <= a3
+        assert len(a5) < len(a4) < len(a3)
+
+    def test_allowed_faces_never_empty(self):
+        # The star socket is never a required shape, so its face index is
+        # always allowed, however many shapes the variant needs.
+        assert self._allowed("ShapeSorter5NoRotation")

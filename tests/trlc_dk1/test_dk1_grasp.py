@@ -25,8 +25,8 @@ from g3a_bench.robots.trlc_dk1.dk1_constants import (
     get_unimanual_dk1_robot_cfg,
 )
 
-_PIECE_HALF_SIZE = 0.02  # [m], 40 mm box, tasks/cube-piece sized.
-_PIECE_MASS = 0.1  # [kg], tasks/cube PIECE_MASS.
+_PIECE_HALF_SIZE = 0.02  # [m], 40 mm box, tasks/stack base-cube sized.
+_PIECE_MASS = 0.1  # [kg], tasks/stack FORM_MASS["cube"].
 _SETTLE_STEPS = 300  # 3 s at the play timestep.
 _STEADY_WINDOW = 50
 
@@ -57,7 +57,9 @@ def _build_grasp_model() -> mujoco.MjModel:
     spec.option.integrator = mujoco.mjtIntegrator.mjINT_IMPLICITFAST
     spec.option.cone = mujoco.mjtCone.mjCONE_ELLIPTIC
     spec.option.impratio = 10
-    spec.option.disableflags |= mujoco.mjtDisableBit.mjDSBL_NATIVECCD
+    # The env's nativeccd disable flag is not replicated: it only reroutes
+    # box-box dispatch in MuJoCo Warp; C MuJoCo uses the analytic box-box
+    # collider either way.
     # Zero gravity keeps the box at the grasp site without a table, so the
     # measured contacts are exclusively pad<->piece.
     spec.option.gravity = (0.0, 0.0, 0.0)

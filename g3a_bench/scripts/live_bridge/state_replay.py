@@ -9,7 +9,7 @@ bitwise-exact reproduction of the recorded trajectory.
 
 Usage:
     uv run python g3a_bench/scripts/live_bridge/state_replay.py \
-        --dataset-dir out/demos/success/2026-07-11_18-23-00
+        --dataset-dir out/demos/success/G3A-Stack-Low-Dk1_uni/2026-07-11_18-23-00
 
     # replay a specific episode
     uv run python g3a_bench/scripts/live_bridge/state_replay.py \
@@ -41,7 +41,7 @@ from mjlab.viewer import NativeMujocoViewer
 from mjlab.viewer.base import VerbosityLevel
 
 import g3a_bench  # noqa: F401
-from g3a_bench.scripts.live_bridge.live_record import apply_teleop_contact_stability
+from g3a_bench.scripts.live_bridge.dataset_extra_info import load_extra_info
 
 
 # ── Episode loading ───────────────────────────────────────────────────────────
@@ -113,13 +113,14 @@ def load_episode(dataset_dir: str, episode_index: int) -> Episode:
             "requires velocities. Re-record with the updated live_record.py."
         )
 
-    seed_val = ds.meta.info.get("episode_seeds", {}).get(str(episode_index))
+    extra_info = load_extra_info(ds.meta.root)
+    seed_val = extra_info.get("episode_seeds", {}).get(str(episode_index))
     return Episode(
         qpos=qpos,
         qvel=qvel,
         done=done.reshape(len(qpos)),
         seed=int(seed_val) if seed_val is not None else None,
-        seed_device=ds.meta.info.get("seed_device"),
+        seed_device=extra_info.get("seed_device"),
     )
 
 
@@ -131,7 +132,6 @@ def build_env(task: str, device: str) -> RslRlVecEnvWrapper:
     cfg.terminations["time_out"].time_out = False
     cfg.terminations.pop("ee_ground_collision", None)
     cfg.terminations.pop("success", None)
-    apply_teleop_contact_stability(cfg)
     env = ManagerBasedRlEnv(cfg=cfg, device=device)
     return RslRlVecEnvWrapper(env)
 
@@ -214,13 +214,13 @@ def main():
         "--dataset-dir",
         type=str,
         required=True,
-        help="live_record session/dataset dir (e.g. out/demos/success/<stamp>)",
+        help="live_record session/dataset dir (e.g. out/demos/success/<task>/<stamp>)",
     )
     parser.add_argument("--episode-index", type=int, default=0)
     parser.add_argument(
         "--task",
         type=str,
-        default="G3a-Cube-Stack3-Dk1_uni",
+        default="G3A-Stack-Low-Dk1_uni",
         help="MJLab task name to load.",
     )
     args = parser.parse_args()

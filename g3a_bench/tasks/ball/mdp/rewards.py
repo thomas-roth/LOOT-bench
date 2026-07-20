@@ -1,17 +1,15 @@
-"""Reward terms for the ball task category."""
+"""Reward terms for the ball task category.
+
+No ``progress`` reward: unlike the other categories, ball's task rewards are
+``success`` only (see ``ball_env_cfg.py``).
+"""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from functools import partial
 
-import torch
+from g3a_bench.tasks.ball.mdp.commands import get_command
+from g3a_bench.tasks.common.rewards import command_success_reward
 
-from g3a_bench.tasks.ball.mdp.commands import get_command as _command
-
-if TYPE_CHECKING:
-    from mjlab.envs import ManagerBasedRlEnv
-
-
-def success_reward(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
-    """Bonus when the ball is in target, at rest, and released."""
-    return _command(env, command_name).success
+success_reward = partial(command_success_reward, get_command=get_command)
+"""Bonus when the ball is in target, at rest, and released."""

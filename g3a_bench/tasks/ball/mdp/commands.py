@@ -1,9 +1,18 @@
-"""Ball command: target placement, ball scatter and at-target success.
+"""Ball command: target/wall pose, ball scatter and at-target success.
 
-Drives all ball variants (golf / push / throw x marked / U-pocket / hole). The
-target is a fixed structure on the field; the command samples the ball spawn,
-tracks the ball, and decides success (ball inside the target and at rest; for
-hole variants the ball must also have dropped below the platform surface).
+Drives all ball variants (minigolf x direct/using_wall/obstacle/ramp, throw x
+U/marked/wall_variation). The target lives on the *field*, a fixed-base
+entity whose pose is randomized each reset by the generated ``reset_field``
+event (see ``ball_env_cfg.make_ball_env_cfg``); this command reads the
+field's *live* pose every step and derives the target's world position from
+it, so the goal follows the field instead of a constant env-origin offset.
+``ThrowWallVariation`` additionally has a separate, independently-moving
+``wall`` entity; other throw variants have the wall baked into the field, so
+this command derives its world pose from the field's live pose instead.
+
+The command samples the ball spawn, tracks the ball, and decides success
+(ball inside the target zone and at rest; for minigolf the ball must also
+have dropped below the target's local surface).
 """
 
 from __future__ import annotations
@@ -21,6 +30,8 @@ from g3a_bench.tasks.ball.variants import (
     BALL_RADIUS,
     BALL_SPAWN_X,
     HOLE_RADIUS,
+    TARGET_X,
+    WALL_X,
     BallVariantCfg,
 )
 from g3a_bench.tasks.common.debug_markers import marker_color
@@ -37,9 +48,12 @@ _RELEASE_DISTANCE = 0.08
 @dataclass(kw_only=True)
 class BallCommandCfg(CommandTermCfg):
     ball_name: str
+    field_name: str
     variant: BallVariantCfg
     grasp_cfg: SceneEntityCfg
     """Robot grasp site for the release check; site set by manipulator wiring."""
+    wall_name: str | None = None
+    """Set only for ThrowWallVariation's independently-moving wall entity."""
     spawn_x_range: tuple[float, float] = (BALL_SPAWN_X - 0.03, BALL_SPAWN_X + 0.03)
     spawn_y_range: tuple[float, float] = (-0.08, 0.08)
 
@@ -54,6 +68,10 @@ class BallCommand(CommandTerm):
         super().__init__(cfg, env)
         self.variant = cfg.variant
         self.ball: Entity = env.scene[cfg.ball_name]
+        self.field: Entity = env.scene[cfg.field_name]
+        self.wall: Entity | None = (
+            env.scene[cfg.wall_name] if cfg.wall_name is not None else None
+        )
         self.grasp_cfg = cfg.grasp_cfg
         # Resolve names -> indices against the scene. Unlike term ``asset_cfg``s
         # (which the managers resolve), this command-owned cfg is resolved here,
@@ -62,22 +80,29 @@ class BallCommand(CommandTerm):
         self.grasp_cfg.resolve(env.scene)
 
         E, dev = self.num_envs, self.device
-        self.surface_z = self.variant.surface_z
+        variant = self.variant
+        self._is_hole = variant.task == "minigolf"
+        self.spawn_z = variant.spawn_z
+        self.target_z = variant.target_z
         self.target_radius = (
-            HOLE_RADIUS if self.variant.target == "hole" else self.variant.target_radius
+            HOLE_RADIUS if self._is_hole else variant.target_radius * variant.margin
         )
 
-        target_local = torch.tensor(
-            [self.variant.target_x, 0.0, self.surface_z], device=dev
+        target_y = variant.pit_y if self._is_hole else 0.0
+        self._local_target = torch.tensor(
+            [TARGET_X, target_y, self.target_z], device=dev
         )
-        self.target_pos_w = self._env.scene.env_origins + target_local  # (E, 3)
+        self._wall_local = torch.tensor([WALL_X, 0.0, 0.0], device=dev)
 
+        self.field_pos_w = torch.zeros(E, 3, device=dev)
+        self.field_quat_w = torch.zeros(E, 4, device=dev)
+        self.wall_pos_w = torch.zeros(E, 3, device=dev)
+        self.wall_quat_w = torch.zeros(E, 4, device=dev)
+        self.target_pos_w = torch.zeros(E, 3, device=dev)
         self.ball_pos_w = torch.zeros(E, 3, device=dev)
         self.ball_vel_w = torch.zeros(E, 3, device=dev)
         self.at_target = torch.zeros(E, device=dev)
-        self._gate = SuccessGate(
-            E, device=dev, vel_threshold=self.variant.at_rest_speed
-        )
+        self._gate = SuccessGate(E, device=dev, vel_threshold=variant.at_rest_speed)
 
         self.metrics["target_distance"] = torch.zeros(E, device=dev)
         self.metrics["at_target"] = torch.zeros(E, device=dev)
@@ -85,7 +110,8 @@ class BallCommand(CommandTerm):
 
     @property
     def command(self) -> torch.Tensor:
-        return self.target_pos_w - self.ball_pos_w
+        """(E, 3): env-local target position (was a ball-relative delta)."""
+        return self.target_pos_w - self._env.scene.env_origins
 
     @property
     def success(self) -> torch.Tensor:
@@ -104,6 +130,16 @@ class BallCommand(CommandTerm):
         return gripper_distance > _RELEASE_DISTANCE
 
     def _update_metrics(self) -> None:
+        self.field_pos_w = self.field.data.root_link_pos_w
+        self.field_quat_w = self.field.data.root_link_quat_w
+        self.target_pos_w = self.field_pos_w + self._local_target
+        if self.wall is not None:
+            self.wall_pos_w = self.wall.data.root_link_pos_w
+            self.wall_quat_w = self.wall.data.root_link_quat_w
+        elif self.variant.has_wall:
+            self.wall_pos_w = self.field_pos_w + self._wall_local
+            self.wall_quat_w = self.field_quat_w
+
         self.ball_pos_w = self.ball.data.root_link_pos_w
         self.ball_vel_w = self.ball.data.root_link_lin_vel_w
 
@@ -111,8 +147,8 @@ class BallCommand(CommandTerm):
             self.ball_pos_w,
             self.target_pos_w,
             radius=self.target_radius,
-            surface_z=self.surface_z,
-            is_hole=self.variant.target == "hole",
+            surface_z=self.target_z,
+            is_hole=self._is_hole,
             ball_radius=BALL_RADIUS,
         )
         speed = torch.norm(self.ball_vel_w, dim=-1)
@@ -137,7 +173,7 @@ class BallCommand(CommandTerm):
         y0, y1 = self.cfg.spawn_y_range
         x = x0 + torch.rand(n, device=dev) * (x1 - x0)
         y = y0 + torch.rand(n, device=dev) * (y1 - y0)
-        z = torch.full((n,), self.surface_z + BALL_RADIUS + 0.002, device=dev)
+        z = torch.full((n,), self.spawn_z + BALL_RADIUS + 0.002, device=dev)
         pos = torch.stack([x, y, z], dim=-1) + origins
         quat = torch.zeros(n, 4, device=dev)
         quat[:, 0] = 1.0

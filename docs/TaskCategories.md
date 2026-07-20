@@ -19,9 +19,12 @@ Pay attention to the drawing of random numbers from a seed. First draw all rando
 ### Randomization:
 always randomize objects & goal poses (position and orientation) a little if not stated otherwise to prevent overfitting. 
 
-## Category: Stacking
+## Category: Stack
 
-Stack blocks to reach a target height. Only the final height matters; block position does not.
+Stack blocks to reach a target height. Only the final height matters; block
+position does not. Block sets carry extra material beyond the minimum
+needed, so support structures (staircase, pyramid) are viable strategies —
+height, not block count, is the constraint.
 
 | **Evaluated Capabilities** | Description |
 | --- | --- |
@@ -30,15 +33,16 @@ Stack blocks to reach a target height. Only the final height matters; block posi
 
 | **Task** | Description |
 | --- | --- |
-| Stack3 | Build a stack three standard blocks high. |
-| Stack4 | Build a stack four standard blocks high. |
-| Stack5 | Build a stack five standard blocks high. |
+| Low | Build a stack three standard blocks high. |
+| Medium | Build a stack four standard blocks high. |
+| High | Build a stack five standard blocks high. |
 
 | **Variation** | Description |
 | --- | --- |
-| `base` | Use identical basic cubes only. |
-| `differentBlocks` | Use blocks with different shapes and weights, each with stacking trade-offs; rectangular blocks can serve as a bridging base. |
-| `2Stacks` | Build two separate stacks that each reach the target height. |
+| `base` | Identical cubes only, `2n` of them for a target height of `n` blocks. |
+| `differentBlocks` | A mixed prefix of four forms plus cubes: `cube` (balanced baseline), `plate` (wide, stabilizing, barely any height), `tall` (most height per placement, slender and tippy), `cylinder` (good height, yaw-invariant grasp, rolls when tipped). All heights are multiples of 0.02 m, so every set has an exact-height combination for the target. |
+| `2Stacks` | Build two separate stacks that each reach the target height, `2n+2` cubes. |
+| `2StacksDifferentBlocks` | `2Stacks` with a doubled mixed prefix of the four forms plus cubes. |
 
 ## Category: Domino
 
@@ -50,19 +54,19 @@ Build a domino line that can topple sequentially.
 
 | **Task** | Description |
 | --- | --- |
-| Domino2 | Place two dominoes in a line. |
-| Domino3 | Place three dominoes in a line. |
-| Domino4 | Place four dominoes in a line. |
+| 2Pieces | Place two dominoes in a line. |
+| 3Pieces | Place three dominoes in a line. |
+| 4Pieces | Place four dominoes in a line. |
 
 | **Variation** | Description |
 | --- | --- |
 | `base` | Use identical basic dominoes only. |
 | `differentDominoes` | Dominoes become progressively thinner and lighter. |
-| `knockOver` | Topple the completed line; include a phase observation indicating build (`0`) or toppling (`1`). |
+| `knockOver` | Topple the completed line as a chain: every domino falls along the row, same direction, in row order; phase observation build (`0`) / topple (`1`). |
 
-## Category: ShapeSorter (Cube6)
+## Category: Sorter
 
-Insert every peg into its matching hole in a Cube6 shape sorter. Each peg fits only its corresponding hole.
+Insert every peg into its matching hole in a shape sorter. Each peg fits only its corresponding hole.
 
 | **Evaluated Capabilities**  | Description |
 | --- | --- |
@@ -72,9 +76,9 @@ Insert every peg into its matching hole in a Cube6 shape sorter. Each peg fits o
 
 | **Task** | Description |
 | --- | --- |
-| ShapeSorter3 | Insert three shapes into the sorter. |
-| ShapeSorter4 | Insert four shapes into the sorter. |
-| ShapeSorter5 | Insert five shapes into the sorter. |
+| 3Shapes | Insert three shapes into the sorter. |
+| 4Shapes | Insert four shapes into the sorter. |
+| 5Shapes | Insert five shapes into the sorter. |
 
 | **Variation** | Description |
 | --- | --- |
@@ -94,14 +98,17 @@ Bring a ball to its goal by hitting or throwing it.
 
 ### Task: Minigolf
 
-Hit the ball once to reach a goal outside the robot's direct reach.
+Hit the ball once to reach a goal outside the robot's direct reach. Every
+layout has a perimeter railing around the platform edges, and the layouts
+are strictly additive: `usingWall` ⊂ `obstacle` ⊂ `ramp`, each adding one
+more element on top of the previous layout.
 
 | **Variation** | Description |
 | --- | --- |
-| `direct` | Reach the goal with a direct hit. |
-| `usingWall` | Use a wall bounce to reach the goal. |
-| `obstacle` | Add an obstacle between the ball and goal. |
-| `ramp` | Add a ramp to the course. |
+| `direct` | Reach the goal with a direct hit; the perimeter railing alone. |
+| `usingWall` | Adds a blocker across the direct line; the perimeter railing serves as the bank for a redirect shot. |
+| `obstacle` | `usingWall` plus an obstacle in the lane the blocker leaves open. |
+| `ramp` | `obstacle` plus the goal raised onto an elevated section, reached via an incline. |
 
 ### Task: Throw
 

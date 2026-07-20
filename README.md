@@ -48,28 +48,15 @@ To manually run the pre-commit hooks on all files:
 uv run pre-commit run --all-files
 ```
 
-## Example G3a-Cube-Stack3-Dk1_uni
+## Example G3A-Stack-Low-Dk1_uni
 View:
 ```shell
-uv run g3a-play G3a-Cube-Stack3-Dk1_uni --agent zero --viewer native --num-envs 1 --no-terminations True
+uv run g3a-play G3A-Stack-Low-Dk1_uni --agent zero --viewer native --num-envs 1 --no-terminations True
 ```
 
-Train:
+Training is offline-to-online RL via QC-FQL, not the mjlab RSL-RL PPO loop
+(see `g3a_bench/scripts/qc_fql/README.md`):
 ```shell
-uv run g3a-train G3a-Cube-Stack3-Dk1_uni --env.scene.num-envs 1024
-```
-
-Play:
-```shell
-uv run g3a-play G3a-Cube-Stack3-Dk1_uni --checkpoint-file "logs/rsl_rl/cube_stack3_dk1_uni/2026-06-13_13-39-28/model_500.pt"
-```
-
-Continue training:
-```shell
-uv run g3a-train G3a-Cube-Stack3-Dk1_uni --env.scene.num-envs 1024 --agent.resume True --agent.load-run 2026-06-13_13-39-28
-```
-
-Play while training (can't use `uv run` as it is blocked by trainging process):
-```shell
-& ".venv\Scripts\python.exe" g3a_bench/scripts/play.py G3a-Cube-Stack3-Dk1_uni --checkpoint-file "logs/rsl_rl/cube_stack3_dk1_uni/2026-06-13_13-39-28/model_500.pt"
+uv run g3a-train-qcfql --dataset-path demos.npz --offline-steps 1000000 \
+    --task G3A-Stack-Low-Dk1_uni --checkpoint-path agent.pt
 ```
