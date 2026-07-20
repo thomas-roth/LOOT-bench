@@ -5,3 +5,4 @@ registry.
 """
 
 import g3a_bench.tasks  # noqa: F401
+from g3a_bench.qc import make_env_and_datasets as make_env_and_datasets
