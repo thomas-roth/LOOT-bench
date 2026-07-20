@@ -3,6 +3,7 @@ from g3a_bench.robots.trlc_dk1.dk1_actuators import (
     DK1_ACTION_SCALE_BIMANUAL,
     DK1_ACTION_SCALE_UNIMANUAL,
 )
+from g3a_bench.robots.trlc_dk1.dk1_collision import DK1_PAD_GEOMS_PATTERN
 from g3a_bench.robots.trlc_dk1.dk1_constants import (
     DK1_EE_SUBTREE,
     DK1_GRASP_SITE,
@@ -26,6 +27,7 @@ def get_unimanual_dk1_interface() -> ManipulatorInterface:
         gripper_joints=DK1_GRIPPER_JOINTS_UNIMANUAL,
         gripper_open_threshold=DK1_GRIPPER_OPEN_THRESHOLD,
         ee_subtree=DK1_EE_SUBTREE,
+        pad_geoms=DK1_PAD_GEOMS_PATTERN,
         viewer_body=DK1_VIEWER_BODY,
     )
 
@@ -39,5 +41,6 @@ def get_bimanual_dk1_interface() -> ManipulatorInterface:
         gripper_joints=DK1_GRIPPER_JOINTS_BIMANUAL,
         gripper_open_threshold=DK1_GRIPPER_OPEN_THRESHOLD,
         ee_subtree=DK1_EE_SUBTREE,
+        pad_geoms=DK1_PAD_GEOMS_PATTERN,
         viewer_body=DK1_VIEWER_BODY,
     )
