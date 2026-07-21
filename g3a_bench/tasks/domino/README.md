@@ -29,10 +29,10 @@ now gets a distinct identity color, `DOMINO_COLORS` in `variants.py`, indexed
 
 | Index | Palette name | RGB (0-255) |
 | --- | --- | --- |
-| 0 | `sky` | `rgb(103, 207, 228)` |
-| 1 | `cobalt` | `rgb(60, 127, 221)` |
-| 2 | `indigo` | `rgb(48, 34, 195)` |
-| 3 | `violet` | `rgb(100, 27, 152)` |
+| 0 | `sky` | `rgb(38, 217, 217)` |
+| 1 | `cobalt` | `rgb(24, 61, 170)` |
+| 2 | `indigo` | `rgb(71, 20, 123)` |
+| 3 | `violet` | `rgb(86, 16, 68)` |
 
 A cool-hue arc with monotonically decreasing brightness (index 0 lightest,
 index 3 darkest) -- two independent ordering cues (hue position and

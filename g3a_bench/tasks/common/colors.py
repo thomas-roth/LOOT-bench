@@ -14,8 +14,8 @@ PALETTE: dict[str, tuple[float, float, float, float]] = {
     # DOMINO_COLORS and docs/DominoTask-Analysis.md): two independent,
     # colorblind-safe ordering cues (hue position + lightness) for
     # identity-coding otherwise-identical pieces.
-    "sky": (0.471, 0.855, 0.886, 1.0),
-    "cobalt": (0.122, 0.302, 0.839, 1.0),
-    "indigo": (0.247, 0.114, 0.647, 1.0),
-    "violet": (0.373, 0.098, 0.463, 1.0),
+    "sky": (0.149, 0.851, 0.851, 1.0),
+    "cobalt": (0.094, 0.239, 0.667, 1.0),
+    "indigo": (0.278, 0.078, 0.482, 1.0),
+    "violet": (0.337, 0.063, 0.267, 1.0),
 }
