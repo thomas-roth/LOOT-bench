@@ -32,6 +32,10 @@ from pathlib import Path
 import numpy as np
 import torch
 from mjlab.envs import ManagerBasedRlEnv
+
+# Not PPO residue: RslRlVecEnvWrapper is mjlab's generic tensor/gym-API
+# adapter (obs dict -> tensor, action clipping) used by mjlab's own play/train
+# scripts regardless of training algorithm -- not something PPO-specific.
 from mjlab.rl import RslRlVecEnvWrapper
 from mjlab.tasks.registry import load_env_cfg
 from mjlab.viewer.base import VerbosityLevel

@@ -56,7 +56,7 @@ provides an OGBench-style env/dataset factory (`g3a_bench.qc.make_env_and_datase
      --eval_interval=100000 --eval_episodes=50 --save_interval=100000
    ```
    On CPU-only machines: `--g3a_device=cpu` and `JAX_PLATFORMS=cpu` before `python`.
-   
+
 ## Code Quality Checks
 The project uses [Ruff](https://www.astral.sh/ruff) for linting and formatting and [Pyright](https://microsoft.github.io/pyright) for type checking.
 
@@ -92,3 +92,16 @@ View:
 ```shell
 uv run g3a-play G3A-Stack-Low-Dk1_uni --agent zero --viewer native --num-envs 1 --no-terminations True
 ```
+
+
+
+cd ../qc
+source .venv/bin/activate
+PYTHONPATH=../g3a-bench:$PYTHONPATH python main.py \
+  --env_name=G3A-Stack-Low-Dk1_uni \
+  --g3a_dataset_path=../g3a-bench/dataset/demos/G3A-Stack-Low-Dk1_uni/G3A-Stack-Low-Dk1_uni_qc_physical.npz \
+  --g3a_device=auto \
+  --seed=42 --horizon_length=5 --sparse=false --agent.alpha=300 \
+  --offline_steps=1000000 --online_steps=1000000 --start_training=5000 \
+  --eval_interval=100000 --eval_episodes=50 --save_interval=100000 \
+  --run_group=G3A-Low_Cube_stacking

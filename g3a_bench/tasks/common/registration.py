@@ -13,7 +13,7 @@ from mjlab.tasks.registry import register_mjlab_task
 
 from g3a_bench.robots.interface import ManipulatorInterface
 from g3a_bench.tasks.common.manipulator_wiring import wire_manipulator_into_env
-from g3a_bench.tasks.common.rl_cfg import manipulation_ppo_runner_cfg
+from g3a_bench.tasks.common.rl_cfg import manipulation_rl_cfg
 
 
 def register_category(
@@ -25,7 +25,6 @@ def register_category(
     task_id_parts: Callable[..., tuple[str, str]],
     ee_contact_sensors: tuple[str, ...] = (),
     grip_contact_sensor: str | None = None,
-    max_iterations: int = 15_000,
 ) -> None:
     """Register all robot x variant tasks of one category.
 
@@ -44,8 +43,6 @@ def register_category(
         task_id_parts: ``(task, variation)`` for a variant, e.g.
             ``("Low", "DifferentBlocks")`` or ``("Low", "")`` for the base
             case.
-        max_iterations: PPO iteration budget (kept so ``g3a-play`` and the
-            mjlab registry tooling work; QC has its own trainer).
     """
     seen_task_ids: dict[str, str] = {}
     for robot in robots:
@@ -79,13 +76,19 @@ def register_category(
                 grip_contact_sensor=grip_contact_sensor,
             )
 
+            # Not PPO residue: `rl_cfg=`/`runner_cls=` are required, non-optional
+            # arguments of mjlab's own `register_mjlab_task` (no default exists
+            # for either) -- some valid object/class must be passed for
+            # registration to succeed at all, even though nothing here trains
+            # via PPO anymore. `runner_cls` is only ever exercised by mjlab's
+            # own `--agent trained` play mode, which is unusable regardless
+            # (nothing produces an RSL-RL checkpoint since training is QC-FQL).
             register_mjlab_task(
                 task_id=task_id,
                 env_cfg=env_cfg,
                 play_env_cfg=play_env_cfg,
-                rl_cfg=manipulation_ppo_runner_cfg(
-                    f"{category.lower()}_{variant.name.lower()}_{robot.name.lower()}",
-                    max_iterations=max_iterations,
+                rl_cfg=manipulation_rl_cfg(
+                    f"{category.lower()}_{variant.name.lower()}_{robot.name.lower()}"
                 ),
                 runner_cls=ManipulationOnPolicyRunner,
             )

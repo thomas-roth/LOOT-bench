@@ -103,9 +103,14 @@ def make_manipulation_env_cfg(
         "actions": ObservationTermCfg(func=mdp.last_action),
     }
 
+    # "critic" (a second, noise-free copy of the same terms for an
+    # actor-critic PPO policy) was removed: it was pure PPO residue. mjlab's
+    # `ObservationManager` recomputes every configured group unconditionally
+    # each step, and nothing here -- QC-FQL's `G3AMjlabEnv` reads only
+    # "actor" -- ever consumed "critic"'s output, so it was a full duplicate
+    # observation-term computation for nobody.
     observations = {
         "actor": ObservationGroupCfg(dict(actor_terms), enable_corruption=True),
-        "critic": ObservationGroupCfg(dict(actor_terms), enable_corruption=False),
     }
 
     actions: dict[str, ActionTermCfg] = {
@@ -152,6 +157,13 @@ def make_manipulation_env_cfg(
         **task_terminations,
     }
 
+    # Not PPO residue: `num_envs=1` is QC-FQL's own single-env requirement
+    # (it matches the JAX reference implementation), not a leftover default
+    # meant for PPO's hundreds/thousands of parallel envs -- it was already
+    # single-env before this cleanup and stays that way regardless of
+    # training algorithm. `env_spacing`/`nconmax`/`njmax` below are per-task
+    # sim/collision-budget parameters mjlab's simulator needs to construct
+    # the scene at all, independent of whatever trains the policy.
     cfg = ManagerBasedRlEnvCfg(
         scene=SceneCfg(
             terrain=TerrainEntityCfg(terrain_type="plane"),
