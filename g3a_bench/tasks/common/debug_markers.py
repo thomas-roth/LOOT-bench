@@ -21,12 +21,17 @@ OUTLINE_RGBA: Rgba = (0.85, 0.1, 0.1, 0.95)
 virtual target rather than a real object, at any state. Opposite the cool
 identity-color hues on the wheel, so it contrasts hard against them."""
 
-OUTLINE_INFLATE = 0.004
-"""Extra half-extent margin (m) for an outline box relative to its fill box.
+OUTLINE_SCALE = 1.15
+"""Outline box size, as a multiple of its fill box's size (per axis).
 mjlab's debug visualizer only draws solid boxes (no border primitive), so an
 outline is faked by drawing a slightly larger, near-opaque box first and a
 smaller, category-colored fill box on top -- normal depth testing then shows
-the outer box only on the margin the inner one doesn't cover."""
+the outer box only on the margin the inner one doesn't cover. A *proportional*
+scale, not a fixed additive margin: goal objects here can be highly
+non-cubic (e.g. a domino's half-extents are (0.0075, 0.02, 0.035) -- a fixed
+few-mm margin would consume nearly half of the thin axis and read as a solid
+block instead of a thin border. Scaling keeps the border a consistent
+fraction of size on every axis, for any object shape."""
 
 
 def marker_color(

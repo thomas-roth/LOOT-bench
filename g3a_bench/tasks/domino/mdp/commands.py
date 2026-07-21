@@ -42,8 +42,8 @@ from g3a_bench.tasks.common.commands import (
 )
 from g3a_bench.tasks.common.debug_markers import (
     MARKER_INFLATE,
-    OUTLINE_INFLATE,
     OUTLINE_RGBA,
+    OUTLINE_SCALE,
     marker_color,
 )
 from g3a_bench.tasks.common.scatter import ScatterGrid, write_upright_spawn
@@ -338,20 +338,21 @@ class DominoCommand(CommandTerm):
                 color = marker_color(
                     base_rgba, placed, success, pending_alpha=_PENDING_ALPHA
                 )
-                # Outline first: a slightly larger, near-opaque red box, so
-                # the smaller fill box's edges sit visibly inside it (mjlab's
-                # visualizer has no separate border primitive -- see
-                # debug_markers.OUTLINE_INFLATE).
+                fill_size = np.array(half) + MARKER_INFLATE
+                # Outline first: a proportionally larger, near-opaque red
+                # box, so the smaller fill box's edges sit visibly inside it
+                # (mjlab's visualizer has no separate border primitive -- see
+                # debug_markers.OUTLINE_SCALE).
                 visualizer.add_box(
                     center=goal,
-                    size=np.array(half) + OUTLINE_INFLATE,
+                    size=fill_size * OUTLINE_SCALE,
                     mat=mat,
                     color=OUTLINE_RGBA,
                     label=f"slot_goal_outline_{batch}_{i}",
                 )
                 visualizer.add_box(
                     center=goal,
-                    size=np.array(half) + MARKER_INFLATE,
+                    size=fill_size,
                     mat=mat,
                     color=color,
                     label=f"slot_goal_{batch}_{i}",
