@@ -59,7 +59,12 @@ class _QCFQLViewerPolicy:
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="g3a-play-qcfql",
-        description="Visualize a trained QC-FQL agent in the MuJoCo viewer.",
+        description=(
+            "[DEPRECATED: superseded by the upstream-qc integration, see "
+            "g3a_bench/scripts/qc_fql/README.md and "
+            "docs/QC-FQL-G3A-Backend.md.] "
+            "Visualize a trained QC-FQL agent in the MuJoCo viewer."
+        ),
     )
     parser.add_argument(
         "--checkpoint", required=True, help="path to agent.pt saved by train_qcfql"

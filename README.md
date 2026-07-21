@@ -54,9 +54,17 @@ View:
 uv run g3a-play G3A-Stack-Low-Dk1_uni --agent zero --viewer native --num-envs 1 --no-terminations True
 ```
 
-Training is offline-to-online RL via QC-FQL, not the mjlab RSL-RL PPO loop
-(see `g3a_bench/scripts/qc_fql/README.md`):
+Training is offline-to-online RL via QC-FQL, not the mjlab RSL-RL PPO loop.
+`g3a_bench` provides an OGBench-style `make_env_and_datasets` factory
+(`g3a_bench/qc.py`) so the upstream [`qc`](https://github.com/colinqiyangli/qc)
+repo runs the actual training loop (see
+`docs/QC-FQL-G3A-Backend.md` for the full setup):
 ```shell
-uv run g3a-train-qcfql --dataset-path demos.npz --offline-steps 1000000 \
-    --task G3A-Stack-Low-Dk1_uni --checkpoint-path agent.pt
+cd ../qc
+PYTHONPATH=../g3a-bench:$PYTHONPATH \
+python main.py --env_name=G3A-Stack-Low-Dk1_uni \
+    --g3a_dataset_path=demos.npz --g3a_device=auto \
+    --offline_steps=100000 --online_steps=0
 ```
+(The old from-scratch PyTorch port under `g3a_bench/scripts/qc_fql/` is
+deprecated — see that folder's README.)

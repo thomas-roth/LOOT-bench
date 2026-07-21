@@ -57,6 +57,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="g3a-train-qcfql",
         description=(
+            "[DEPRECATED: superseded by the upstream-qc integration, see "
+            "g3a_bench/scripts/qc_fql/README.md and "
+            "docs/QC-FQL-G3A-Backend.md; use qc/main.py instead.] "
             "Train QC-FQL (flow Q-learning with action chunking) offline on a "
             "recorded demonstration dataset (.npz from lerobot_to_qc.py). "
             "Defaults mirror the reference implementation."

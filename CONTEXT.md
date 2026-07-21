@@ -2,9 +2,12 @@
 
 Long-horizon robot-manipulation benchmark tasks (block stacking, domino
 placement, shape insertion, ball-to-target) registered into mjlab. Training
-is QC-FQL (offline-to-online RL; see `g3a_bench/scripts/qc_fql/`); mjlab's
-registry also requires a PPO cfg per task, but that RSL-RL PPO cfg is only a
-registration requirement, not the training path used. See
+is QC-FQL (offline-to-online RL), run by the upstream `qc` repo against the
+`g3a_bench.qc` OGBench-style factory (see `docs/QC-FQL-G3A-Backend.md`);
+`g3a_bench/scripts/qc_fql/` is a deprecated from-scratch port, not the
+current training path. mjlab's registry also requires a PPO cfg per task,
+but that RSL-RL PPO cfg is only a registration requirement, not the training
+path used. See
 `docs/TaskCategories.md` and each category's `README.md` for the per-category
 deep dives.
 

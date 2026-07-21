@@ -9,7 +9,11 @@ KIT "G3A Praktikum" course, built on the **mjlab** framework (MuJoCo + PyTorch
 vectorized sim). It is an installable package (`g3a_bench`, hatchling,
 flat layout) whose job is to **register tasks into mjlab's global registry** and
 provide the robot assets and task definitions; the play loop is mjlab's, and
-training is QC-FQL (offline-to-online RL; see `g3a_bench/scripts/qc_fql/`).
+training is QC-FQL (offline-to-online RL), run by the upstream
+[`qc`](https://github.com/colinqiyangli/qc) repo against an OGBench-style
+`make_env_and_datasets` factory exposed here as `g3a_bench.qc` (see
+`docs/QC-FQL-G3A-Backend.md`). `g3a_bench/scripts/qc_fql/` is a deprecated,
+from-scratch PyTorch port of the same algorithm — do not extend it.
 
 Four task categories, 40 tasks total, currently registered for one robot
 (`-Dk1_uni`) → task ids look like `G3A-<Category>-<Task>[-<Variation>]-<Robot>`:
@@ -38,10 +42,11 @@ uv run pre-commit run --all-files
 # Play a task (wraps mjlab's player after importing g3a_bench to register tasks)
 uv run g3a-play G3A-Stack-Low-Dk1_uni
 
-# Offline-to-online RL training (QC-FQL; see g3a_bench/scripts/qc_fql/README.md)
-uv run g3a-train-qcfql --dataset-path demos.npz --offline-steps 1000000 \
-    --online-steps 50000 --task G3A-Stack-Low-Dk1_uni --checkpoint-path agent.pt
-uv run g3a-play-qcfql --checkpoint agent.pt --dataset-path demos.npz
+# Offline-to-online RL training (QC-FQL via upstream qc; see docs/QC-FQL-G3A-Backend.md)
+cd ../qc && PYTHONPATH=../g3a-bench:$PYTHONPATH \
+python main.py --env_name=G3A-Stack-Low-Dk1_uni \
+    --g3a_dataset_path=demos.npz --g3a_device=auto \
+    --offline_steps=100000 --online_steps=50000
 
 # Verification scripts (see tests/tasks/README.md), not installed as console scripts
 uv run python tests/tasks/build_sim_registered_tasks.py
@@ -93,7 +98,8 @@ adding/editing a category means mirroring an existing one:
   with mjlab's registry using the shared RSL-RL PPO cfg
   (`tasks/common/rl_cfg.manipulation_ppo_runner_cfg`, per-category
   `max_iterations`) — mjlab's registry requires an `rl_cfg`, but the actual
-  training path is QC-FQL (`g3a_bench/scripts/qc_fql/`), not RSL-RL PPO.
+  training path is QC-FQL via upstream `qc` (see "What this is" above), not
+  RSL-RL PPO.
 - `__init__.py` — empty (discovery happens one level up, see below).
 - *(shape_sorter only)* `xmls/` — committed STL shape-sorter assets
   (`sorter.xml`, `piece_<shape>.xml`, STL meshes, `sorter_layout.json`),

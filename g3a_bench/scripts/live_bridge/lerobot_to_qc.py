@@ -85,6 +85,43 @@ QC_KEYS = frozenset(
 ACTION_NORM_METHODS = ("physical", "data")
 
 
+def _compute_terminals_and_masks(
+    episode_idx: np.ndarray, success: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """Derive QC's `terminals` and `masks` arrays from episode boundaries + outcome.
+
+    These are two distinct signals, easy to conflate:
+
+    - `terminals[t] == 1` marks the last frame of an episode. This is pure
+      trajectory-boundary bookkeeping, used by ``Dataset.sample_sequence`` to
+      avoid sampling an action-chunk window that crosses into the next episode.
+    - `masks[t] == 0` marks a genuine terminal MDP state, so Q-learning does not
+      bootstrap through it. Only a *successful* episode's last frame is a true
+      terminal state; a timeout or aborted-as-failure episode just stopped
+      recording without reaching one, so it must keep `masks == 1` (bootstrap as
+      normal). This matches OGBench's own relabeling convention
+      (``ogbench/relabel_utils.py``: ``masks = 1.0 - success``), which computes
+      `masks` from task success, never from trajectory boundaries.
+
+    Args:
+        episode_idx: (N,) episode index per frame, sorted so each episode's rows
+            are contiguous.
+        success: (N,) bool, whether the episode succeeded (constant per episode).
+
+    Returns:
+        (terminals, masks), both (N,) float32.
+    """
+    n = len(episode_idx)
+    terminals = np.zeros(n, dtype=np.float32)
+    last_frames = np.where(episode_idx[:-1] != episode_idx[1:])[0]
+    terminal_idx = np.concatenate([last_frames, [n - 1]])
+    terminals[terminal_idx] = 1.0
+
+    masks = np.ones(n, dtype=np.float32)
+    masks[terminal_idx] = 1.0 - success[terminal_idx].astype(np.float32)
+    return terminals, masks
+
+
 def _load_dataset_columns(dataset_root: str, episode_offset: int) -> dict:
     """Load one LeRobotDataset root's columns as numpy arrays.
 
@@ -207,21 +244,18 @@ def convert(
 
     # 5. Build next_observations — never cross episode boundaries.
     # For non-terminal rows whose next row is in the same episode: next_obs = obs[i+1].
-    # For terminal rows: next_obs stays zero; masks=0 prevents bootstrapping there,
-    # so the content of next_obs at terminal positions is never used.
+    # For terminal rows: next_obs stays zero — harmless, because `terminals` (below)
+    # already tells Dataset.sample_sequence not to sample a chunk across this
+    # boundary, so this dummy value is never read.
     next_obs = np.zeros_like(obs)
     same_ep = episode_idx[:-1] == episode_idx[1:]  # (N-1,) bool
     valid = np.where(same_ep)[0]
     next_obs[valid] = obs[valid + 1]
 
-    # 6. Terminals and masks derived from episode boundaries, not next.done.
-    # next.done is False on the last frame of operator-stopped episodes, so using it
-    # would leave masks=1.0 at terminal states, causing incorrect Q-value bootstrapping.
-    terminals = np.zeros(len(obs), dtype=np.float32)
-    last_frames = np.where(episode_idx[:-1] != episode_idx[1:])[0]
-    terminals[last_frames] = 1.0
-    terminals[-1] = 1.0  # last frame of the last episode
-    masks = (1.0 - terminals).astype(np.float32)
+    # 6. terminals = episode-boundary bookkeeping; masks = Q-bootstrap signal.
+    # See _compute_terminals_and_masks docstring — these are NOT complements of
+    # each other in general (only success-terminated episodes get masks=0).
+    terminals, masks = _compute_terminals_and_masks(episode_idx, success)
 
     # 7. Assemble and save.
     out = {

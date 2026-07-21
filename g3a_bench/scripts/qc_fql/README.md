@@ -1,4 +1,13 @@
-# QC-FQL PyTorch Port
+# QC-FQL PyTorch Port (Deprecated)
+
+> **Deprecated.** This from-scratch PyTorch port is superseded by the
+> upstream-`qc` integration: `g3a_bench.qc.make_env_and_datasets` (see
+> `../../../docs/QC-FQL-G3A-Backend.md`) lets the real
+> [upstream `qc`](https://github.com/colinqiyangli/qc) repo own
+> `Dataset`/`ReplayBuffer`/`ACFQLAgent` directly, instead of reimplementing
+> them here. Use `qc/main.py --env_name=G3A-... --g3a_dataset_path=...`
+> going forward; this folder is kept only for existing checkpoints and
+> backward compatibility and should not be extended.
 
 Port of **QC-FQL** (Action-Chunked Flow Q-Learning) from JAX/Flax to PyTorch,
 integrated into g3a-bench for offline-RL pretraining + online fine-tuning on
