@@ -4,8 +4,8 @@ The upstream QC code expects a Gym-like single environment whose policy
 actions live in ``[-1, 1]`` and a plain transition dictionary with the six
 arrays consumed by ``utils.datasets.Dataset``.  G3A recordings are converted
 to that transition format by ``scripts/live_bridge/lerobot_to_qc.py``; this
-module is the small public factory that lets upstream QC consume them without
-depending on the temporary PyTorch QC-FQL port in ``g3a_bench/scripts/qc_fql``.
+module is the small public factory that lets upstream QC consume them
+directly.
 """
 
 from __future__ import annotations

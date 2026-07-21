@@ -11,9 +11,8 @@ flat layout) whose job is to **register tasks into mjlab's global registry** and
 provide the robot assets and task definitions; the play loop is mjlab's, and
 training is QC-FQL (offline-to-online RL), run by the upstream
 [`qc`](https://github.com/colinqiyangli/qc) repo against an OGBench-style
-`make_env_and_datasets` factory exposed here as `g3a_bench.qc` (see
-`docs/QC-FQL-G3A-Backend.md`). `g3a_bench/scripts/qc_fql/` is a deprecated,
-from-scratch PyTorch port of the same algorithm — do not extend it.
+`make_env_and_datasets` factory exposed here as `g3a_bench.qc` (see the
+README's "Training" section).
 
 Four task categories, 40 tasks total, currently registered for one robot
 (`-Dk1_uni`) → task ids look like `G3A-<Category>-<Task>[-<Variation>]-<Robot>`:
@@ -42,7 +41,7 @@ uv run pre-commit run --all-files
 # Play a task (wraps mjlab's player after importing g3a_bench to register tasks)
 uv run g3a-play G3A-Stack-Low-Dk1_uni
 
-# Offline-to-online RL training (QC-FQL via upstream qc; see docs/QC-FQL-G3A-Backend.md)
+# Offline-to-online RL training (QC-FQL via upstream qc; see README's "Training" section)
 cd ../qc && PYTHONPATH=../g3a-bench:$PYTHONPATH \
 python main.py --env_name=G3A-Stack-Low-Dk1_uni \
     --g3a_dataset_path=demos.npz --g3a_device=auto \
