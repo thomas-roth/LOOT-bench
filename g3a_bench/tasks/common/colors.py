@@ -10,4 +10,12 @@ PALETTE: dict[str, tuple[float, float, float, float]] = {
     "cyan": (0.1, 0.75, 0.8, 1.0),
     "gray": (0.5, 0.5, 0.5, 1.0),
     "white": (0.95, 0.95, 0.95, 1.0),
+    # Cool-hue, brightness-descending arc (see tasks/domino/variants.py's
+    # DOMINO_COLORS and docs/DominoTask-Analysis.md): two independent,
+    # colorblind-safe ordering cues (hue position + lightness) for
+    # identity-coding otherwise-identical pieces.
+    "sky": (0.404, 0.812, 0.894, 1.0),
+    "cobalt": (0.235, 0.498, 0.867, 1.0),
+    "indigo": (0.188, 0.133, 0.765, 1.0),
+    "violet": (0.392, 0.106, 0.596, 1.0),
 }

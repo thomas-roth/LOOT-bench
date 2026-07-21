@@ -13,7 +13,7 @@ from g3a_bench.tasks.common.env_cfg import make_manipulation_env_cfg
 from g3a_bench.tasks.common.table import table_entity_cfg
 from g3a_bench.tasks.domino import mdp as domino_mdp
 from g3a_bench.tasks.domino.assets import get_domino_spec
-from g3a_bench.tasks.domino.variants import DominoVariantCfg
+from g3a_bench.tasks.domino.variants import DOMINO_COLORS, DominoVariantCfg
 
 COMMAND_NAME = "task"
 
@@ -31,7 +31,9 @@ def make_domino_env_cfg(
     }  # Robot added by wire_manipulator_into_env.
     for i, name in enumerate(domino_names):
         entities[name] = EntityCfg(
-            spec_fn=lambda i=i, n=name: get_domino_spec(i, variant.different, name=n)
+            spec_fn=lambda i=i, n=name: get_domino_spec(
+                i, variant.different, color=DOMINO_COLORS[i], name=n
+            )
         )
 
     task_obs_terms = {

@@ -16,17 +16,37 @@ PLACED_RGBA: Rgba = (0.2, 0.8, 0.2, 0.45)
 SUCCESS_RGBA: Rgba = (0.1, 1.0, 0.3, 0.7)
 PENDING_ALPHA = 0.35
 
+OUTLINE_RGBA: Rgba = (0.85, 0.1, 0.1, 0.95)
+"""Ghost/target-marker outline color: a red edge marking a marker as a
+virtual target rather than a real object, at any state. Opposite the cool
+identity-color hues on the wheel, so it contrasts hard against them."""
 
-def marker_color(base_rgba: Rgba, placed: bool, success: bool) -> Rgba:
+OUTLINE_INFLATE = 0.004
+"""Extra half-extent margin (m) for an outline box relative to its fill box.
+mjlab's debug visualizer only draws solid boxes (no border primitive), so an
+outline is faked by drawing a slightly larger, near-opaque box first and a
+smaller, category-colored fill box on top -- normal depth testing then shows
+the outer box only on the margin the inner one doesn't cover."""
+
+
+def marker_color(
+    base_rgba: Rgba,
+    placed: bool,
+    success: bool,
+    *,
+    pending_alpha: float = PENDING_ALPHA,
+) -> Rgba:
     """Marker RGBA for one goal slot.
 
     Args:
       base_rgba: The target object's own color (alpha is replaced).
       placed: Whether this slot's object is at its goal.
       success: Whether the command's full success metric holds.
+      pending_alpha: Alpha for the base (pending) color. Override per
+        category if the default is too faint/strong for that marker style.
     """
     if success:
         return SUCCESS_RGBA
     if placed:
         return PLACED_RGBA
-    return (base_rgba[0], base_rgba[1], base_rgba[2], PENDING_ALPHA)
+    return (base_rgba[0], base_rgba[1], base_rgba[2], pending_alpha)
