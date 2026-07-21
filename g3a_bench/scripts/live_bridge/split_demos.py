@@ -1,13 +1,12 @@
 # pyright: reportAttributeAccessIssue=false
 """Split a recorded demo dataset into easier same-family tasks (offline relabel).
 
-Supported categories: **Stack** and **Domino** (base + DifferentDominoes;
-KnockOver is not splittable — its topple is a global chain over all pieces).
-Both tail-extend (an easier task's objects are the first ``k`` of the harder
-one) and reset randomness is seed-prefix safe (``ScatterGrid`` + the domino
-command's count-independent shared row draw), so an easier task's rollout is
-embedded in the hardest task's recording. Each source episode is relabeled
-WITHOUT re-simulating:
+Supported categories: **Stack**, **Domino** (base + DifferentDominoes;
+KnockOver is not splittable — its topple is a global chain over all pieces) and
+**Sorter** (all spawn variations). Each tail-extends (an easier task's objects
+are the first ``k`` of the harder one), so an easier task's rollout is embedded
+in the hardest task's recording. Each source episode is relabeled WITHOUT
+re-simulating:
 
 - truncate the trailing objects from every object-major slice of
   ``observation.state`` and from ``qpos``/``qvel``,
@@ -86,7 +85,7 @@ _GRIPPER_OPEN_THRESHOLD = get_unimanual_dk1_interface().gripper_open_threshold
 
 
 # --------------------------------------------------------------------------- #
-# Category adapters: everything that differs between Stack and Domino.
+# Category adapters: everything that differs between Stack, Domino and Sorter.
 # --------------------------------------------------------------------------- #
 
 
@@ -143,6 +142,26 @@ def _domino_progress_and_gate(
     return progress, task_done & at_rest & grip_open
 
 
+def _sorter_progress_and_gate(
+    variant: Any,
+    sections: list[torch.Tensor],
+    speed: torch.Tensor,
+    grip_open: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Shape sorter: fraction of pieces latched into their own hole.
+
+    The env stores the persistent per-socket latch as the ``socket_inserted``
+    obs slice, and a piece latches into its own hole independently of the
+    others, so the first-k latch state is exactly the target task's. There is
+    no at-rest requirement (the env's gate uses vel_threshold=inf); success is
+    every piece latched and the gripper released.
+    """
+    latched = sections[1][:, :, 0] > 0.5  # (T, k) from socket_inserted
+    progress = latched.double().mean(dim=-1)
+    task_done = latched.all(dim=-1)
+    return progress, task_done & grip_open
+
+
 @dataclass(frozen=True)
 class CategoryAdapter:
     category: str
@@ -161,6 +180,9 @@ class CategoryAdapter:
         [Any, list[torch.Tensor], torch.Tensor, torch.Tensor],
         tuple[torch.Tensor, torch.Tensor],
     ]
+    qpos_fixed_bodies: int = 0
+    """Free bodies kept verbatim before the truncatable objects in qpos/qvel.
+    Sorter = 1 (the cube, also carried in the obs head as cube_pose)."""
 
     def variant_index(self) -> dict[tuple[str, str], Any]:
         return {self.id_parts(v): v for v in self.variants.values()}
@@ -198,9 +220,29 @@ def _make_domino_adapter() -> CategoryAdapter:
     )
 
 
+def _make_sorter_adapter() -> CategoryAdapter:
+    from g3a_bench.tasks.shape_sorter.config import _task_id_parts
+    from g3a_bench.tasks.shape_sorter.variants import SHAPE_SORTER_VARIANTS
+
+    return CategoryAdapter(
+        category="Sorter",
+        # obs = [proprio | cube_pose 7 (rides in the head) | piece_poses N*7 |
+        # socket_inserted N | actions]; command_obs=False.
+        obs_section_widths=(7, 1),
+        variants=SHAPE_SORTER_VARIANTS,
+        id_parts=_task_id_parts,
+        n_objects=lambda v: v.num_pieces,
+        object_signatures=lambda v: v.shapes,
+        splittable=lambda v: True,
+        progress_and_gate=_sorter_progress_and_gate,
+        qpos_fixed_bodies=1,  # the cube, before the pieces
+    )
+
+
 _ADAPTERS: dict[str, Callable[[], CategoryAdapter]] = {
     "Stack": _make_stack_adapter,
     "Domino": _make_domino_adapter,
+    "Sorter": _make_sorter_adapter,
 }
 
 
@@ -356,9 +398,14 @@ def relabel_episode(
     v = torch.from_numpy(qvel.astype(np.float64))
     rew = torch.from_numpy(reward.astype(np.float64))
 
-    # qpos/qvel are object-major first (7 qpos / 6 qvel each), robot last.
-    speed_all = v[:, : n_src * 6].reshape(-1, n_src, 6)[:, :, :3].norm(dim=-1)  # (T, N)
-    grip_l = q[:, n_src * 7 + _ROBOT_GRIPPER_LEFT_QPOS_IDX]
+    # qpos/qvel layout: [fixed leading free bodies | objects | robot], each free
+    # body 7 qpos / 6 qvel. Sorter has one fixed body (the cube) before the
+    # truncatable pieces; Stack/Domino have none.
+    f = a.qpos_fixed_bodies
+    speed_all = (
+        v[:, f * 6 : (f + n_src) * 6].reshape(-1, n_src, 6)[:, :, :3].norm(dim=-1)
+    )  # (T, N)
+    grip_l = q[:, (f + n_src) * 7 + _ROBOT_GRIPPER_LEFT_QPOS_IDX]
     grip_open = grip_l > _GRIPPER_OPEN_THRESHOLD
 
     # --- self-check: recomputed SOURCE reward must match the recording ---
@@ -397,11 +444,12 @@ def relabel_episode(
         off += n_src * w
     obs_parts.append(obs[sl, off:])  # tail (off is now the tail start)
     new_obs = np.concatenate(obs_parts, axis=1).astype(np.float32)
+    # Keep [fixed bodies + first-k objects | robot], drop the trailing objects.
     new_qpos = np.concatenate(
-        [qpos[sl, : k * 7], qpos[sl, n_src * 7 :]], axis=1
+        [qpos[sl, : (f + k) * 7], qpos[sl, (f + n_src) * 7 :]], axis=1
     ).astype(np.float32)
     new_qvel = np.concatenate(
-        [qvel[sl, : k * 6], qvel[sl, n_src * 6 :]], axis=1
+        [qvel[sl, : (f + k) * 6], qvel[sl, (f + n_src) * 6 :]], axis=1
     ).astype(np.float32)
 
     # --- dropped-object interference check (Ordered-collection sanity) ---

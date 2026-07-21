@@ -208,6 +208,107 @@ def test_domino_synthetic_recompute_and_truncation():
     assert rel.qpos.shape[1] == 3 * 7 + 8 and rel.qvel.shape[1] == 3 * 6 + 8
 
 
+def test_parse_and_enumerate_sorter():
+    assert parse_task_id("G3A-Sorter-5Shapes-Full-Dk1_uni") == (
+        "Sorter",
+        "5Shapes",
+        "Full",
+        "Dk1_uni",
+    )
+    # every spawn family splits the same way (spawn mode doesn't change count)
+    for variation in ("FixedOrientation", "NoRotation", "Full", "RandomPositions"):
+        assert easier_target_task_ids(f"G3A-Sorter-5Shapes-{variation}-Dk1_uni") == [
+            f"G3A-Sorter-4Shapes-{variation}-Dk1_uni",
+            f"G3A-Sorter-3Shapes-{variation}-Dk1_uni",
+        ]
+    assert easier_target_task_ids("G3A-Sorter-3Shapes-Full-Dk1_uni") == []
+    # obs = [proprio | cube_pose 7 (head) | piece_poses N*7 | socket_inserted N | acts]
+    assert adapter_for("G3A-Sorter-5Shapes-Full-Dk1_uni").obs_section_widths == (7, 1)
+
+
+def _sorter_episode(latched_per_frame: list[list[int]]):
+    """Synthetic Sorter-5 episode: one fixed cube body + 5 pieces, with the
+    per-frame persistent latch flags in the socket_inserted obs slice."""
+    n, proprio = 5, 23
+    cube = np.array([0.3, 0, 0.1, 1, 0, 0, 0], np.float32)
+    pieces = np.array(
+        [[0.25 + 0.03 * i, 0.1, 0.02, 1, 0, 0, 0] for i in range(n)], np.float32
+    )
+    robot = np.array([0, 1.7, 1.7, -1.5708, 0, 0, 0.0, 0.0], np.float32)  # gripper open
+    obs, qpos, qvel = [], [], []
+    for latched in latched_per_frame:
+        socket = np.array(latched, np.float32)
+        obs.append(
+            np.concatenate(
+                [
+                    np.zeros(proprio, np.float32),
+                    cube,
+                    pieces.reshape(-1),
+                    socket,
+                    np.zeros(7, np.float32),
+                ]
+            )
+        )
+        qpos.append(np.concatenate([cube, pieces.reshape(-1), robot]))  # cube first
+        qvel.append(np.zeros(6 + n * 6 + 8, np.float32))
+    return (
+        np.array(obs, np.float32),
+        np.array(qpos, np.float32),
+        np.array(qvel, np.float32),
+    )
+
+
+def test_sorter_synthetic_recompute_and_truncation():
+    import torch
+
+    from g3a_bench.scripts.live_bridge.split_demos import _STEP_DT, _obs_sections
+
+    adapter = adapter_for("G3A-Sorter-5Shapes-Full-Dk1_uni")
+    s5 = variant_from_task_id("G3A-Sorter-5Shapes-Full-Dk1_uni")
+    s3 = variant_from_task_id("G3A-Sorter-3Shapes-Full-Dk1_uni")
+    # first-3 complete at frame 1, all-5 at frame 2
+    obs, qpos, qvel = _sorter_episode(
+        [[0, 0, 0, 0, 0], [1, 1, 1, 0, 0], [1, 1, 1, 1, 1]]
+    )
+
+    o = torch.from_numpy(obs.astype(np.float64))
+    proprio = obs.shape[1] - 5 * sum(adapter.obs_section_widths) - 7
+    assert proprio == 30  # proprio 23 + cube_pose 7
+    speed = torch.zeros(3, 5, dtype=torch.float64)
+    grip = torch.ones(3, dtype=torch.bool)
+    p5, g5 = adapter.progress_and_gate(
+        s5, _obs_sections(o, proprio, adapter.obs_section_widths, 5, 5), speed, grip
+    )
+    assert np.allclose(p5.numpy(), [0.0, 0.6, 1.0])
+    assert g5.tolist() == [False, False, True]  # all 5 latched only at frame 2
+    p3, g3 = adapter.progress_and_gate(
+        s3,
+        _obs_sections(o, proprio, adapter.obs_section_widths, 5, 3),
+        speed[:, :3],
+        grip,
+    )
+    assert np.allclose(p3.numpy(), [0.0, 1.0, 1.0])
+    assert g3.tolist() == [False, True, True]  # first 3 latched from frame 1
+
+    reward = (_STEP_DT * (p5 + g5.double())).numpy().astype(np.float32)
+    rel = relabel_episode(
+        obs=obs,
+        qpos=qpos,
+        qvel=qvel,
+        action=np.zeros((3, 7), np.float32),
+        robot_state=np.zeros((3, 7), np.float32),
+        reward=reward,
+        plan=SplitPlan(adapter, s5, s3),
+    )
+    assert rel is not None
+    assert rel.cut_frame == 1  # first frame the first-3 are all latched
+    # obs = [head 30 | piece_poses 3*7 | socket_inserted 3 | actions 7]
+    assert rel.obs.shape[1] == 30 + 3 * 7 + 3 + 7
+    # qpos = [cube 7 | pieces 3*7 | robot 8]; qvel = [cube 6 | pieces 3*6 | robot 8]
+    assert rel.qpos.shape[1] == 7 + 3 * 7 + 8
+    assert rel.qvel.shape[1] == 6 + 3 * 6 + 8
+
+
 # --- relabel core against the committed Stack demos ------------------------ #
 
 

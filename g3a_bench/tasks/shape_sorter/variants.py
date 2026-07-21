@@ -18,13 +18,19 @@ free-standing sorter cube spawns:
 
 Shapes tail-extend across the difficulty axis (3 = the first 3 of the 5-shape
 list) so demos for easier tasks can be cut from the hardest task's
-recordings (see ``docs/TaskCategories.md`` "General").
+recordings (see ``docs/TaskCategories.md`` "General"). Pieces are colored by
+their split-prefix tier (``colors``): the 3-shape core is black, the 4-shape
+addition gray, the 5-shape addition white, so the insertion order is visible
+and demos split on the color boundary (shape, not color, still identifies the
+matching hole).
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Literal
+
+from g3a_bench.tasks.common.colors import order_color
 
 Shape = Literal["circle", "square", "rect", "triangle", "hexagon"]
 SpawnMode = Literal["fixed", "no_rotation", "full"]
@@ -40,15 +46,6 @@ FACE_DOWN_SHAPES: tuple[str, ...] = (
     "hexagon",
     "triangle",
 )
-
-# Piece colour per shape (matches the legacy insertion sorter's assignment).
-SHAPE_COLOR: dict[Shape, str] = {
-    "circle": "blue",
-    "square": "red",
-    "triangle": "yellow",
-    "rect": "orange",
-    "hexagon": "green",
-}
 
 # Shapes tail-extend: ShapeSorter3's shapes are shapes 0..2 of ShapeSorter5.
 _SHAPES_BY_COUNT: dict[int, tuple[Shape, ...]] = {
@@ -87,7 +84,10 @@ class ShapeSorterVariantCfg:
 
     @property
     def colors(self) -> tuple[str, ...]:
-        return tuple(SHAPE_COLOR[s] for s in self.shapes)
+        # Color by split-prefix tier (like stack/domino): the 3-shape core is
+        # black, the 4-shape addition gray, the 5-shape addition white, so the
+        # insertion order is visible and demos split on the color boundary.
+        return tuple(order_color(i, 3, 4) for i in range(self.num_pieces))
 
 
 SHAPE_SORTER_VARIANTS: dict[str, ShapeSorterVariantCfg] = {
