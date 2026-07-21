@@ -8,6 +8,7 @@ from mjlab.managers.termination_manager import TerminationTermCfg
 from mjlab.sensor import ContactMatch, ContactSensorCfg
 from mjlab.utils.noise import UniformNoiseCfg as Unoise
 
+from g3a_bench.tasks.common.colors import order_color
 from g3a_bench.tasks.common.commands import GRIP_CONTACT_SENSOR_NAME
 from g3a_bench.tasks.common.env_cfg import make_manipulation_env_cfg
 from g3a_bench.tasks.common.table import table_entity_cfg
@@ -29,9 +30,13 @@ def make_domino_env_cfg(
     entities: dict[str, EntityCfg] = {
         "table": table_entity_cfg(),
     }  # Robot added by wire_manipulator_into_env.
+    # Color by build order (first 2 black, 3rd gray, 4th white) so the row
+    # order is visible and demos can be collected/split in index order.
     for i, name in enumerate(domino_names):
         entities[name] = EntityCfg(
-            spec_fn=lambda i=i, n=name: get_domino_spec(i, variant.different, name=n)
+            spec_fn=lambda i=i, n=name: get_domino_spec(
+                i, variant.different, color=order_color(i, 2, 3), name=n
+            )
         )
 
     task_obs_terms = {

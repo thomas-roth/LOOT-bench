@@ -21,11 +21,18 @@ of 0.04 m), so a target is always exactly reachable, not just exceedable.
 Block lists are *tail-extending* across the difficulty axis within each
 family (Stack3's blocks are blocks 0..2 of Stack4, etc.) so demos for easier
 tasks can be cut from the hardest task's recordings (see
-``docs/TaskCategories.md`` "General").
+``docs/TaskCategories.md`` "General"). Blocks are colored by their split-prefix
+pool (`_ordered_colors`): the Low-prefix blocks are black, the Medium-only
+extension gray, the High-only extension white — so the collect-in-order/split
+boundary is visible while the base can still be built from any block in the
+(black) Low pool.
 """
 
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, replace
 from typing import Literal
+
+from g3a_bench.tasks.common.colors import order_color
 
 Form = Literal["cube", "plate", "tall", "cylinder"]
 
@@ -123,27 +130,46 @@ def _two_stacks_different_blocks(n: int) -> tuple[BlockCfg, ...]:
     return _MIXED_TWO + _cubes(2 * n - 6)
 
 
-STACK_VARIANTS: dict[str, StackVariantCfg] = {
-    v.name: v
-    for n in (3, 4, 5)
-    for v in (
-        StackVariantCfg(name=f"Stack{n}", target_blocks=n, blocks=_cubes(2 * n)),
-        StackVariantCfg(
-            name=f"Stack{n}DifferentBlocks",
-            target_blocks=n,
-            blocks=_different_blocks(n),
-        ),
-        StackVariantCfg(
-            name=f"Stack{n}TwoStacks",
-            target_blocks=n,
-            blocks=_cubes(2 * n + 2),
-            two_stacks=True,
-        ),
-        StackVariantCfg(
-            name=f"Stack{n}TwoStacksDifferentBlocks",
-            target_blocks=n,
-            blocks=_two_stacks_different_blocks(n),
-            two_stacks=True,
-        ),
+def _ordered_colors(
+    blocks: tuple[BlockCfg, ...], low_count: int, medium_count: int
+) -> tuple[BlockCfg, ...]:
+    """Recolor blocks by their split-prefix pool so the split (which keeps the
+    first ``k`` blocks, ``k`` = the easier variant's block count) is visible AND
+    the block choice stays free: the Low-prefix blocks are black (build the base
+    from *any* of them), the Medium-only extension gray, the High-only extension
+    white. ``low_count``/``medium_count`` are the family's Low/Medium block
+    counts (= the split boundaries). Form is kept; only the color changes."""
+    return tuple(
+        replace(b, color=order_color(i, low_count, medium_count))
+        for i, b in enumerate(blocks)
     )
-}
+
+
+# Each family varies only by difficulty n; its block count grows with n, so the
+# Low(n=3)/Medium(n=4) counts are exactly the split-prefix boundaries used to
+# color the pools.
+_FAMILIES: tuple[tuple[str, Callable[[int], tuple[BlockCfg, ...]], bool], ...] = (
+    ("Stack{n}", lambda n: _cubes(2 * n), False),
+    ("Stack{n}DifferentBlocks", _different_blocks, False),
+    ("Stack{n}TwoStacks", lambda n: _cubes(2 * n + 2), True),
+    ("Stack{n}TwoStacksDifferentBlocks", _two_stacks_different_blocks, True),
+)
+
+
+def _build_variants() -> dict[str, StackVariantCfg]:
+    out: dict[str, StackVariantCfg] = {}
+    for name_tpl, block_fn, two_stacks in _FAMILIES:
+        blocks = {n: block_fn(n) for n in (3, 4, 5)}
+        low, medium = len(blocks[3]), len(blocks[4])  # split-prefix boundaries
+        for n in (3, 4, 5):
+            v = StackVariantCfg(
+                name=name_tpl.format(n=n),
+                target_blocks=n,
+                blocks=_ordered_colors(blocks[n], low, medium),
+                two_stacks=two_stacks,
+            )
+            out[v.name] = v
+    return out
+
+
+STACK_VARIANTS: dict[str, StackVariantCfg] = _build_variants()
