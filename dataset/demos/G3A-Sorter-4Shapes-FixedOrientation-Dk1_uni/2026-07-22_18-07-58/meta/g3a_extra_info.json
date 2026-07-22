@@ -1,0 +1,12 @@
+{
+    "gravity_compensate": true,
+    "seed_device": "cuda",
+    "operator_id": 2,
+    "episode_seeds": {
+        "0": 1565594348
+    },
+    "split_from": [
+        "5Shapes",
+        "FixedOrientation"
+    ]
+}
