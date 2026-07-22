@@ -121,7 +121,7 @@ class TestTerminationHandling:
     def test_success_termination_autosaves_success(self):
         """Success termination → episode staged as success, reset phase entered."""
         h, rec = make_harness()
-        h._handle_done(is_success=True)
+        h._handle_done(is_success=True, extras={})
         assert rec.saved == [True]
         assert h._in_reset_phase
         assert not h._provisional_failure
@@ -130,7 +130,7 @@ class TestTerminationHandling:
         """Non-success termination saves nothing yet — the grace window opens
         so the operator can discard or relabel first."""
         h, rec = make_harness()
-        h._handle_done(is_success=False)
+        h._handle_done(is_success=False, extras={})
         assert h._provisional_failure
         assert rec.saved == []
         assert not h._in_reset_phase
@@ -141,7 +141,7 @@ class TestProvisionalFailureActions:
         """F during the grace window: the episode is staged as failure now,
         without waiting for the timeout."""
         h, rec = make_harness()
-        h._handle_done(is_success=False)
+        h._handle_done(is_success=False, extras={})
         assert h._handle_custom_action("CUSTOM", "save_failure")
         assert rec.saved == [False]
         assert not h._provisional_failure
@@ -151,7 +151,7 @@ class TestProvisionalFailureActions:
         """V overrides a termination-labeled failure to success (e.g. the task
         succeeded but a stray termination fired)."""
         h, rec = make_harness()
-        h._handle_done(is_success=False)
+        h._handle_done(is_success=False, extras={})
         assert h._handle_custom_action("CUSTOM", "save_success")
         assert rec.saved == [True]
         assert not h._provisional_failure
@@ -159,7 +159,7 @@ class TestProvisionalFailureActions:
 
     def test_discard_in_grace_window_drops_episode(self):
         h, rec = make_harness()
-        h._handle_done(is_success=False)
+        h._handle_done(is_success=False, extras={})
         assert h._handle_custom_action("CUSTOM", "discard")
         assert rec.discards == 1
         assert rec.saved == []
@@ -169,7 +169,7 @@ class TestProvisionalFailureActions:
     def test_grace_timeout_autosaves_failure(self):
         """Undecided after the grace period: _execute_step auto-saves failure."""
         h, rec = make_harness()
-        h._handle_done(is_success=False)
+        h._handle_done(is_success=False, extras={})
         h._provisional_failure_time = time.perf_counter() - 10.0
         assert h._execute_step()
         assert rec.saved == [False]
@@ -179,7 +179,7 @@ class TestProvisionalFailureActions:
     def test_grace_window_waits_before_timeout(self):
         """Within the grace period nothing is saved — the window stays open."""
         h, rec = make_harness()
-        h._handle_done(is_success=False)
+        h._handle_done(is_success=False, extras={})
         assert h._execute_step()
         assert rec.saved == []
         assert h._provisional_failure
@@ -209,7 +209,7 @@ class TestManualEnd:
 class TestUndo:
     def test_undo_drops_last_save_and_decrements_counts(self):
         h, rec = make_harness()
-        h._handle_done(is_success=True)
+        h._handle_done(is_success=True, extras={})
         assert h.episodes_saved == 1
         assert h._handle_custom_action("CUSTOM", "undo")
         assert h.episodes_saved == 0
@@ -222,7 +222,7 @@ class TestUndo:
 
     def test_undo_restores_per_label_counts(self):
         h, rec = make_harness()
-        h._handle_done(is_success=True)
+        h._handle_done(is_success=True, extras={})
         h._exit_reset_phase()
         rec.num_frames_in_episode = 5
         h._handle_custom_action("CUSTOM", "save_failure")
@@ -236,7 +236,7 @@ class TestGhostColor:
         """The grace window gets its own ghost color, so an undecided episode
         can't be mistaken for the red saved-failure feedback."""
         h, _ = make_harness()
-        h._handle_done(is_success=False)
+        h._handle_done(is_success=False, extras={})
         assert h._get_ghost_color() == GHOST_COLOR_PROMPT
         assert GHOST_COLOR_PROMPT not in (
             GHOST_COLOR,
@@ -246,12 +246,12 @@ class TestGhostColor:
 
     def test_save_flashes_success_color(self):
         h, _ = make_harness()
-        h._handle_done(is_success=True)
+        h._handle_done(is_success=True, extras={})
         assert h._get_ghost_color() == GHOST_COLOR_SUCCESS
 
     def test_feedback_color_clears_on_reset_exit(self):
         h, _ = make_harness()
-        h._handle_done(is_success=True)
+        h._handle_done(is_success=True, extras={})
         h._exit_reset_phase()
         assert h._get_ghost_color() == GHOST_COLOR
 
@@ -266,7 +266,7 @@ class TestHud:
 
     def test_hud_reflects_grace_window_state_and_keys(self):
         h, _ = make_harness()
-        h._handle_done(is_success=False)
+        h._handle_done(is_success=False, extras={})
         _, values = h._hud_text()
         assert "F save failure" in values
         assert "D discard" in values
@@ -277,7 +277,7 @@ class TestHud:
 
     def test_hud_shows_saved_counts(self):
         h, rec = make_harness()
-        h._handle_done(is_success=True)
+        h._handle_done(is_success=True, extras={})
         _, values = h._hud_text()
         assert "1 success / 0 failure" in values
 
@@ -289,7 +289,7 @@ class TestStateGuards:
         """A termination before any frame was recorded has nothing to decide —
         it must go straight to the reset phase."""
         h, rec = make_harness(num_frames=0)
-        h._handle_done(is_success=False)
+        h._handle_done(is_success=False, extras={})
         assert not h._provisional_failure
         assert h._in_reset_phase
 
@@ -303,10 +303,10 @@ class TestStateGuards:
 
     def test_undo_in_grace_window_is_ignored(self):
         h, rec = make_harness()
-        h._handle_done(is_success=True)
+        h._handle_done(is_success=True, extras={})
         h._exit_reset_phase()
         rec.num_frames_in_episode = 5
-        h._handle_done(is_success=False)
+        h._handle_done(is_success=False, extras={})
         assert h._handle_custom_action("CUSTOM", "undo")
         assert rec.has_staged  # staged episode untouched
         assert h.episodes_saved == 1
@@ -315,7 +315,7 @@ class TestStateGuards:
         """Q must not bypass an open grace window — the un-decided episode
         would be silently dropped at finalize."""
         h, rec = make_harness()
-        h._handle_done(is_success=False)
+        h._handle_done(is_success=False, extras={})
         assert h._handle_custom_action("CUSTOM", "quit")
         assert not h._interrupted
         h._handle_custom_action("CUSTOM", "discard")
@@ -326,7 +326,7 @@ class TestStateGuards:
 class TestSessionEnd:
     def test_num_episodes_reached_interrupts(self):
         h, rec = make_harness(num_episodes=1)
-        h._handle_done(is_success=True)
+        h._handle_done(is_success=True, extras={})
         assert h._interrupted
 
     def test_quit_action_interrupts(self):

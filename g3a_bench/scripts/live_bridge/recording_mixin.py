@@ -210,26 +210,27 @@ class RecordingViewerMixin:
         else:
             self._enter_reset_phase()
 
-    def _read_success_termination(self) -> bool:
-        """Read whether the success termination fired (env auto-resets before
-        done reaches us, so ask the termination manager)."""
-        try:
-            tm = self.env.env.termination_manager
-            return bool(tm.get_term("success")[0].item())
-        except Exception:
-            return False
+    @staticmethod
+    def _read_success_from_extras(extras: dict) -> bool:
+        """Read whether the success termination fired from the extras dict
+        returned by env.step().  This is reliable because extras is populated
+        during the auto-reset inside step() and is a fresh snapshot."""
+        log = extras.get("log", {}) if isinstance(extras, dict) else {}
+        return bool(log.get("Episode_Termination/success", 0) > 0)
 
-    def _read_fired_terminations(self) -> str:
-        """Names of the termination terms that fired for the viewed env,
-        e.g. "out_of_bounds" — same post-done read as the success check."""
-        try:
-            tm = self.env.env.termination_manager
-            fired = [n for n in tm.active_terms if bool(tm.get_term(n)[0].item())]
-            return ", ".join(fired) or "unknown"
-        except Exception:
-            return "unknown"
+    @staticmethod
+    def _read_fired_from_extras(extras: dict) -> str:
+        """Names of the termination terms that fired, read from the extras
+        dict returned by env.step() (populated during auto-reset)."""
+        log = extras.get("log", {}) if isinstance(extras, dict) else {}
+        fired = [
+            k.removeprefix("Episode_Termination/")
+            for k, v in log.items()
+            if k.startswith("Episode_Termination/") and v > 0
+        ]
+        return ", ".join(fired) or "unknown"
 
-    def _handle_done(self, is_success: bool) -> None:
+    def _handle_done(self, is_success: bool, extras: dict) -> None:
         """Episode label = which termination fired: success termination saves
         as success; any other termination enters PROVISIONAL_FAILURE (auto-saves
         as failure after the grace period unless F saves now or D discards)."""
@@ -244,7 +245,7 @@ class RecordingViewerMixin:
         else:
             print(
                 f"[INFO] Episode ended by termination: "
-                f"{self._read_fired_terminations()} — auto-saving as FAILURE "
+                f"{self._read_fired_from_extras(extras)} — auto-saving as FAILURE "
                 f"in 2s (F saves now as failure, D discards, "
                 f"V overrides to success)"
             )
@@ -380,7 +381,8 @@ class RecordingViewerMixin:
                 self._stats_steps += 1
 
                 if dones[0]:
-                    self._handle_done(self._read_success_termination())
+                    is_success = self._read_success_from_extras(_extras)
+                    self._handle_done(is_success, _extras)
 
                 return True
         except Exception:

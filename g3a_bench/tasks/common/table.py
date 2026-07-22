@@ -23,7 +23,7 @@ mounted on the table rather than floating above bare floor.
 import mujoco
 from mjlab.entity import EntityCfg
 
-TABLE_RGBA = (0.5, 0.5, 0.5, 1.0)  # flat neutral gray
+TABLE_RGBA = (0.2, 0.2, 0.2, 1.0)  # flat dark gray (high contrast, non-glaring)
 
 # Body placement (env-local); geoms below are relative to this. Off-centre
 # (rather than symmetric around the robot base) so the footprint below can

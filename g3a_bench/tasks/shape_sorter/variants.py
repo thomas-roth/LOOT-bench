@@ -18,11 +18,11 @@ free-standing sorter cube spawns:
 
 Shapes tail-extend across the difficulty axis (3 = the first 3 of the 5-shape
 list) so demos for easier tasks can be cut from the hardest task's
-recordings (see ``docs/TaskCategories.md`` "General"). Pieces are colored by
-their split-prefix tier (``colors``): the 3-shape core is black, the 4-shape
-addition gray, the 5-shape addition white, so the insertion order is visible
-and demos split on the color boundary (shape, not color, still identifies the
-matching hole).
+recordings (see ``docs/TaskCategories.md`` "General"). Pieces keep the three
+darkest domino colors instead of the old black/gray/white tier palette: the
+3-shape core uses the lightest of those colors, the 4th shape uses the middle
+tone, and the 5th shape uses the darkest tone, so the cutting split stays
+aligned with the visual difficulty tiers.
 """
 
 from __future__ import annotations
@@ -48,10 +48,21 @@ FACE_DOWN_SHAPES: tuple[str, ...] = (
 )
 
 # Shapes tail-extend: ShapeSorter3's shapes are shapes 0..2 of ShapeSorter5.
+# The easy tier is the cylinder/rect/square core, then the harder hexagon,
+# and finally the triangle as the hardest piece.
 _SHAPES_BY_COUNT: dict[int, tuple[Shape, ...]] = {
-    3: ("circle", "square", "triangle"),
-    4: ("circle", "square", "triangle", "rect"),
-    5: ("circle", "square", "triangle", "rect", "hexagon"),
+    3: ("circle", "rect", "square"),
+    4: ("circle", "rect", "square", "hexagon"),
+    5: ("circle", "rect", "square", "hexagon", "triangle"),
+}
+
+# The sorter reuses the three darkest domino palette entries in the same
+# tier order as the demo split: the first 3 pieces share the lightest tone,
+# the 4th gets the middle tone, and the 5th gets the darkest tone.
+_SORTER_COLOR_BY_TIER: dict[str, str] = {
+    "black": "cobalt",
+    "gray": "indigo",
+    "white": "violet",
 }
 
 
@@ -84,10 +95,9 @@ class ShapeSorterVariantCfg:
 
     @property
     def colors(self) -> tuple[str, ...]:
-        # Color by split-prefix tier (like stack/domino): the 3-shape core is
-        # black, the 4-shape addition gray, the 5-shape addition white, so the
-        # insertion order is visible and demos split on the color boundary.
-        return tuple(order_color(i, 3, 4) for i in range(self.num_pieces))
+        return tuple(
+            _SORTER_COLOR_BY_TIER[order_color(i, 3, 4)] for i in range(self.num_pieces)
+        )
 
 
 SHAPE_SORTER_VARIANTS: dict[str, ShapeSorterVariantCfg] = {

@@ -521,7 +521,7 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
                 self.env.unwrapped.update_visualizers(self._vis_wrist)
             img = self._wrist_renderer.render()
             QImage, QPixmap = _get_qimage_and_qpixmap()
-            qimg = QImage(img.tobytes(), 320, 240, QImage.Format_RGB888).rgbSwapped()
+            qimg = QImage(img.tobytes(), 320, 240, QImage.Format_RGB888)
             self._pip_label.setPixmap(QPixmap.fromImage(qimg))
             self._pip_app.processEvents()
 

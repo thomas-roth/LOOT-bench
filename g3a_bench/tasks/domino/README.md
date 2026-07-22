@@ -17,6 +17,41 @@ direction rather than sideways), all leaning the same way, with first-fall
 times monotonic along the row in that direction — sideways or out-of-order
 toppling doesn't count.
 
+## Piece identity colors
+
+Every registered variant uses `ordered=True` (fixed domino-index -> slot-index
+assignment), but dominoes previously all rendered identically and spawned at
+a uniformly random position independent of index -- so a teleoperator had no
+way to tell which physical domino was which index (see
+`docs/DominoTask-Analysis.md` for the full root-cause analysis). Each domino
+now gets a distinct identity color, `DOMINO_COLORS` in `variants.py`, indexed
+0 through `HARDEST_COUNT - 1` (4):
+
+| Index | Palette name | RGB (0-255) |
+| --- | --- | --- |
+| 0 | `sky` | `rgb(38, 217, 217)` |
+| 1 | `cobalt` | `rgb(24, 61, 170)` |
+| 2 | `indigo` | `rgb(71, 20, 123)` |
+| 3 | `violet` | `rgb(86, 16, 68)` |
+
+A cool-hue arc with monotonically decreasing brightness (index 0 lightest,
+index 3 darkest) -- two independent ordering cues (hue position and
+brightness), colorblind-safe (avoids the red-green confusion axis; the rare
+alternative, blue-yellow, isn't in play either). Green is deliberately
+excluded since it's reserved for the placed/success marker states below.
+
+The matching row-slot ghost marker (`DominoCommand._debug_vis_impl`,
+`mdp/commands.py`) is drawn as two overlaid boxes, since mjlab's debug
+visualizer has no separate outline primitive: a slightly larger, near-opaque
+**red** box (`tasks/common/debug_markers.OUTLINE_RGBA`) marking it as a
+virtual target, and a smaller fill box in the slot's assigned domino's own
+identity color while pending (at 75% opacity -- higher than the shared
+default, since the red outline already carries the "this is a ghost, not a
+real object" signal, freeing the fill to closely match the real piece color).
+The fill switches to green when that slot is individually placed, and a
+brighter green once the whole task succeeds (unchanged from the shared
+`tasks/common/debug_markers.marker_color` convention every category uses).
+
 ## Observations (state-based)
 
 - joint positions/velocities, EE pose, last action

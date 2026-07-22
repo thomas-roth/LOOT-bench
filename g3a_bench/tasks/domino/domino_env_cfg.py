@@ -8,13 +8,12 @@ from mjlab.managers.termination_manager import TerminationTermCfg
 from mjlab.sensor import ContactMatch, ContactSensorCfg
 from mjlab.utils.noise import UniformNoiseCfg as Unoise
 
-from g3a_bench.tasks.common.colors import order_color
 from g3a_bench.tasks.common.commands import GRIP_CONTACT_SENSOR_NAME
 from g3a_bench.tasks.common.env_cfg import make_manipulation_env_cfg
 from g3a_bench.tasks.common.table import table_entity_cfg
 from g3a_bench.tasks.domino import mdp as domino_mdp
 from g3a_bench.tasks.domino.assets import get_domino_spec
-from g3a_bench.tasks.domino.variants import DominoVariantCfg
+from g3a_bench.tasks.domino.variants import DOMINO_COLORS, DominoVariantCfg
 
 COMMAND_NAME = "task"
 
@@ -35,7 +34,7 @@ def make_domino_env_cfg(
     for i, name in enumerate(domino_names):
         entities[name] = EntityCfg(
             spec_fn=lambda i=i, n=name: get_domino_spec(
-                i, variant.different, color=order_color(i, 2, 3), name=n
+                i, variant.different, color=DOMINO_COLORS[i], name=n
             )
         )
 
