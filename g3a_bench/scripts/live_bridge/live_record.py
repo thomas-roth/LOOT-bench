@@ -28,8 +28,10 @@ Key bindings:
     D  discard episode
     U  undo the last saved episode
     Q  stop session and finalize dataset
-    C         toggle viewer between the front camera and the robot's wrist camera
-              (clearer gripper view while teleoperating demos)
+    C         cycle the viewer camera through three views: front → wrist →
+              orbit → front. The wrist view gives a clearer gripper view while
+              teleoperating; the orbit view is a third-person over-the-shoulder
+              framing behind the robot.
 
     Main-row digit keys are NOT usable here — MuJoCo's native viewer swallows
     them internally to toggle render-group visibility before they ever reach
@@ -131,7 +133,7 @@ KEY_SAVE_FAILURE = KEY_F
 KEY_DISCARD = KEY_D
 KEY_UNDO = KEY_U
 KEY_QUIT = KEY_Q
-KEY_WRIST_CAM = KEY_C
+KEY_CYCLE_VIEW = KEY_C
 
 # Name of the wrist camera in the DK1 MJCF. The compiled model prefixes entity
 # cameras (e.g. "robot/wrist_camera"), so it is matched by suffix — see
@@ -142,12 +144,19 @@ WRIST_CAMERA_NAME = "wrist_camera"
 FRONT_CAMERA_NAME = "front_cam"
 
 
-# Fallback free-camera framing, used only if FRONT_CAMERA_NAME isn't found in
-# the model (and as the view C's wrist-cam toggle restores in that case).
-ORBIT_CAM_LOOKAT = (0.20, 0.0, 0.15)  # world point the camera aims at (≈ workspace)
-ORBIT_CAM_DISTANCE = 1.3
-ORBIT_CAM_AZIMUTH = 200.0
-ORBIT_CAM_ELEVATION = -35.0
+# Orbit view — a free-camera "over-the-shoulder" third-person framing, placed
+# slightly off-axis *behind* the robot base and above it
+ORBIT_CAM_LOOKAT = (0.22, 0.0, 0.12)  # world point the camera aims at (≈ workspace)
+ORBIT_CAM_DISTANCE = 1.1
+ORBIT_CAM_AZIMUTH = 30.0  # slight off-axis angle; near 0 = straight behind base
+ORBIT_CAM_ELEVATION = -22.0  # looking down over the "shoulder"
+
+# The three views the C key cycles through, in order. FRONT is the default at
+# startup; each C press advances to the next (front → wrist → orbit → front).
+VIEW_FRONT = "front"
+VIEW_WRIST = "wrist"
+VIEW_ORBIT = "orbit"
+VIEW_CYCLE = (VIEW_FRONT, VIEW_WRIST, VIEW_ORBIT)
 
 GRASP_SITE_NAME = "grasp_site"
 # Compiled-model body-name prefix for the "robot" scene entity (see
@@ -275,7 +284,7 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
     The per-episode recording state machine (record → decision prompt → reset
     phase, plus ghost-color feedback and the HUD text) lives in
     RecordingViewerMixin. This subclass only adds the native-specific rendering
-    of the ghost arm and HUD, and the wrist-camera toggle.
+    of the ghost arm and HUD, and the front/wrist/orbit view cycle.
 
     State machine:
       RECORDING            → normal step loop
@@ -314,10 +323,12 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
             sim_rest_pose=_SIM_REST_POSE,
             home_joint_pos=HOME_JOINT_POS,
         )
-        # Wrist-cam toggle (C): resolved lazily once the viewer/model exist.
-        self._wrist_cam_on = False
+        # View cycle (C): front → wrist → orbit → front. Camera ids are
+        # resolved lazily once the viewer/model exist (see _cycle_camera).
+        # _view_idx indexes VIEW_CYCLE; starts at FRONT, set in setup().
+        self._view_idx = 0
+        self._front_cam_id = -1
         self._wrist_cam_id = -1
-        self._saved_cam: tuple | None = None
         # Snapshot of the intended MjvOption visualization flags
         self._baseline_visflags: np.ndarray | None = None
         # Cached debug visualizers — constructed once in setup() to avoid
@@ -363,15 +374,17 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
         self._baseline_visflags = self.viewer.opt.flags.copy()
         assert self.mjm is not None
 
-        front_cam_id = _find_camera_id(self.mjm, FRONT_CAMERA_NAME)
-        if front_cam_id >= 0:
-            self.viewer.cam.type = _mujoco.mjtCamera.mjCAMERA_FIXED.value
-            self.viewer.cam.fixedcamid = front_cam_id
-        else:
+        # Start on the front view (index 0 of VIEW_CYCLE). _apply_view resolves
+        # the camera id lazily and falls back to the orbit free-cam if front_cam
+        # isn't in the model.
+        self._front_cam_id = _find_camera_id(self.mjm, FRONT_CAMERA_NAME)
+        if self._front_cam_id < 0:
             print(
                 f"[WARN] No '{FRONT_CAMERA_NAME}' camera in model — "
-                "starting in free/orbit view instead"
+                "front view falls back to the orbit free-cam"
             )
+        self._view_idx = 0
+        self._apply_view(VIEW_CYCLE[self._view_idx])
 
         # Pre-construct both debug visualizers once, reusing the same MjData
         # throughout the session instead of allocating a new one every frame.
@@ -576,61 +589,58 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
             self.request_action("CUSTOM", "discard")
         elif key == KEY_UNDO:
             self.request_action("CUSTOM", "undo")
-        elif key == KEY_WRIST_CAM:
+        elif key == KEY_CYCLE_VIEW:
             # Only mutates the viewer's own camera (never env/sim), so it is
             # safe to handle directly on the viewer thread.
-            self._toggle_wrist_cam()
+            self._cycle_camera()
         elif key == KEY_QUIT:
             self._interrupted = True
 
-    def _toggle_wrist_cam(self) -> None:
-        """Toggle the viewer between the front camera (or whatever view the
-        operator has navigated to) and the robot's wrist camera. Seeing the
-        live wrist view makes gripper alignment much easier to judge while
-        teleoperating demos.
+    def _cycle_camera(self) -> None:
+        """Cycle the viewer camera through the three views: front → wrist →
+        orbit → front. Front is the default; the wrist view makes gripper
+        alignment easy to judge while teleoperating, and the orbit view is a
+        third-person over-the-shoulder framing behind the robot.
+        """
+        self._view_idx = (self._view_idx + 1) % len(VIEW_CYCLE)
+        self._apply_view(VIEW_CYCLE[self._view_idx])
 
-        Toggling back restores the exact framing the operator had, so C
-        is non-destructive to whatever view they set up.
+    def _apply_view(self, view: str) -> None:
+        """Point the viewer camera at the named view (see VIEW_CYCLE).
+
+        Camera ids are resolved lazily and cached. If a fixed camera is missing
+        from the model, that view falls back to the orbit free-camera framing so
+        the cycle never leaves the viewer on an invalid camera.
         """
         v = self.viewer
         if v is None or self.mjm is None:
             return
-        if self._wrist_cam_id < 0:
-            self._wrist_cam_id = _find_camera_id(self.mjm, WRIST_CAMERA_NAME)
+
+        if view == VIEW_WRIST:
             if self._wrist_cam_id < 0:
-                print(
-                    f"[WARN] No '{WRIST_CAMERA_NAME}' camera in model — "
-                    "C toggle disabled"
-                )
+                self._wrist_cam_id = _find_camera_id(self.mjm, WRIST_CAMERA_NAME)
+            if self._wrist_cam_id >= 0:
+                v.cam.type = _mujoco.mjtCamera.mjCAMERA_FIXED.value
+                v.cam.fixedcamid = self._wrist_cam_id
+                print("[INFO] View: wrist camera (press C to cycle)")
                 return
-        if not self._wrist_cam_on:
-            self._saved_cam = (
-                int(v.cam.type),
-                int(v.cam.fixedcamid),
-                int(v.cam.trackbodyid),
-                tuple(v.cam.lookat),
-                float(v.cam.distance),
-                float(v.cam.azimuth),
-                float(v.cam.elevation),
-            )
+            print(f"[WARN] No '{WRIST_CAMERA_NAME}' camera in model — skipping")
+            view = VIEW_ORBIT  # fall through to orbit
+
+        if view == VIEW_FRONT and self._front_cam_id >= 0:
             v.cam.type = _mujoco.mjtCamera.mjCAMERA_FIXED.value
-            v.cam.fixedcamid = self._wrist_cam_id
-            self._wrist_cam_on = True
-            print("[INFO] Wrist camera ON (press C to return to previous view)")
-        else:
-            if self._saved_cam is not None:
-                ctype, fcam, tbody, lookat, dist, azi, elev = self._saved_cam
-                v.cam.type = ctype
-                v.cam.fixedcamid = fcam
-                v.cam.trackbodyid = tbody
-                v.cam.lookat = lookat
-                v.cam.distance = dist
-                v.cam.azimuth = azi
-                v.cam.elevation = elev
-            else:
-                v.cam.type = _mujoco.mjtCamera.mjCAMERA_FREE.value
-            self._wrist_cam_on = False
-            print("[INFO] Wrist camera OFF (previous view restored)")
+            v.cam.fixedcamid = self._front_cam_id
+            print("[INFO] View: front camera (press C to cycle)")
+            return
+
+        # Orbit view (or a fallback when a fixed camera is missing): free camera
+        # framed slightly behind and above the robot, looking at the workspace.
+        v.cam.type = _mujoco.mjtCamera.mjCAMERA_FREE.value
+        v.cam.lookat = ORBIT_CAM_LOOKAT
+        v.cam.distance = ORBIT_CAM_DISTANCE
+        v.cam.azimuth = ORBIT_CAM_AZIMUTH
+        v.cam.elevation = ORBIT_CAM_ELEVATION
+        print("[INFO] View: orbit / over-the-shoulder (press C to cycle)")
 
     # Recording state machine (_handle_custom_action, _end_episode, _handle_done,
     # _execute_step, ghost-color helpers) is inherited from RecordingViewerMixin.
@@ -819,10 +829,10 @@ def main():
     env = RslRlVecEnvWrapper(env)
     print("[INFO] Environment created")
 
-    # Override the task's default (body-tracking) viewer camera with a static
-    # world-frame free-camera framing — only used as a fallback (see
-    # FRONT_CAMERA_NAME in _LiveRecordingViewer.setup) and as the view the
-    # wrist-cam toggle restores to if front_cam isn't found in the model.
+    # Override the task's default (body-tracking) viewer camera with the static
+    # world-frame orbit free-camera framing — this is the "orbit" leg of the C
+    # view cycle and the fallback used if front_cam isn't found in the model
+    # (see FRONT_CAMERA_NAME / _apply_view in _LiveRecordingViewer).
     vcfg = env.cfg.viewer
     vcfg.origin_type = ViewerConfig.OriginType.WORLD
     vcfg.entity_name = None
@@ -920,7 +930,7 @@ def main():
     )
     print("[INFO]   U → undo last saved episode (single-level)")
     print("[INFO]   Q → stop recording session")
-    print("[INFO]   C → toggle wrist camera <-> orbit view")
+    print("[INFO]   C → cycle view (front → wrist → orbit)")
     print("[INFO] === Episode 1 started — recording resumed ===")
 
     viewer: _LiveRecordingViewer | None = None
