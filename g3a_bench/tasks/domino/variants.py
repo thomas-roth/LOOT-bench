@@ -29,6 +29,18 @@ HARDEST_COUNT = 4
 the row's start-position/yaw distribution does not depend on the variant's
 actual n (seed-prefix rule)."""
 
+DOMINO_COLORS: tuple[str, ...] = ("sky", "cobalt", "indigo", "violet")
+"""Per-index identity color (``tasks/common/colors.PALETTE`` keys), index 0
+through ``HARDEST_COUNT - 1``. All registered variants use ``ordered=True``
+(fixed domino-index -> slot-index assignment, see ``mdp/commands.py``), but
+nothing previously let a teleoperator tell which physical domino is which
+index -- every domino rendered identically, and spawn position is a uniform
+random draw independent of index (see docs/DominoTask-Analysis.md). This is
+a colorblind-safe cool-hue arc with monotonically decreasing brightness
+(sky = lightest/index 0, violet = darkest/index 3), so the sequence reads
+from hue position and from brightness alone -- deliberately excludes green,
+which is reserved for the placed/success marker states."""
+
 _THICKNESS_DECAY = 0.8
 
 

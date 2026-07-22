@@ -33,13 +33,19 @@ from mjlab.managers.command_manager import CommandTerm
 from mjlab.sensor import ContactSensor
 from mjlab.utils.lab_api.math import quat_from_euler_xyz
 
+from g3a_bench.tasks.common.colors import PALETTE
 from g3a_bench.tasks.common.commands import (
     GRIP_CONTACT_SENSOR_NAME,
     ContactReleaseGate,
     GripperGateCommandCfg,
     GripperOpenGate,
 )
-from g3a_bench.tasks.common.debug_markers import MARKER_INFLATE, marker_color
+from g3a_bench.tasks.common.debug_markers import (
+    MARKER_INFLATE,
+    OUTLINE_RGBA,
+    add_box_wireframe,
+    marker_color,
+)
 from g3a_bench.tasks.common.scatter import ScatterGrid, write_upright_spawn
 from g3a_bench.tasks.common.success import OBJECT_VEL_THRESHOLD, SuccessGate
 from g3a_bench.tasks.domino.mdp.success import (
@@ -49,6 +55,7 @@ from g3a_bench.tasks.domino.mdp.success import (
 )
 from g3a_bench.tasks.domino.variants import (
     BASE_HALF_EXTENTS,
+    DOMINO_COLORS,
     HARDEST_COUNT,
     SPACING,
     DominoVariantCfg,
@@ -58,11 +65,14 @@ if TYPE_CHECKING:
     from mjlab.envs.manager_based_rl_env import ManagerBasedRlEnv
     from mjlab.viewer.debug_visualizer import DebugVisualizer
 
-# Color for the row-slot debug markers (dominoes are all the same color).
-_SLOT_RGBA = (0.95, 0.55, 0.1, 1.0)
 _EDGE_MARGIN = 0.02
 _NEVER_FELL = 1.0e9
 """Sentinel fall-order value for a domino that has not chain-fallen yet."""
+_PENDING_ALPHA = 0.75
+"""Fill opacity for a slot's pending (not-yet-placed) marker. Higher than the
+shared default (see debug_markers.PENDING_ALPHA) because the outline (below)
+already signals "this is a ghost, not a real object" -- the fill is free to
+sit close to the real domino color for a legible identity match."""
 
 
 def get_command(env: ManagerBasedRlEnv, name: str) -> DominoCommand:
@@ -324,11 +334,26 @@ class DominoCommand(CommandTerm):
             for i, half in enumerate(self.variant.half_extents):
                 goal = self.slot_goal_pos[batch, i].cpu().numpy()
                 placed = bool(self.slot_at_goal[batch, i] > 0.5)
-                color = marker_color(_SLOT_RGBA, placed, success)
+                base_rgba = PALETTE[DOMINO_COLORS[i]]
+                color = marker_color(
+                    base_rgba, placed, success, pending_alpha=_PENDING_ALPHA
+                )
+                fill_size = np.array(half) + MARKER_INFLATE
                 visualizer.add_box(
                     center=goal,
-                    size=np.array(half) + MARKER_INFLATE,
+                    size=fill_size,
                     mat=mat,
                     color=color,
                     label=f"slot_goal_{batch}_{i}",
+                )
+                # Edge wireframe, not a second filled box: a bigger *filled*
+                # box would enclose/hide the fill box entirely rather than
+                # frame it (see debug_markers.OUTLINE_RADIUS).
+                add_box_wireframe(
+                    visualizer,
+                    center=goal,
+                    half_extents=fill_size,
+                    mat=mat,
+                    color=OUTLINE_RGBA,
+                    label_prefix=f"slot_goal_outline_{batch}_{i}",
                 )
