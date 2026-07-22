@@ -211,18 +211,23 @@ class RecordingViewerMixin:
             self._enter_reset_phase()
 
     @staticmethod
+    def _get_termination_log(extras: dict) -> dict:
+        """Extract the Episode_Termination/* sub-dict from env.step() extras."""
+        return extras.get("log", {}) if isinstance(extras, dict) else {}
+
+    @staticmethod
     def _read_success_from_extras(extras: dict) -> bool:
         """Read whether the success termination fired from the extras dict
         returned by env.step().  This is reliable because extras is populated
         during the auto-reset inside step() and is a fresh snapshot."""
-        log = extras.get("log", {}) if isinstance(extras, dict) else {}
+        log = RecordingViewerMixin._get_termination_log(extras)
         return bool(log.get("Episode_Termination/success", 0) > 0)
 
     @staticmethod
     def _read_fired_from_extras(extras: dict) -> str:
         """Names of the termination terms that fired, read from the extras
         dict returned by env.step() (populated during auto-reset)."""
-        log = extras.get("log", {}) if isinstance(extras, dict) else {}
+        log = RecordingViewerMixin._get_termination_log(extras)
         fired = [
             k.removeprefix("Episode_Termination/")
             for k, v in log.items()
