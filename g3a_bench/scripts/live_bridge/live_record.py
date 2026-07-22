@@ -476,7 +476,8 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
         if self._grasp_site_id >= 0 and self._vis_gripper_laser is not None:
             assert self.mjd is not None
             grasp_pos = self.mjd.site_xpos[self._grasp_site_id].copy()
-            hit = _cast_gripper_ray(self.mjm, self.mjd, grasp_pos)
+            held = _find_grasped_body_ids(self.mjm, self.mjd)
+            hit = _cast_gripper_ray(self.mjm, self.mjd, grasp_pos, skip_bodies=held)
             if hit is not None:
                 self._vis_gripper_laser.add_cylinder(
                     start=grasp_pos,
@@ -673,17 +674,47 @@ def _find_site_id(mj_model: "_mujoco.MjModel", suffix: str) -> int:
     return -1
 
 
+def _find_grasped_body_ids(mjm: "_mujoco.MjModel", mjd: "_mujoco.MjData") -> set[int]:
+    """Body ids of non-robot objects currently in contact with the robot.
+
+    A carried object sits between the fingers, in contact with the robot's
+    finger pads. The gripper laser skips these bodies so it points *through*
+    a held object to the surface it would be placed on (e.g. the stack below),
+    instead of stopping on the top face of the object in hand.
+    """
+    held: set[int] = set()
+    for i in range(mjd.ncon):
+        con = mjd.contact[i]
+        b1 = int(mjm.geom_bodyid[con.geom1])
+        b2 = int(mjm.geom_bodyid[con.geom2])
+        n1 = _mujoco.mj_id2name(mjm, _mujoco.mjtObj.mjOBJ_BODY, b1) or ""
+        n2 = _mujoco.mj_id2name(mjm, _mujoco.mjtObj.mjOBJ_BODY, b2) or ""
+        r1 = n1.startswith(ROBOT_ENTITY_PREFIX)
+        r2 = n2.startswith(ROBOT_ENTITY_PREFIX)
+        if r1 and not r2:
+            held.add(b2)
+        elif r2 and not r1:
+            held.add(b1)
+    return held
+
+
 def _cast_gripper_ray(
-    mjm: "_mujoco.MjModel", mjd: "_mujoco.MjData", origin: np.ndarray
+    mjm: "_mujoco.MjModel",
+    mjd: "_mujoco.MjData",
+    origin: np.ndarray,
+    skip_bodies: set[int] | None = None,
 ) -> np.ndarray | None:
     """Straight-down raycast from ``origin`` to the first non-robot surface.
 
     mj_ray only supports excluding a single body per call, which isn't enough
     to skip an entire robot arm (fingers, wrist, forearm...) in one shot. So
     instead of exclusion, walk the ray forward: recast from just past each
-    pierced surface until a non-robot body is hit. Returns the world-space
-    hit point, or None if the ray escapes without hitting anything.
+    pierced surface until a non-skipped body is hit. Bodies in ``skip_bodies``
+    (the currently held object, see ``_find_grasped_body_ids``) are stepped
+    past too, so the laser points through a carried object. Returns the
+    world-space hit point, or None if the ray escapes without hitting anything.
     """
+    skip = skip_bodies or set()
     vec = np.array([0.0, 0.0, -1.0])
     pnt = origin.copy()
     geomid = np.zeros(1, dtype=np.int32)
@@ -692,13 +723,9 @@ def _cast_gripper_ray(
         if dist < 0:
             return None
         hit = pnt + dist * vec
-        body_name = (
-            _mujoco.mj_id2name(
-                mjm, _mujoco.mjtObj.mjOBJ_BODY, mjm.geom_bodyid[geomid[0]]
-            )
-            or ""
-        )
-        if not body_name.startswith(ROBOT_ENTITY_PREFIX):
+        body_id = int(mjm.geom_bodyid[geomid[0]])
+        body_name = _mujoco.mj_id2name(mjm, _mujoco.mjtObj.mjOBJ_BODY, body_id) or ""
+        if not body_name.startswith(ROBOT_ENTITY_PREFIX) and body_id not in skip:
             return hit
         pnt = hit + _GRIPPER_RAY_NUDGE * vec
     return None
@@ -757,6 +784,46 @@ def _get_mj_model(wrapped_env) -> "_mujoco.MjModel | None":
     return None
 
 
+def _auto_split_success(success_root: Path, task: str, stamp: str) -> None:
+    """Relabel the just-recorded success demos into every easier same-family
+    task, writing each as a native-looking dataset next to the source.
+
+    This is the in-loop equivalent of running ``split_demos.py`` by hand (kept
+    as a standalone tool for reprocessing older recordings). The splits land at
+    ``<base>/success/<target_task>/<stamp>`` — the same layout and stamp as the
+    source recording at ``<base>/success/<task>/<stamp>`` — so a Low recording
+    split out of a High session is indistinguishable from a natively-recorded
+    Low demo. A non-splittable category (e.g. Ball) or an already-easiest task
+    is reported and skipped, not treated as an error.
+    """
+    if not success_root.exists():
+        return  # no success episodes were saved this session
+    # split_demos owns the relabel/cut logic and its heavy deps (pandas); import
+    # it lazily so a session that never splits doesn't pay for it.
+    from g3a_bench.scripts.live_bridge.split_demos import (
+        _print_summary,
+        split_dataset,
+    )
+
+    # Splits go into the success/<target_task>/<stamp> tree, alongside the
+    # source recording at success/<task>/<stamp> (success_root's grandparent).
+    success_tree = success_root.parent.parent
+    print(f"\n[INFO] Auto-splitting success demos of {task} into easier tasks…")
+    try:
+        summaries = split_dataset(
+            source_dir=str(success_root),
+            source_task=task,
+            output_dir=str(success_tree),
+            stamp=stamp,
+        )
+    except (ValueError, AssertionError, FileNotFoundError) as e:
+        # Not-splittable / already-easiest / no source frames — expected, not a
+        # crash. The recorded demos are already safely on disk.
+        print(f"[INFO] No auto-split performed: {e}")
+        return
+    _print_summary(task, summaries)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Live teleop + sim mirroring + recording"
@@ -809,6 +876,16 @@ def main():
         help=(
             "Log a per-stage breakdown for any recording step over budget "
             "(prints [STEP-SPIKE] lines) to diagnose intermittent FPS drops."
+        ),
+    )
+    parser.add_argument(
+        "--no-auto-split",
+        action="store_true",
+        help=(
+            "Skip auto-splitting the recorded success demos into easier "
+            "same-family tasks at session end. By default the split runs "
+            "automatically (equivalent to a follow-up split_demos.py run); "
+            "pass this to record only the source task's demos."
         ),
     )
     args = parser.parse_args()
@@ -980,6 +1057,11 @@ def main():
                 "[WARN] Session ended due to a hardware-thread failure "
                 "(see traceback above) — the saved episodes may be incomplete."
             )
+        # Auto-split the recorded success demos into easier same-family tasks
+        # (no-op if nothing succeeded or the task isn't splittable). Runs after
+        # close() has finalized the source dataset on disk.
+        if not args.no_auto_split:
+            _auto_split_success(success_root, args.task, stamp)
 
 
 if __name__ == "__main__":
