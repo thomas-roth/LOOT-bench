@@ -100,6 +100,15 @@ class NativeViewerWrapper(NativeMujocoViewer):
         self._last_overlay_time = 0.0
         self._last_figures_time = 0.0
 
+    def _setup_camera(self) -> None:
+        # Stock mjlab forces opt.frame = mjFRAME_WORLD in _setup_camera, which
+        # draws a persistent RGB axis triad at the world origin. It clutters
+        # the scene, so reset it to NONE once the camera is configured. Users
+        # can still cycle frames at runtime with the viewer's frame key.
+        super()._setup_camera()
+        if self.viewer is not None:
+            self.viewer.opt.frame = mujoco.mjtFrame.mjFRAME_NONE.value
+
     def close(self) -> None:
         # Grab the handle first: super().close() sets self.viewer to None
         # before requesting teardown, so it must be read beforehand.
