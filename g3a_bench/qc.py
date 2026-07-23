@@ -87,6 +87,7 @@ def _make_manager_env(task_id: str, device: str, render_mode: str | None):
     env_cfg = load_env_cfg(task_id, play=False)
     env_cfg.scene.num_envs = 1
     env_cfg.auto_reset = False
+    env_cfg.observations["actor"].enable_corruption = False
     return ManagerBasedRlEnv(cfg=env_cfg, device=device, render_mode=render_mode)
 
 
