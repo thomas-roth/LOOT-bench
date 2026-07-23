@@ -24,6 +24,7 @@ from g3a_bench.tasks.domino.mdp.success import (
     domino_fallen_along_row,
     domino_upright_aligned,
 )
+from g3a_bench.tasks.place.mdp.success import place_progress, place_reached
 from g3a_bench.tasks.shape_sorter.mdp.success import SorterLatch
 from g3a_bench.tasks.shape_sorter.variants import SHAPE_SORTER_VARIANTS, allowed_faces
 from g3a_bench.tasks.stack.mdp.success import (
@@ -351,6 +352,28 @@ class TestStackHeight:
     def test_progress_tracks_tallest_block(self):
         top_z = torch.tensor([[0.04, 0.08]])
         assert stack_progress(top_z, 0.0, 0.16)[0].item() == pytest.approx(0.5)
+
+
+# ---------------------------------------------------------------------------
+# place kernels
+# ---------------------------------------------------------------------------
+
+
+class TestPlaceSuccess:
+    @pytest.mark.parametrize(
+        "dist,expected", [(0.0199, True), (0.02, False), (0.0201, False)]
+    )
+    def test_reached_boundary_at_threshold(self, dist: float, expected: bool):
+        assert bool(place_reached(torch.tensor([dist]), 0.02)[0]) is expected
+
+    def test_progress_is_one_at_target(self):
+        assert place_progress(torch.tensor([0.0]), 0.5)[0] == 1.0
+
+    def test_progress_is_linear_in_distance(self):
+        assert place_progress(torch.tensor([0.25]), 0.5)[0].item() == pytest.approx(0.5)
+
+    def test_progress_clamps_beyond_max_travel_dist(self):
+        assert place_progress(torch.tensor([0.9]), 0.5)[0] == 0.0
 
 
 # ---------------------------------------------------------------------------

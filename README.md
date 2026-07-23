@@ -97,11 +97,4 @@ uv run g3a-play G3A-Stack-Low-Dk1_uni --agent zero --viewer native --num-envs 1 
 
 cd ../qc
 source .venv/bin/activate
-PYTHONPATH=../g3a-bench:$PYTHONPATH python main.py \
-  --env_name=G3A-Stack-Low-Dk1_uni \
-  --g3a_dataset_path=../g3a-bench/dataset/demos/G3A-Stack-Low-Dk1_uni/G3A-Stack-Low-Dk1_uni_qc_physical.npz \
-  --g3a_device=auto \
-  --seed=42 --horizon_length=5 --sparse=false --agent.alpha=300 \
-  --offline_steps=1000000 --online_steps=1000000 --start_training=5000 \
-  --eval_interval=100000 --eval_episodes=50 --save_interval=100000 \
-  --run_group=G3A-Low_Cube_stacking
+PYTHONPATH=../g3a-bench:$PYTHONPATH python main.py   --env_name=G3A-Place-Easy-Dk1_uni   --g3a_dataset_path=../g3a-bench/dataset/demos/G3A-Place-Easy-Dk1_uni/G3A-Place-Easy-Dk1_uni_qc_physical.npz   --g3a_device=auto   --seed=42 --horizon_length=5 --sparse=false --agent.alpha=300   --offline_steps=1000000 --online_steps=1000000 --start_training=5000   --eval_interval=100000 --eval_episodes=50 --save_interval=100000   --run_group=G3A-Place-Easy-Sanity

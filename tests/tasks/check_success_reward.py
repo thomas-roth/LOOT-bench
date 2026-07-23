@@ -28,6 +28,7 @@ from g3a_bench.tasks.ball.variants import (
     TARGET_X,
 )
 from g3a_bench.tasks.domino.mdp.commands import DominoCommand
+from g3a_bench.tasks.place.mdp.commands import PlaceCommand
 from g3a_bench.tasks.shape_sorter.assets import BOARD_POS, load_sorter_layout
 from g3a_bench.tasks.shape_sorter.mdp.commands import ShapeSorterCommand
 from g3a_bench.tasks.stack.mdp.commands import StackCommand
@@ -255,6 +256,36 @@ def _check_domino_knockover(device: str, *, render: bool = False) -> str | None:
 
 
 # ---------------------------------------------------------------------------
+# Place
+# ---------------------------------------------------------------------------
+
+
+def _teleport_place(cmd: PlaceCommand, device: str) -> None:
+    """Place the cube directly at its target, upright, at rest."""
+    pos = cmd.target_pos_w.clone()
+    quat = _upright_quat(cmd.num_envs, device)
+    cmd.cube.write_root_link_pose_to_sim(torch.cat([pos, quat], dim=-1))
+    cmd.cube.write_root_link_velocity_to_sim(
+        torch.zeros(cmd.num_envs, 6, device=device)
+    )
+
+
+def _check_place_easy(device: str, *, render: bool = False) -> str | None:
+    task_id = "G3A-Place-Easy-Dk1_uni"
+    env = _make_env(task_id, device)
+    cmd = cast(PlaceCommand, env.command_manager.get_term("task"))
+    zeros = _zeros(env, device)
+    env.step(zeros)
+    _teleport_place(cmd, device)
+    for _ in range(_STEPS):
+        env.step(zeros)
+    frac = cmd.progress.mean().item()
+    _render_goal(env, task_id, render)
+    env.close()
+    return None if frac > 0.9 else f"progress={frac:.3f} (expected >0.9)"
+
+
+# ---------------------------------------------------------------------------
 # Shape sorter
 # ---------------------------------------------------------------------------
 
@@ -464,6 +495,7 @@ _CHECKS: list[tuple[str, str]] = [
     ("Stack     Low-TwoStacks", "stack_low_two_stacks"),
     ("Domino    3Pieces       ", "domino_3pieces"),
     ("Domino    3Pieces-KnockOver", "domino_knockover"),
+    ("Place     Easy          ", "place_easy"),
     ("Sorter    3Shapes-Full ", "shape_sorter_full"),
     ("Ball      Minigolf-Direct", "ball_minigolf_direct"),
     ("Ball      Minigolf-UsingWall", "ball_minigolf_using_wall"),
@@ -480,6 +512,8 @@ def _dispatch(key: str, device: str, *, render: bool = False) -> str | None:
         return _check_domino_3pieces(device, render=render)
     if key == "domino_knockover":
         return _check_domino_knockover(device, render=render)
+    if key == "place_easy":
+        return _check_place_easy(device, render=render)
     if key == "shape_sorter_full":
         return _check_shape_sorter_full(device, render=render)
     if key == "ball_minigolf_direct":
