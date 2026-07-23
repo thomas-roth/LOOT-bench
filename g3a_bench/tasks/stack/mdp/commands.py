@@ -20,6 +20,7 @@ import numpy as np
 import torch
 from mjlab.entity import Entity
 from mjlab.managers.command_manager import CommandTerm
+from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.sensor import ContactSensor
 
 from g3a_bench.tasks.common.commands import (
@@ -61,10 +62,14 @@ class StackCommandCfg(GripperGateCommandCfg):
     block_names: tuple[str, ...]
     """All block entities, in the variant's (tail-extending) index order."""
     variant: StackVariantCfg
+    grasp_cfg: SceneEntityCfg
+    """Robot grasp site, used to find the held block; site set by wiring."""
     workspace_x: tuple[float, float] = (0.21, 0.44)
     workspace_y: tuple[float, float] = (-0.21, 0.21)
     block_vel_threshold: float = OBJECT_VEL_THRESHOLD
     """Max linear speed (m/s) of any block to count success."""
+    grip_reach: float = 0.08
+    """Max distance (m) from the grasp site for a block to count as held."""
 
     def build(self, env: ManagerBasedRlEnv) -> StackCommand:
         return StackCommand(self, env)
@@ -79,6 +84,12 @@ class StackCommand(CommandTerm):
         self.variant = variant
         self.blocks: list[Entity] = [env.scene[n] for n in cfg.block_names]
         self.num_blocks = len(self.blocks)
+
+        # Resolve names -> indices so ``grasp_cfg.site_ids`` picks out the single
+        # grasp site (term ``asset_cfg``s are resolved by the managers, this
+        # command-owned cfg is not).
+        self.grasp_cfg = cfg.grasp_cfg
+        self.grasp_cfg.resolve(env.scene)
 
         E, N = self.num_envs, self.num_blocks
         dev = self.device
@@ -143,25 +154,43 @@ class StackCommand(CommandTerm):
         self.block_reached = stack_reached(
             top_z, table_z, target, self.variant.height_tol
         )
+        robot = self._env.scene["robot"]
+        pads_free = self._contact_gate(self._grip_sensor)  # pads exert no force
+        held = self._held_block_mask(robot, gripping=~pads_free)
         if self.variant.two_stacks:
             task_done = two_stacks_success(self.block_reached, xy, MIN_STACK_SEPARATION)
             self.progress = two_stacks_progress(
-                top_z, xy, table_z, target, MIN_STACK_SEPARATION
+                top_z, xy, table_z, target, MIN_STACK_SEPARATION, exclude=held
             )
         else:
             task_done = self.block_reached.any(dim=-1)
-            self.progress = stack_progress(top_z, table_z, target)
+            self.progress = stack_progress(top_z, table_z, target, exclude=held)
 
         speed = torch.stack(
             [b.data.root_link_lin_vel_w for b in self.blocks], dim=1
         ).norm(dim=-1)  # (E, N)
-        released = self._gripper_gate(self._env.scene["robot"]) & self._contact_gate(
-            self._grip_sensor
-        )
+        released = self._gripper_gate(robot) & pads_free
         self._gate.update(task_done, speed, released)
 
         self.metrics["max_height_frac"] = self.progress
         self.metrics["episode_success"] = self.episode_success
+
+    def _held_block_mask(self, robot: Entity, gripping: torch.Tensor) -> torch.Tensor:
+        """(E, N) bool marking the single block currently held in the gripper.
+
+        A block is held when the pads exert grip force (``gripping``) and it is
+        the block nearest the grasp site, within ``grip_reach``. Excluded from
+        progress so a block merely lifted to the target height is not mistaken
+        for a placed stack; the block counts again the instant it is released.
+        """
+        grasp_pos = robot.data.site_pos_w[:, self.grasp_cfg.site_ids].squeeze(1)
+        dist = (self.block_pos_w - grasp_pos.unsqueeze(1)).norm(dim=-1)  # (E, N)
+        nearest = dist.argmin(dim=-1)  # (E,)
+        env = torch.arange(self.num_envs, device=self.device)
+        held_env = gripping & (dist[env, nearest] <= self.cfg.grip_reach)
+        mask = torch.zeros_like(dist, dtype=torch.bool)
+        mask[env, nearest] = held_env
+        return mask
 
     def _resample_command(self, env_ids: torch.Tensor) -> None:
         n = len(env_ids)

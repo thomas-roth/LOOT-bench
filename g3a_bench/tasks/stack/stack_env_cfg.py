@@ -4,6 +4,7 @@ from mjlab.entity import EntityCfg
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.managers.observation_manager import ObservationTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
+from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.managers.termination_manager import TerminationTermCfg
 from mjlab.sensor import ContactMatch, ContactSensorCfg
 from mjlab.utils.noise import UniformNoiseCfg as Unoise
@@ -25,6 +26,7 @@ def make_stack_env_cfg(
     """Build the robot-agnostic stack cfg (see ``tasks/common/env_cfg.py``
     for the placeholder/wiring convention)."""
     block_names = tuple(f"block_{i}" for i in range(len(variant.blocks)))
+    grasp_cfg = SceneEntityCfg("robot", site_names=())  # Set per-robot by wiring.
 
     entities: dict[str, EntityCfg] = {
         "table": table_entity_cfg(),
@@ -76,6 +78,7 @@ def make_stack_env_cfg(
         command_cfg=stack_mdp.StackCommandCfg(
             block_names=block_names,
             variant=variant,
+            grasp_cfg=grasp_cfg,
             resampling_time_range=(1.0e9, 1.0e9),
             debug_vis=True,
         ),

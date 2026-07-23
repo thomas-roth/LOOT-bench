@@ -352,6 +352,15 @@ class TestStackHeight:
         top_z = torch.tensor([[0.04, 0.08]])
         assert stack_progress(top_z, 0.0, 0.16)[0].item() == pytest.approx(0.5)
 
+    def test_progress_excludes_held_block(self):
+        # The tallest block is held in the gripper: ignored, so progress
+        # reflects the tallest *resting* block, not the lifted one.
+        top_z = torch.tensor([[0.04, 0.16]])
+        exclude = torch.tensor([[False, True]])
+        assert stack_progress(top_z, 0.0, 0.16)[0].item() == pytest.approx(1.0)
+        p = stack_progress(top_z, 0.0, 0.16, exclude=exclude)
+        assert p[0].item() == pytest.approx(0.25)
+
 
 # ---------------------------------------------------------------------------
 # two-stacks kernels
@@ -394,6 +403,18 @@ class TestTwoStacks:
         xy = torch.tensor([[[0.0, 0.0], [0.1, 0.0]]])
         p = two_stacks_progress(top_z, xy, 0.0, 0.12, 0.06)
         assert p[0].item() == pytest.approx(1.0)
+
+    def test_progress_excludes_held_leader(self):
+        # Block 0 (a full, separated stack) is held: ignored, so the two
+        # counted leaders drop to blocks 1 and 2, lowering progress.
+        top_z = torch.tensor([[0.12, 0.06, 0.06]])
+        xy = torch.tensor([[[0.0, 0.0], [0.1, 0.0], [0.2, 0.0]]])
+        assert two_stacks_progress(top_z, xy, 0.0, 0.12, 0.06)[0].item() == (
+            pytest.approx(0.75)
+        )
+        exclude = torch.tensor([[True, False, False]])
+        p = two_stacks_progress(top_z, xy, 0.0, 0.12, 0.06, exclude=exclude)
+        assert p[0].item() == pytest.approx(0.5)
 
 
 # ---------------------------------------------------------------------------

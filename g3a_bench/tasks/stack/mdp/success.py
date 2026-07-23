@@ -76,11 +76,21 @@ def two_stacks_success(
 
 
 def stack_progress(
-    top_z: torch.Tensor, table_z: torch.Tensor | float, target_height: float
+    top_z: torch.Tensor,
+    table_z: torch.Tensor | float,
+    target_height: float,
+    exclude: torch.Tensor | None = None,
 ) -> torch.Tensor:
-    """Fraction of the target height reached by the tallest block, (E,) in [0, 1]."""
-    best = _heights(top_z, table_z).amax(dim=-1)
-    return (best / target_height).clamp(0.0, 1.0)
+    """Fraction of the target height reached by the tallest block, (E,) in [0, 1].
+
+    ``exclude`` (E, N) bool zeroes out blocks currently held in the gripper, so
+    a block merely lifted to the target height earns no progress until it is
+    placed and released (see ``commands.py``).
+    """
+    frac = (_heights(top_z, table_z) / target_height).clamp(0.0, 1.0)
+    if exclude is not None:
+        frac = frac.masked_fill(exclude, 0.0)
+    return frac.amax(dim=-1)
 
 
 def two_stacks_progress(
@@ -89,14 +99,18 @@ def two_stacks_progress(
     table_z: torch.Tensor | float,
     target_height: float,
     min_separation: float,
+    exclude: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Mean height fraction of the two best-separated stack leaders, (E,).
 
     The leader is the tallest block; the second stack is represented by the
     tallest block at least ``min_separation`` away from the leader in xy
-    (fraction 0 while no block is separated enough).
+    (fraction 0 while no block is separated enough). ``exclude`` (E, N) bool
+    zeroes out the block currently held in the gripper (see ``commands.py``).
     """
     frac = (_heights(top_z, table_z) / target_height).clamp(0.0, 1.0)  # (E, N)
+    if exclude is not None:
+        frac = frac.masked_fill(exclude, 0.0)
     lead = frac.argmax(dim=-1)  # (E,)
     env = torch.arange(xy.shape[0], device=xy.device)
     lead_xy = xy[env, lead]  # (E, 2)
