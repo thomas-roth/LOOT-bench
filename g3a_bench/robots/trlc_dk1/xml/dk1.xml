@@ -337,4 +337,12 @@
     <!-- Both fingers are driven by one motor through the rack-and-pinion. -->
     <joint joint1="gripper_left" joint2="gripper_right" polycoef="0 1 0 0 0" />
   </equality>
+
+  <contact>
+    <!-- The finger pads overlap slightly at full close; without this the empty
+         gripper self-collides and the grip contact sensor reads force with no
+         object held (see tasks/stack held-block progress exclusion). Excluding
+         the pair keeps pad<->object grip contacts, drops pad<->pad. -->
+    <exclude body1="finger_left" body2="finger_right" />
+  </contact>
 </mujoco>
