@@ -67,7 +67,7 @@ class DominoVariantCfg:
     """Progressively thinner/lighter dominoes along the row."""
     knock_over: bool = False
     """Require toppling the completed line after it is built."""
-    ordered: bool = True
+    ordered: bool = False
     """Identity slot assignment; False allows proximity re-matching
     (interchangeable dominoes only, i.e. never combined with `different`)."""
     margin: float = 1.0
@@ -95,7 +95,10 @@ DOMINO_VARIANTS: dict[str, DominoVariantCfg] = {
     for v in (
         DominoVariantCfg(name=f"Domino{n}", num_dominoes=n, ordered=True),
         DominoVariantCfg(
-            name=f"Domino{n}DifferentDominoes", num_dominoes=n, different=True
+            name=f"Domino{n}DifferentDominoes",
+            num_dominoes=n,
+            different=True,
+            ordered=True,
         ),
         DominoVariantCfg(
             name=f"Domino{n}KnockOver", num_dominoes=n, knock_over=True, ordered=True
