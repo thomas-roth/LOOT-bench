@@ -38,11 +38,6 @@ def make_place_env_cfg(
     }
 
     task_rewards = {
-        "progress": RewardTermCfg(
-            func=place_mdp.progress_reward,
-            weight=1.0,
-            params={"command_name": COMMAND_NAME},
-        ),
         "success": RewardTermCfg(
             func=place_mdp.success_reward,
             weight=1.0,

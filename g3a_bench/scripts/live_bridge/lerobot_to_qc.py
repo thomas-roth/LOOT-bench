@@ -84,6 +84,8 @@ QC_KEYS = frozenset(
 
 ACTION_NORM_METHODS = ("physical", "data")
 
+REWARD_MODES = ("dense", "sparse")
+
 
 def _compute_terminals_and_masks(
     episode_idx: np.ndarray, success: np.ndarray
@@ -152,6 +154,7 @@ def convert(
     output_path: str | Path,
     failure_dir: str | None = None,
     action_norm: str = "physical",
+    reward_mode: str = "dense",
 ) -> dict:
     """Convert live_record.py LeRobot dataset(s) to QC transition format.
 
@@ -175,6 +178,12 @@ def convert(
             uses the full DK1 joint range in raw_action space — fixed and
             session-independent. ``"data"`` uses per-joint min/max of this
             dataset — fills [-1, 1] fully but is session-specific.
+        reward_mode: Reward signal to store. ``"dense"`` (default) keeps the
+            recorded per-step env reward (progress shaping). ``"sparse"`` emits
+            ``+1`` only on the goal-reached frame of each successful episode and
+            ``0`` everywhere else, matching a success-only (sparse) env reward
+            config. Sparse is derived from episode boundaries + outcome (the same
+            signal as ``masks``), so it needs no per-step success replay.
 
     Returns:
         The full assembled dict (QC keys + metadata) as numpy arrays.
@@ -182,6 +191,10 @@ def convert(
     if action_norm not in ACTION_NORM_METHODS:
         raise ValueError(
             f"action_norm must be one of {ACTION_NORM_METHODS}, got {action_norm!r}"
+        )
+    if reward_mode not in REWARD_MODES:
+        raise ValueError(
+            f"reward_mode must be one of {REWARD_MODES}, got {reward_mode!r}"
         )
 
     # 1. Load dataset(s). Success and failure roots are independently indexed
@@ -257,6 +270,15 @@ def convert(
     # each other in general (only success-terminated episodes get masks=0).
     terminals, masks = _compute_terminals_and_masks(episode_idx, success)
 
+    # 6b. Optionally replace the dense recorded reward with a sparse goal reward.
+    # A genuine terminal MDP state (masks==0) only occurs at a *successful*
+    # episode's last frame (see _compute_terminals_and_masks), so
+    # terminals * (1 - masks) is +1 exactly on each goal-reached frame and 0
+    # elsewhere — the offline analogue of a success-only env reward. Failure
+    # episodes (masks stays 1 at their terminal) contribute no reward.
+    if reward_mode == "sparse":
+        rewards = (terminals * (1.0 - masks)).astype(np.float32)
+
     # 7. Assemble and save.
     out = {
         # ── QC training keys — pass only these to Dataset.create() ──────────
@@ -276,10 +298,14 @@ def convert(
         "action_min": a_min.astype(np.float32),
         "action_max": a_max.astype(np.float32),
         "action_norm_method": np.array(action_norm),
+        "reward_mode": np.array(reward_mode),
     }
     np.savez(output_path, **out)
 
-    print(f"[INFO] Saved to {output_path}  (action_norm={action_norm!r})")
+    print(
+        f"[INFO] Saved to {output_path}  "
+        f"(action_norm={action_norm!r}, reward_mode={reward_mode!r})"
+    )
     print("       QC keys → pass to Dataset.create()")
     print(f"         observations:      {obs.shape} {obs.dtype}")
     print(f"         next_observations: {next_obs.shape} {next_obs.dtype}")
@@ -345,6 +371,17 @@ if __name__ == "__main__":
             "'data': per-joint min/max of this dataset — fills [-1,1] fully but session-specific."
         ),
     )
+    parser.add_argument(
+        "--reward-mode",
+        default="dense",
+        choices=list(REWARD_MODES),
+        help=(
+            "Reward signal to store. "
+            "'dense' (default): the recorded per-step env reward (progress shaping). "
+            "'sparse': +1 only on each successful episode's goal frame, 0 elsewhere — "
+            "use with a success-only (sparse) env reward config."
+        ),
+    )
     args = parser.parse_args()
 
     convert(
@@ -352,4 +389,5 @@ if __name__ == "__main__":
         output_path=args.output,
         failure_dir=args.failure_dir,
         action_norm=args.action_norm,
+        reward_mode=args.reward_mode,
     )
