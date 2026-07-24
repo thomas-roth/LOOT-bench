@@ -93,10 +93,12 @@ DOMINO_VARIANTS: dict[str, DominoVariantCfg] = {
     v.name: v
     for n in (2, 3, 4)
     for v in (
-        DominoVariantCfg(name=f"Domino{n}", num_dominoes=n),
+        DominoVariantCfg(name=f"Domino{n}", num_dominoes=n, ordered=True),
         DominoVariantCfg(
             name=f"Domino{n}DifferentDominoes", num_dominoes=n, different=True
         ),
-        DominoVariantCfg(name=f"Domino{n}KnockOver", num_dominoes=n, knock_over=True),
+        DominoVariantCfg(
+            name=f"Domino{n}KnockOver", num_dominoes=n, knock_over=True, ordered=True
+        ),
     )
 }

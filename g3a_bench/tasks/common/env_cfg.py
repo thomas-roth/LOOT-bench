@@ -100,12 +100,13 @@ def make_manipulation_env_cfg(
             if command_obs
             else {}
         ),
-        "actions": ObservationTermCfg(func=mdp.last_action),
+        # could be added but is probably not needed
+        # "actions": ObservationTermCfg(func=mdp.last_action),
     }
 
     observations = {
-        "actor": ObservationGroupCfg(dict(actor_terms), enable_corruption=True),
-        "critic": ObservationGroupCfg(dict(actor_terms), enable_corruption=False),
+        "actor": ObservationGroupCfg(dict(actor_terms)),
+        "critic": ObservationGroupCfg(dict(actor_terms)),
     }
 
     actions: dict[str, ActionTermCfg] = {
