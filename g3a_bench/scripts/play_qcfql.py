@@ -17,6 +17,16 @@ Flags:
 
 from __future__ import annotations
 
+import os
+
+# JAX defaults to preallocating ~75% of GPU memory as one arena on first use
+# (agent.create() below). mjlab/Warp shares the same GPU and CUDA context; if
+# JAX grabs its arena after Warp has already captured a reset/step CUDA graph,
+# Warp can be left with nothing for that graph's *launch* (not its capture),
+# failing with "Warp CUDA error 2: out of memory" on a later env.reset()/step()
+# even though the first reset succeeded. Must be set before `import jax`.
+os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
+
 import argparse
 import pickle
 import zipfile

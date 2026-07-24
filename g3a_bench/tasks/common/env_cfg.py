@@ -42,6 +42,7 @@ def make_manipulation_env_cfg(
     command_cfg: CommandTermCfg,
     task_obs_terms: dict[str, ObservationTermCfg],
     command_obs: bool = True,
+    include_last_action: bool = True,
     task_rewards: dict[str, RewardTermCfg],
     task_terminations: dict[str, TerminationTermCfg],
     sensors: tuple[SensorCfg, ...] = (),
@@ -69,6 +70,12 @@ def make_manipulation_env_cfg(
             Disable when the task observations already encode the goal
             relative to the objects (the raw command would be redundant or
             constant).
+        include_last_action: whether to append the previous action to the
+            actor observation. Disable to break the imitation-learning
+            "copycat" shortcut, where smooth demos let the policy predict the
+            next action by echoing the last one (momentum) instead of reading
+            the scene. The training dataset's observations must be sliced to
+            match (see ``scripts/live_bridge/drop_last_action_obs.py``).
         task_rewards: category reward terms.
         task_terminations: category terminations, placed after ``time_out``.
         sensors: scene sensors (e.g. an end-effector contact sensor).
@@ -100,7 +107,11 @@ def make_manipulation_env_cfg(
             if command_obs
             else {}
         ),
-        "actions": ObservationTermCfg(func=mdp.last_action),
+        **(
+            {"actions": ObservationTermCfg(func=mdp.last_action)}
+            if include_last_action
+            else {}
+        ),
     }
 
     # "critic" (a second, noise-free copy of the same terms for an

@@ -72,6 +72,13 @@ def make_place_env_cfg(
         ),
         task_obs_terms=task_obs_terms,
         command_obs=True,  # Target varies every episode, unlike stack's constant height.
+        # Copycat fix: diagnostics on a trained QC-FQL policy showed it keyed on
+        # the previous action (momentum) ~2x more than on the cube position,
+        # yielding a canned reach that ignores where the cube is (gripper closes
+        # in the air -> zero grasp contacts at eval). Dropping last_action forces
+        # the policy to read the cube. The offline dataset must be sliced to match
+        # (scripts/live_bridge/drop_last_action_obs.py). Restore by removing this.
+        include_last_action=False,
         task_rewards=task_rewards,
         task_terminations=task_terminations,
         sensors=sensors,
