@@ -2,11 +2,12 @@
 
 At every resample the command:
 
-1. draws a shared row start pose (domino-0's slot position) and row yaw —
-   one draw, independent of the domino count — with the reach-band clamp
-   sized for ``HARDEST_COUNT`` so the distribution never shifts with the
-   variant's actual n (seed-prefix rule); slots extend from the start along
-   the row direction,
+1. places the row start pose (domino-0's slot position) and row yaw: fixed
+   at the workspace centre along +y by default, or — for ``RandomRow`` —
+   one shared draw, independent of the domino count, with the reach-band
+   clamp sized for ``HARDEST_COUNT``. Either way the start pose never
+   shifts with the variant's actual n (seed-prefix rule) and slots extend
+   from the start along the row direction,
 2. scatters all dominoes upright elsewhere in the workspace on a jittered
    grid (collision-free by construction; per-domino draws in index order via
    ``ScatterGrid.sample_poses``), with the grid cells within
@@ -277,15 +278,16 @@ class DominoCommand(CommandTerm):
         x0, x1 = cfg.workspace_x
         y0, y1 = cfg.workspace_y
 
-        if self.variant.fixed_row:
-            # Fixed row: center of workspace, row extends along +y (yaw = pi/2).
-            start = (
-                torch.tensor([(x0 + x1) / 2, (y0 + y1) / 2], device=dev)
-                .unsqueeze(0)
-                .repeat(n, 1)
-            )
+        if not self.variant.random_row:
+            # --- Fixed row: along +y, with the HARDEST_COUNT row centred in
+            # the workspace. Anchored at the start like the random row, so a
+            # shorter variant's slots are still the longer one's first n. ---
             yaw = torch.full((n,), math.pi / 2, device=dev)
-            dir_xy = torch.tensor([[0.0, 1.0]], device=dev).repeat(n, 1)  # (n, 2)
+            dir_xy = torch.tensor([[0.0, 1.0]], device=dev).expand(n, 2)
+            centre = torch.tensor([(x0 + x1) / 2, (y0 + y1) / 2], device=dev)
+            start = (centre - 0.5 * SPACING * (HARDEST_COUNT - 1) * dir_xy[0]).expand(
+                n, 2
+            )
         else:
             # --- Row start pose + yaw: one shared draw, independent of G, so
             # this stays a seed prefix across variants of different n. ---

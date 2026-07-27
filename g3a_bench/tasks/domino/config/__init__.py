@@ -9,15 +9,13 @@ from g3a_bench.tasks.domino.variants import DOMINO_VARIANTS, DominoVariantCfg
 
 def _task_id_parts(variant: DominoVariantCfg) -> tuple[str, str]:
     task = f"{variant.num_dominoes}Pieces"
-    parts = []
-    if variant.fixed_row:
-        parts.append("FixedRow")
+    if variant.random_row:
+        return task, "RandomRow"
     if variant.different:
-        parts.append("DifferentDominoes")
+        return task, "DifferentDominoes"
     if variant.knock_over:
-        parts.append("KnockOver")
-    variation = "".join(parts)
-    return task, variation
+        return task, "KnockOver"
+    return task, ""
 
 
 register_category(

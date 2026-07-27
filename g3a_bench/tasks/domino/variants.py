@@ -1,11 +1,11 @@
 """Variant definitions for the domino task category.
 
-A variant fixes the domino count and up to three boolean modifiers:
+A variant fixes the domino count and one modifier:
 
-- Domino{2,3,4}: n identical dominoes standing upright in a row.
-- Domino{n}FixedRow: row position is fixed at workspace center (consistent
-  across resets, useful for teleoperation training). Without this, the row's
-  start position and orientation are drawn uniformly at random each reset.
+- Domino{2,3,4}: n identical dominoes standing upright in a row, at the same
+  fixed row every reset (workspace-centred, along +y).
+- Domino{n}RandomRow: the row's start position and yaw are instead drawn
+  uniformly at random each reset.
 - Domino{n}DifferentDominoes: dominoes get progressively thinner and lighter
   along the row (same height/width), so upright-standing/knock-over physics
   vary along the row.
@@ -15,9 +15,10 @@ A variant fixes the domino count and up to three boolean modifiers:
   or out-of-order toppling doesn't count); a `phase` observation flags the
   build (0) vs. topple (1) half of the episode.
 
-Modifiers are combinable: e.g., Domino3FixedRowDifferentDominoes combines
-fixed row position with different masses; Domino4FixedRowKnockOver adds
-knock-over to fixed rows.
+The row is fixed by default because a teleoperator building demos benefits
+from a layout that does not move between takes; ``RandomRow`` is the one
+variant that opts back into the sampled row. The dominoes' *spawn* poses
+stay random in every variant.
 """
 
 from dataclasses import dataclass
@@ -32,9 +33,9 @@ SPACING = 0.05
 the next."""
 
 HARDEST_COUNT = 4
-"""The row-placement clamp always sizes the reach band for this count, so
-the row's start-position/yaw distribution does not depend on the variant's
-actual n (seed-prefix rule)."""
+"""The row is always laid out for this count — the random row's reach-band
+clamp and the fixed row's centring both size for it — so the start pose does
+not depend on the variant's actual n (seed-prefix rule)."""
 
 DOMINO_COLORS: tuple[str, ...] = ("sky", "cobalt", "indigo", "violet")
 """Per-index identity color (``tasks/common/colors.PALETTE`` keys), index 0
@@ -79,8 +80,9 @@ class DominoVariantCfg:
     (interchangeable dominoes only, i.e. never combined with `different`)."""
     margin: float = 1.0
     """Scale on the position/tilt success tolerances."""
-    fixed_row: bool = False
-    """Fixed row position and orientation; otherwise sampled randomly each reset."""
+    random_row: bool = False
+    """Sample the row's start pose and yaw each reset; default is the fixed,
+    workspace-centred row."""
 
     @property
     def half_extents(self) -> tuple[tuple[float, float, float], ...]:
@@ -101,27 +103,22 @@ class DominoVariantCfg:
 DOMINO_VARIANTS: dict[str, DominoVariantCfg] = {
     v.name: v
     for n in (2, 3, 4)
-    for fixed in (False, True)
     for v in (
+        DominoVariantCfg(name=f"Domino{n}", num_dominoes=n, ordered=True),
         DominoVariantCfg(
-            name=f"Domino{n}{'FixedRow' if fixed else ''}",
+            name=f"Domino{n}RandomRow",
             num_dominoes=n,
             ordered=True,
-            fixed_row=fixed,
+            random_row=True,
         ),
         DominoVariantCfg(
-            name=f"Domino{n}{'FixedRow' if fixed else ''}DifferentDominoes",
+            name=f"Domino{n}DifferentDominoes",
             num_dominoes=n,
             different=True,
             ordered=True,
-            fixed_row=fixed,
         ),
         DominoVariantCfg(
-            name=f"Domino{n}{'FixedRow' if fixed else ''}KnockOver",
-            num_dominoes=n,
-            knock_over=True,
-            ordered=True,
-            fixed_row=fixed,
+            name=f"Domino{n}KnockOver", num_dominoes=n, knock_over=True, ordered=True
         ),
     )
 }

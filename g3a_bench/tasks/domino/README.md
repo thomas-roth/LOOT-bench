@@ -1,21 +1,21 @@
 # Domino task category
 
 Build a row of dominoes standing upright, close enough together that they
-could knock each other over. Variants span random vs. fixed row positions
-(fixed for consistent teleoperation training) and different domino masses.
+could knock each other over.
 
-A *variant* (`variants.py`) fixes the domino count and optionally the row
-position. The `DominoCommand` either draws a random row start pose and
-direction (one shared draw, sized for the hardest count so its distribution
-never shifts with the variant's n) or uses a fixed position (row centered at
-workspace center, extending along +y). In both cases, dominoes are scattered
-upright elsewhere in the workspace at every reset. Spawn cells within
-`_SLOT_KEEP_OUT` (2 cm on top of both footprint radii) of a row slot are
-blocked, so no domino ever starts on or right next to a target — aligning one
-out of its own goal position is needlessly fiddly, and a domino that close
-could even count as placed straight out of the reset. The keep-out is built
-against the hardest count's row, keeping the spawn draws a seed prefix across
-variants and row configurations. Success holds on
+A *variant* (`variants.py`) fixes the domino count. The row itself sits at the
+same place every reset — the hardest count's row centred in the workspace,
+running along +y — so a teleoperator recording demos always builds in the same
+spot; `RandomRow` is the one variant that instead draws the row's start pose
+and direction (one shared draw, sized for the hardest count so its
+distribution never shifts with the variant's n). The dominoes themselves are
+scattered upright elsewhere in the workspace at every reset in both cases.
+Spawn cells within `_SLOT_KEEP_OUT` (2 cm on top of both footprint radii) of a
+row slot are blocked, so no domino ever starts on or right next to a target —
+aligning one out of its own goal position is needlessly fiddly, and a domino
+that close could even count as placed straight out of the reset. The keep-out
+is built against the hardest count's row, keeping the spawn draws a seed prefix
+across variants. Success holds on
 the first step where every domino stands within `pos_threshold * margin` of
 its row slot and within `upright_threshold_deg * margin` of upright and
 row-aligned, all dominoes move slowly, and the gripper is open. `KnockOver`
@@ -79,14 +79,12 @@ brighter green once the whole task succeeds (unchanged from the shared
 
 ## Variants
 
-| Task id (`-Dk1_uni`)                                        | Description                                             |
-| ----------------------------------------------------------- | ------------------------------------------------------- |
-| `G3A-Domino-{2,3,4}Pieces`                                  | place n standard dominoes in a row (random positions)   |
-| `G3A-Domino-{2,3,4}Pieces-FixedRow`                         | row position fixed at workspace center (consistent)     |
-| `G3A-Domino-{2,3,4}Pieces-DifferentDominoes`                | dominoes progressively thinner and lighter (random)     |
-| `G3A-Domino-{2,3,4}Pieces-FixedRowDifferentDominoes`        | different dominoes with fixed row (consistent)          |
-| `G3A-Domino-{2,3,4}Pieces-KnockOver`                        | topple the completed line after building (random)       |
-| `G3A-Domino-{2,3,4}Pieces-FixedRowKnockOver`                | knock over with fixed row (consistent)                  |
+| Task id (`-Dk1_uni`)                              | Description                                        |
+| -------------------------------------------------- | -------------------------------------------------- |
+| `G3A-Domino-{2,3,4}Pieces`                         | place n standard dominoes in the fixed row          |
+| `G3A-Domino-{2,3,4}Pieces-RandomRow`               | row start pose and yaw redrawn every reset          |
+| `G3A-Domino-{2,3,4}Pieces-DifferentDominoes`       | dominoes progressively thinner and lighter          |
+| `G3A-Domino-{2,3,4}Pieces-KnockOver`               | topple the completed line after building it         |
 
 Play e.g. with:
 
