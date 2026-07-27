@@ -10,6 +10,10 @@ so a task's resets are a seed-prefix of a harder task's (see
 ``docs/TaskCategories.md`` "General": demos for easier tasks are cut from
 the hardest task's recordings). Pass explicit ``cells``/``jitter`` for
 irregular layouts.
+
+:meth:`blocked_near` builds a per-env keep-out mask for ``sample_poses`` so
+objects never spawn on (or right next to) their own goal positions; it
+consumes no randomness, keeping the seed-prefix rule intact.
 """
 
 from __future__ import annotations
@@ -78,8 +82,34 @@ class ScatterGrid:
     def num_cells(self) -> int:
         return self.cells.shape[0]
 
+    def blocked_near(
+        self, points: torch.Tensor, min_distance: float, *, keep_free: int = 0
+    ) -> torch.Tensor:
+        """Per-env keep-out mask of the cells too close to ``points``.
+
+        A cell is blocked when *any* pose it can produce — centre plus the
+        worst-case jitter corner — would land within ``min_distance`` of a
+        point. The ``keep_free`` cells farthest from every point are never
+        blocked, so a keep-out that swallows the region still leaves
+        :meth:`sample_poses` enough cells (it then falls back to the least
+        bad ones instead of failing).
+
+        Args:
+            points: (num_envs, K, 2) keep-out centres, same frame as the cells.
+            min_distance: min distance from a sampled pose to any point.
+            keep_free: cells to leave free per env (pass the object count).
+
+        Returns:
+            (num_envs, C) bool mask for :meth:`sample_poses`'s ``blocked``.
+        """
+        delta = self.cells[None, :, None, :] - points[:, None, :, :]  # (E, C, K, 2)
+        nearest = delta.norm(dim=-1).amin(dim=-1)  # (E, C)
+        blocked = nearest < min_distance + float(torch.linalg.norm(self.jitter))
+        rank = nearest.argsort(dim=1, descending=True).argsort(dim=1)
+        return blocked & (rank >= keep_free)
+
     def sample_poses(
-        self, num_envs: int, count: int
+        self, num_envs: int, count: int, blocked: torch.Tensor | None = None
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Draw ``count`` distinct jittered cells plus a yaw per object.
 
@@ -88,19 +118,33 @@ class ScatterGrid:
         draw count and the draw-to-pose mapping are independent of ``count``
         (seed-prefix rule, see module docstring).
 
+        Args:
+            blocked: optional (num_envs, C) mask of cells to skip, e.g. from
+                :meth:`blocked_near`. Each env must keep >= ``count`` cells.
+
         Returns:
             ``(xy, yaw)``: (num_envs, count, 2) and (num_envs, count).
         """
         num_cells = self.num_cells
         assert count <= num_cells, f"cannot place {count} objects on {num_cells} cells"
         dev = self.cells.device
-        perm = torch.arange(num_cells, device=dev).expand(num_envs, -1).clone()
+        if blocked is None:
+            perm = torch.arange(num_cells, device=dev).expand(num_envs, -1).clone()
+            avail = torch.full((num_envs,), num_cells, device=dev, dtype=torch.long)
+        else:
+            # Stable sort: allowed cells first, both groups in index order.
+            perm = blocked.to(torch.uint8).argsort(dim=1, stable=True)
+            avail = (~blocked).sum(dim=1)
+            assert int(avail.min()) >= count, (
+                f"cannot place {count} objects on {int(avail.min())} unblocked cells"
+            )
         env = torch.arange(num_envs, device=dev)
         xy = torch.empty(num_envs, count, 2, device=dev)
         yaw = torch.empty(num_envs, count, device=dev)
         for i in range(count):
             u = torch.rand(num_envs, 4, device=dev)
-            j = i + (u[:, 0] * (num_cells - i)).long().clamp_max(num_cells - i - 1)
+            span = avail - i  # cells still free in this env, >= 1
+            j = i + torch.minimum((u[:, 0] * span).long(), span - 1)
             picked = perm[env, j]
             perm[env, j] = perm[env, i]
             perm[env, i] = picked

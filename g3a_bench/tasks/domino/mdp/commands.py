@@ -9,7 +9,9 @@ At every resample the command:
    the row direction,
 2. scatters all dominoes upright elsewhere in the workspace on a jittered
    grid (collision-free by construction; per-domino draws in index order via
-   ``ScatterGrid.sample_poses``).
+   ``ScatterGrid.sample_poses``), with the grid cells within
+   ``_SLOT_KEEP_OUT`` of any slot of the ``HARDEST_COUNT`` row blocked, so
+   no domino ever spawns on or right next to a target.
 
 Every step it re-checks each domino's placement (position + upright/row
 alignment, ``success.py`` kernels) against its slot. ``KnockOver`` variants
@@ -68,11 +70,18 @@ if TYPE_CHECKING:
 _EDGE_MARGIN = 0.02
 _NEVER_FELL = 1.0e9
 """Sentinel fall-order value for a domino that has not chain-fallen yet."""
+_SLOT_KEEP_OUT = 0.02
+"""Free gap (m) a spawned domino keeps from every row slot, on top of both
+footprint radii: a domino that starts on its target is awkward to align from
+there, and one that close could even count as placed straight out of the
+reset."""
 _PENDING_ALPHA = 0.75
 """Fill opacity for a slot's pending (not-yet-placed) marker. Higher than the
 shared default (see debug_markers.PENDING_ALPHA) because the outline (below)
 already signals "this is a ghost, not a real object" -- the fill is free to
 sit close to the real domino color for a legible identity match."""
+_KEEPOUT_VIS_RGBA = (0.5, 0.5, 0.5, 0.25)
+"""Keep-out radius edge color: gray and subtle."""
 
 
 def get_command(env: ManagerBasedRlEnv, name: str) -> DominoCommand:
@@ -120,6 +129,8 @@ class DominoCommand(CommandTerm):
         self._scatter = ScatterGrid.tiling(
             cfg.workspace_x, cfg.workspace_y, object_radius=object_radius, device=dev
         )
+        # Slot footprint + domino footprint + gap: min spawn-to-slot distance.
+        self._slot_keep_out = 2.0 * object_radius + _SLOT_KEEP_OUT
         assert self._scatter.num_cells >= G
 
         self.slot_goal_pos = torch.zeros(E, G, 3, device=dev)  # world frame
@@ -280,18 +291,21 @@ class DominoCommand(CommandTerm):
         start = lo + u[:, 2:4] * (hi - lo).clamp_min(0.0)
         self.row_yaw[env_ids] = yaw
 
-        steps = torch.arange(G, device=dev, dtype=torch.float32)
-        slot_xy = start.unsqueeze(1) + steps.view(1, G, 1) * SPACING * dir_xy.unsqueeze(
-            1
-        )
+        steps = torch.arange(max(G, HARDEST_COUNT), device=dev, dtype=torch.float32)
+        offsets = steps.view(1, -1, 1) * SPACING * dir_xy.unsqueeze(1)
+        row_xy = start.unsqueeze(1) + offsets  # (n, max(G, HARDEST_COUNT), 2), local
+        slot_xy = row_xy[:, :G]
         slot_z = self._half_h[0].expand(n, G).unsqueeze(-1)
         self.slot_goal_pos[env_ids] = torch.cat(
             [slot_xy, slot_z], dim=-1
         ) + origins.unsqueeze(1)
 
         # --- Scatter all dominoes upright on distinct jittered grid cells
-        # (per-domino draws in index order). ---
-        xy, spawn_yaw = self._scatter.sample_poses(n, G)
+        # (per-domino draws in index order), keeping clear of the row slots so
+        # no domino starts on a target. Blocked against the HARDEST_COUNT row,
+        # so the keep-out — like the row draw above — does not depend on G. ---
+        blocked = self._scatter.blocked_near(row_xy, self._slot_keep_out, keep_free=G)
+        xy, spawn_yaw = self._scatter.sample_poses(n, G, blocked=blocked)
         write_upright_spawn(
             self.dominoes, xy, spawn_yaw, self._half_h, origins, env_ids
         )
@@ -356,4 +370,16 @@ class DominoCommand(CommandTerm):
                     mat=mat,
                     color=OUTLINE_RGBA,
                     label_prefix=f"slot_goal_outline_{batch}_{i}",
+                )
+                # Keep-out radius around the slot (unrotated xy-circle).
+                add_box_wireframe(
+                    visualizer,
+                    center=goal,
+                    half_extents=np.array(
+                        [self._slot_keep_out, self._slot_keep_out, 0.001]
+                    ),
+                    mat=np.eye(3),
+                    color=_KEEPOUT_VIS_RGBA,
+                    label_prefix=f"slot_keepout_{batch}_{i}",
+                    radius=0.0006,
                 )

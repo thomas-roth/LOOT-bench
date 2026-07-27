@@ -68,3 +68,75 @@ class TestSamplePoses:
         grid = ScatterGrid(cells=torch.zeros(2, 2), jitter=torch.zeros(2))
         with pytest.raises(AssertionError):
             grid.sample_poses(1, 3)
+
+
+class TestBlockedNear:
+    """The goal-position keep-out mask (``blocked_near`` + ``blocked``)."""
+
+    def _grid(self) -> ScatterGrid:
+        return ScatterGrid.tiling(
+            (0.22, 0.42), (-0.18, 0.18), object_radius=0.022, device="cpu"
+        )
+
+    def _points(self, num_envs: int) -> torch.Tensor:
+        # A 4-slot row along +y, one row per env at a different x.
+        x = torch.linspace(0.26, 0.38, num_envs).view(-1, 1)
+        y = torch.linspace(-0.08, 0.07, 4).view(1, -1)
+        return torch.stack([x.expand(-1, 4), y.expand(num_envs, -1)], dim=-1)
+
+    def test_samples_keep_min_distance_from_points(self):
+        grid, num_envs, count, min_dist = self._grid(), 128, 4, 0.06
+        points = self._points(num_envs)
+        blocked = grid.blocked_near(points, min_dist, keep_free=count)
+        xy, _ = grid.sample_poses(num_envs, count, blocked=blocked)
+        dist = (xy[:, :, None, :] - points[:, None, :, :]).norm(dim=-1)
+        assert float(dist.min()) >= min_dist
+
+    def test_jitter_cannot_breach_the_keep_out(self):
+        # Cells are blocked by centre distance *plus* the worst-case jitter.
+        grid, min_dist = self._grid(), 0.06
+        points = self._points(16)
+        blocked = grid.blocked_near(points, min_dist, keep_free=0)
+        centre_dist = (
+            (grid.cells[None, :, None, :] - points[:, None, :, :]).norm(dim=-1).amin(-1)
+        )
+        allowed = centre_dist[~blocked]
+        assert float(allowed.min()) >= min_dist + float(grid.jitter.norm())
+
+    def test_keep_free_survives_an_all_covering_keep_out(self):
+        # A keep-out over the whole region still leaves keep_free cells — the
+        # farthest ones — so sampling degrades instead of failing.
+        grid, count = self._grid(), 4
+        points = grid.cells.mean(0).view(1, 1, 2).expand(8, 1, -1)
+        blocked = grid.blocked_near(points, 10.0, keep_free=count)
+        assert int((~blocked).sum(dim=1).min()) == count
+        grid.sample_poses(8, count, blocked=blocked)  # does not raise
+
+    def test_unblocked_mask_matches_no_mask(self):
+        # An empty keep-out must not shift the draw-to-pose mapping.
+        grid = self._grid()
+        torch.manual_seed(5)
+        xy_a, yaw_a = grid.sample_poses(16, 4)
+        torch.manual_seed(5)
+        xy_b, yaw_b = grid.sample_poses(
+            16, 4, blocked=torch.zeros(16, grid.num_cells, dtype=torch.bool)
+        )
+        assert torch.equal(xy_a, xy_b) and torch.equal(yaw_a, yaw_b)
+
+    def test_seed_prefix_property_under_a_shared_mask(self):
+        # Same keep-out (domino blocks against the hardest row regardless of
+        # n) -> the shorter draw stays a prefix of the longer one.
+        grid = self._grid()
+        blocked = grid.blocked_near(self._points(16), 0.06, keep_free=4)
+        torch.manual_seed(7)
+        xy2, yaw2 = grid.sample_poses(16, 2, blocked=blocked)
+        torch.manual_seed(7)
+        xy4, yaw4 = grid.sample_poses(16, 4, blocked=blocked)
+        assert torch.equal(xy2, xy4[:, :2]) and torch.equal(yaw2, yaw4[:, :2])
+
+    def test_too_few_unblocked_cells_raises(self):
+        grid = self._grid()
+        blocked = torch.ones(4, grid.num_cells, dtype=torch.bool)
+        blocked[:, 0] = False
+        with pytest.raises(AssertionError):
+            grid.sample_poses(4, 2, blocked=blocked)

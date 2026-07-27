@@ -16,7 +16,8 @@ Pytest suites for the simulator-free task logic:
   `common/commands.py`.
 - `test_scatter.py` — the `ScatterGrid` spawn sampler in `common/scatter.py`
   (`tiling`'s cell layout and jitter bounds, `sample_poses`'s distinct-cells,
-  determinism, and seed-prefix properties).
+  determinism, and seed-prefix properties, and `blocked_near`'s goal-position
+  keep-out).
 
 Run them after touching a category's `mdp/success.py`, `tasks/common/success.py`,
 or `tasks/common/scatter.py`.
