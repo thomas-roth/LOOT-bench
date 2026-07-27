@@ -277,18 +277,36 @@ class DominoCommand(CommandTerm):
         x0, x1 = cfg.workspace_x
         y0, y1 = cfg.workspace_y
 
-        # --- Row start pose + yaw: one shared draw, independent of G, so
-        # this stays a seed prefix across variants of different n. ---
-        u = torch.rand(n, 4, device=dev)
-        sign = torch.where(u[:, 0] < 0.5, 1.0, -1.0)
-        yaw = sign * math.pi / 2 + (u[:, 1] - 0.5) * 1.2
-        dir_xy = torch.stack([torch.cos(yaw), torch.sin(yaw)], dim=-1)  # (n, 2)
-        # Clamp for a HARDEST_COUNT row (anchored at the start), so a
-        # shorter row's start-position range never depends on its actual n.
-        extent = dir_xy * SPACING * (HARDEST_COUNT - 1)
-        lo = torch.tensor([x0, y0], device=dev) - extent.clamp(max=0.0) + _EDGE_MARGIN
-        hi = torch.tensor([x1, y1], device=dev) - extent.clamp(min=0.0) - _EDGE_MARGIN
-        start = lo + u[:, 2:4] * (hi - lo).clamp_min(0.0)
+        if self.variant.fixed_row:
+            # Fixed row: center of workspace, row extends along +y (yaw = pi/2).
+            start = (
+                torch.tensor([(x0 + x1) / 2, (y0 + y1) / 2], device=dev)
+                .unsqueeze(0)
+                .repeat(n, 1)
+            )
+            yaw = torch.full((n,), math.pi / 2, device=dev)
+            dir_xy = torch.tensor([[0.0, 1.0]], device=dev).repeat(n, 1)  # (n, 2)
+        else:
+            # --- Row start pose + yaw: one shared draw, independent of G, so
+            # this stays a seed prefix across variants of different n. ---
+            u = torch.rand(n, 4, device=dev)
+            sign = torch.where(u[:, 0] < 0.5, 1.0, -1.0)
+            yaw = sign * math.pi / 2 + (u[:, 1] - 0.5) * 1.2
+            dir_xy = torch.stack([torch.cos(yaw), torch.sin(yaw)], dim=-1)  # (n, 2)
+            # Clamp for a HARDEST_COUNT row (anchored at the start), so a
+            # shorter row's start-position range never depends on its actual n.
+            extent = dir_xy * SPACING * (HARDEST_COUNT - 1)
+            lo = (
+                torch.tensor([x0, y0], device=dev)
+                - extent.clamp(max=0.0)
+                + _EDGE_MARGIN
+            )
+            hi = (
+                torch.tensor([x1, y1], device=dev)
+                - extent.clamp(min=0.0)
+                - _EDGE_MARGIN
+            )
+            start = lo + u[:, 2:4] * (hi - lo).clamp_min(0.0)
         self.row_yaw[env_ids] = yaw
 
         steps = torch.arange(max(G, HARDEST_COUNT), device=dev, dtype=torch.float32)

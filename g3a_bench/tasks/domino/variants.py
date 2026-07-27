@@ -1,8 +1,11 @@
 """Variant definitions for the domino task category.
 
-A variant fixes the domino count and two boolean modifiers:
+A variant fixes the domino count and up to three boolean modifiers:
 
 - Domino{2,3,4}: n identical dominoes standing upright in a row.
+- Domino{n}FixedRow: row position is fixed at workspace center (consistent
+  across resets, useful for teleoperation training). Without this, the row's
+  start position and orientation are drawn uniformly at random each reset.
 - Domino{n}DifferentDominoes: dominoes get progressively thinner and lighter
   along the row (same height/width), so upright-standing/knock-over physics
   vary along the row.
@@ -11,6 +14,10 @@ A variant fixes the domino count and two boolean modifiers:
   fall along the row axis, all leaning the same way, in row order (sideways
   or out-of-order toppling doesn't count); a `phase` observation flags the
   build (0) vs. topple (1) half of the episode.
+
+Modifiers are combinable: e.g., Domino3FixedRowDifferentDominoes combines
+fixed row position with different masses; Domino4FixedRowKnockOver adds
+knock-over to fixed rows.
 """
 
 from dataclasses import dataclass
@@ -72,6 +79,8 @@ class DominoVariantCfg:
     (interchangeable dominoes only, i.e. never combined with `different`)."""
     margin: float = 1.0
     """Scale on the position/tilt success tolerances."""
+    fixed_row: bool = False
+    """Fixed row position and orientation; otherwise sampled randomly each reset."""
 
     @property
     def half_extents(self) -> tuple[tuple[float, float, float], ...]:
@@ -92,16 +101,27 @@ class DominoVariantCfg:
 DOMINO_VARIANTS: dict[str, DominoVariantCfg] = {
     v.name: v
     for n in (2, 3, 4)
+    for fixed in (False, True)
     for v in (
-        DominoVariantCfg(name=f"Domino{n}", num_dominoes=n, ordered=True),
         DominoVariantCfg(
-            name=f"Domino{n}DifferentDominoes",
+            name=f"Domino{n}{'FixedRow' if fixed else ''}",
+            num_dominoes=n,
+            ordered=True,
+            fixed_row=fixed,
+        ),
+        DominoVariantCfg(
+            name=f"Domino{n}{'FixedRow' if fixed else ''}DifferentDominoes",
             num_dominoes=n,
             different=True,
             ordered=True,
+            fixed_row=fixed,
         ),
         DominoVariantCfg(
-            name=f"Domino{n}KnockOver", num_dominoes=n, knock_over=True, ordered=True
+            name=f"Domino{n}{'FixedRow' if fixed else ''}KnockOver",
+            num_dominoes=n,
+            knock_over=True,
+            ordered=True,
+            fixed_row=fixed,
         ),
     )
 }
