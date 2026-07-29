@@ -41,7 +41,7 @@ Overview of reward, observation, termination and randomization design across tas
 ### Stack
 - **Progress**: tallest reached stack height / target height.
 - **Observations**: pose of every block.
-- **Success**: top of a valid stack within a small tolerance of target height. `TwoStacks` variant also requires the two piles ≥6 cm apart.
+- **Success**: top of a valid stack within a small tolerance of target height. All blocks share one height, so only a stack of exactly `n` blocks is within tolerance.
 - **Randomization**: blocks scattered once at episode start
 
 ### Domino

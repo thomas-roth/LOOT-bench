@@ -1,10 +1,12 @@
 """Tests for the demo splitter (offline relabel to easier same-family tasks).
 
 Pure-logic tests (parse/enumerate/validate) cover Stack and Domino with no
-data. The relabel/write tests run against the committed Stack-Low demos and are
-skipped if absent. Because Low is the easiest registered task, the object
-truncation is exercised with a synthetic target that keeps the first 4 of the 6
-cubes. Domino's recompute is covered by synthetic episodes at several row
+data. The relabel/write tests run against the committed Stack3-Medium demos and
+are skipped if absent (they predate the Stack3/4/5 x Easy/Medium/Hard rename and
+still live under the old ``G3A-Stack-Low-Dk1_uni`` directory; the blocks are the
+Stack3-Medium ones). Because Stack3 is the easiest registered target height, the
+object truncation is exercised with a synthetic target that keeps the first 4 of
+the 6 blocks. Domino's recompute is covered by synthetic episodes at several row
 angles — the fixed row (the base family) sits at yaw=pi/2, while a `RandomRow`
 row is tilted and may have negative yaw, and the recompute recovers that angle
 from the stored slot quaternion.
@@ -30,16 +32,27 @@ from g3a_bench.scripts.live_bridge.split_demos import (
     split_to_task,
     variant_from_task_id,
 )
-from g3a_bench.tasks.stack.variants import STACK_VARIANTS, StackVariantCfg, _cubes
+from g3a_bench.tasks.stack.variants import (
+    STACK_VARIANTS,
+    BlockCfg,
+    StackVariantCfg,
+)
 
 REPO = Path(__file__).resolve().parents[2]
+# Recorded before the rename; geometrically the Stack3-Medium task (6 cubes of
+# 0.04 m, target 3 blocks high).
 DEMO_DIR = REPO / "dataset" / "demos" / "G3A-Stack-Low-Dk1_uni"
 
-STACK_ADAPTER = adapter_for("G3A-Stack-Low-Dk1_uni")
-STACK3 = STACK_VARIANTS["Stack3"]
-# Synthetic truncation target: keep the first 4 of Stack3's 6 cubes (same
-# family/height); registered as ("Low", "") by _task_id_parts so validate passes.
-STACK_TRUNC = StackVariantCfg(name="Stack3trunc", target_blocks=3, blocks=_cubes(4))
+STACK_ADAPTER = adapter_for("G3A-Stack3-Medium-Dk1_uni")
+STACK3 = STACK_VARIANTS["Stack3Medium"]
+# Synthetic truncation target: keep the first 4 of Stack3Medium's 6 blocks (same
+# difficulty, so the same split family).
+STACK_TRUNC = StackVariantCfg(
+    name="Stack3MediumTrunc",
+    difficulty="Medium",
+    target_blocks=3,
+    blocks=tuple(BlockCfg(difficulty="Medium") for _ in range(4)),
+)
 
 
 def _sessions() -> list[str]:
@@ -47,7 +60,7 @@ def _sessions() -> list[str]:
 
 
 needs_demos = pytest.mark.skipif(
-    not _sessions(), reason="committed Stack-Low demos not present"
+    not _sessions(), reason="committed Stack3-Medium demos not present"
 )
 
 
@@ -69,22 +82,23 @@ def _arrays(g: pd.DataFrame) -> dict:
 
 
 def test_parse_and_enumerate_stack():
-    assert parse_task_id("G3A-Stack-High-Dk1_uni") == ("Stack", "High", "", "Dk1_uni")
-    assert parse_task_id("G3A-Stack-Low-TwoStacks-Dk1_uni") == (
-        "Stack",
-        "Low",
-        "TwoStacks",
+    assert parse_task_id("G3A-Stack5-Medium-Dk1_uni") == (
+        "Stack5",
+        "Medium",
+        "",
         "Dk1_uni",
     )
-    assert easier_target_task_ids("G3A-Stack-High-Dk1_uni") == [
-        "G3A-Stack-Medium-Dk1_uni",
-        "G3A-Stack-Low-Dk1_uni",
+    # The target height rides in the category segment, the block shape is the
+    # task, so the splittable family is one difficulty.
+    assert easier_target_task_ids("G3A-Stack5-Medium-Dk1_uni") == [
+        "G3A-Stack4-Medium-Dk1_uni",
+        "G3A-Stack3-Medium-Dk1_uni",
     ]
-    assert easier_target_task_ids("G3A-Stack-High-TwoStacks-Dk1_uni") == [
-        "G3A-Stack-Medium-TwoStacks-Dk1_uni",
-        "G3A-Stack-Low-TwoStacks-Dk1_uni",
+    assert easier_target_task_ids("G3A-Stack5-Hard-Dk1_uni") == [
+        "G3A-Stack4-Hard-Dk1_uni",
+        "G3A-Stack3-Hard-Dk1_uni",
     ]
-    assert easier_target_task_ids("G3A-Stack-Low-Dk1_uni") == []
+    assert easier_target_task_ids("G3A-Stack3-Medium-Dk1_uni") == []
 
 
 def test_parse_and_enumerate_domino():
@@ -130,14 +144,14 @@ def test_parse_and_enumerate_domino_random_row():
 
 
 def test_validate_rejects_bad_plans():
-    high = variant_from_task_id("G3A-Stack-High-Dk1_uni")
-    low = variant_from_task_id("G3A-Stack-Low-Dk1_uni")
-    two = variant_from_task_id("G3A-Stack-High-TwoStacks-Dk1_uni")
+    high = variant_from_task_id("G3A-Stack5-Medium-Dk1_uni")
+    low = variant_from_task_id("G3A-Stack3-Medium-Dk1_uni")
+    hard = variant_from_task_id("G3A-Stack3-Hard-Dk1_uni")
     SplitPlan(STACK_ADAPTER, high, low).validate()  # ok
     with pytest.raises(AssertionError):
         SplitPlan(STACK_ADAPTER, low, high).validate()  # target not easier
     with pytest.raises(AssertionError):
-        SplitPlan(STACK_ADAPTER, high, two).validate()  # different family
+        SplitPlan(STACK_ADAPTER, high, hard).validate()  # different block shape
 
     d_adapter = adapter_for("G3A-Domino-4Pieces-Dk1_uni")
     d4 = variant_from_task_id("G3A-Domino-4Pieces-Dk1_uni")
@@ -159,7 +173,7 @@ def test_validate_rejects_bad_plans():
 def test_domino_obs_layout():
     # obs = [proprio | poses G*7 | slot_placed G | command G*7 | actions 7]
     assert adapter_for("G3A-Domino-3Pieces-Dk1_uni").obs_section_widths == (7, 1, 7)
-    assert adapter_for("G3A-Stack-Low-Dk1_uni").obs_section_widths == (7,)
+    assert adapter_for("G3A-Stack3-Medium-Dk1_uni").obs_section_widths == (7,)
 
 
 def _domino_episode(placed_per_frame: list[bool], row_yaw: float = math.pi / 2):
@@ -414,12 +428,12 @@ def test_source_self_check_and_truncation():
 def test_write_roundtrip(tmp_path):
     plan = SplitPlan(STACK_ADAPTER, STACK3, STACK_TRUNC)
     session = _sessions()[0]
-    out_root = str(tmp_path / "G3A-Stack-Trunc-Dk1_uni" / "run")
+    out_root = str(tmp_path / "G3A-Stack3-Trunc-Dk1_uni" / "run")
     summary = split_to_task(
         _load_source_episodes(session),
         load_extra_info(session),
         plan,
-        "G3A-Stack-Trunc-Dk1_uni",
+        "G3A-Stack3-Trunc-Dk1_uni",
         out_root,
     )
     assert summary["written"] > 0
@@ -431,4 +445,4 @@ def test_write_roundtrip(tmp_path):
     assert dones.sum() == summary["written"]
     extra = load_extra_info(out_root)
     assert len(extra["episode_seeds"]) == summary["written"]
-    assert tuple(extra["split_from"]) == ("Low", "")
+    assert extra["split_from"] == "Stack3-Medium"

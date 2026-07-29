@@ -7,8 +7,8 @@ these, so the success semantics live (and are unit-tested in
 
 Success is *height only*: the top face of some block must reach the target
 height above the table, regardless of xy position or which blocks form the
-stack. TwoStacks additionally requires a second reached block far enough away
-in xy to belong to a separate stack.
+stack. All blocks of a variant share one height, so only a stack of exactly
+``target_blocks`` blocks lands within tolerance.
 """
 
 from __future__ import annotations
@@ -57,24 +57,6 @@ def stack_reached(
     return (_heights(top_z, table_z) - target_height).abs() <= tol
 
 
-def two_stacks_success(
-    reached: torch.Tensor, xy: torch.Tensor, min_separation: float
-) -> torch.Tensor:
-    """Two reached blocks separated enough to top two distinct stacks.
-
-    Args:
-        reached: (E, N) bool per-block :func:`stack_reached` result.
-        xy: (E, N, 2) block xy positions.
-        min_separation: min xy distance between the two blocks (inclusive).
-
-    Returns:
-        (E,) bool.
-    """
-    dist = torch.cdist(xy, xy)  # (E, N, N)
-    pair = reached.unsqueeze(-1) & reached.unsqueeze(-2) & (dist >= min_separation)
-    return pair.any(dim=-1).any(dim=-1)
-
-
 def stack_progress(
     top_z: torch.Tensor,
     table_z: torch.Tensor | float,
@@ -91,29 +73,3 @@ def stack_progress(
     if exclude is not None:
         frac = frac.masked_fill(exclude, 0.0)
     return frac.amax(dim=-1)
-
-
-def two_stacks_progress(
-    top_z: torch.Tensor,
-    xy: torch.Tensor,
-    table_z: torch.Tensor | float,
-    target_height: float,
-    min_separation: float,
-    exclude: torch.Tensor | None = None,
-) -> torch.Tensor:
-    """Mean height fraction of the two best-separated stack leaders, (E,).
-
-    The leader is the tallest block; the second stack is represented by the
-    tallest block at least ``min_separation`` away from the leader in xy
-    (fraction 0 while no block is separated enough). ``exclude`` (E, N) bool
-    zeroes out the block currently held in the gripper (see ``commands.py``).
-    """
-    frac = (_heights(top_z, table_z) / target_height).clamp(0.0, 1.0)  # (E, N)
-    if exclude is not None:
-        frac = frac.masked_fill(exclude, 0.0)
-    lead = frac.argmax(dim=-1)  # (E,)
-    env = torch.arange(xy.shape[0], device=xy.device)
-    lead_xy = xy[env, lead]  # (E, 2)
-    dist = (xy - lead_xy.unsqueeze(1)).norm(dim=-1)  # (E, N)
-    second = torch.where(dist >= min_separation, frac, 0.0).amax(dim=-1)
-    return (frac[env, lead] + second) / 2.0

@@ -30,8 +30,6 @@ from g3a_bench.tasks.stack.mdp.success import (
     block_top_heights,
     stack_progress,
     stack_reached,
-    two_stacks_progress,
-    two_stacks_success,
 )
 
 
@@ -360,61 +358,6 @@ class TestStackHeight:
         assert stack_progress(top_z, 0.0, 0.16)[0].item() == pytest.approx(1.0)
         p = stack_progress(top_z, 0.0, 0.16, exclude=exclude)
         assert p[0].item() == pytest.approx(0.25)
-
-
-# ---------------------------------------------------------------------------
-# two-stacks kernels
-# ---------------------------------------------------------------------------
-
-
-class TestTwoStacks:
-    def _success(self, reached: list[bool], xy: list[list[float]]) -> bool:
-        return bool(
-            two_stacks_success(
-                torch.tensor([reached]), torch.tensor([xy]), min_separation=0.06
-            )[0]
-        )
-
-    @pytest.mark.parametrize("dist,expected", [(0.06, True), (0.059, False)])
-    def test_separation_boundary(self, dist: float, expected: bool):
-        xy = [[0.0, 0.0], [dist, 0.0]]
-        assert self._success([True, True], xy) is expected
-
-    def test_requires_two_reached_blocks(self):
-        xy = [[0.0, 0.0], [0.2, 0.0]]
-        assert not self._success([True, False], xy)
-        assert self._success([True, True], xy)
-
-    def test_progress_ignores_unseparated_second_stack(self):
-        # Both height leaders within min_separation: one stack, second term 0.
-        top_z = torch.tensor([[0.12, 0.12]])
-        xy = torch.tensor([[[0.0, 0.0], [0.03, 0.0]]])
-        p = two_stacks_progress(top_z, xy, 0.0, 0.12, 0.06)
-        assert p[0].item() == pytest.approx(0.5)
-
-    def test_progress_mean_of_two_best_separated_leaders(self):
-        top_z = torch.tensor([[0.12, 0.06, 0.03]])
-        xy = torch.tensor([[[0.0, 0.0], [0.1, 0.0], [0.2, 0.0]]])
-        p = two_stacks_progress(top_z, xy, 0.0, 0.12, 0.06)
-        assert p[0].item() == pytest.approx(0.75)
-
-    def test_progress_clamps_at_two_full_stacks(self):
-        top_z = torch.tensor([[0.15, 0.14]])
-        xy = torch.tensor([[[0.0, 0.0], [0.1, 0.0]]])
-        p = two_stacks_progress(top_z, xy, 0.0, 0.12, 0.06)
-        assert p[0].item() == pytest.approx(1.0)
-
-    def test_progress_excludes_held_leader(self):
-        # Block 0 (a full, separated stack) is held: ignored, so the two
-        # counted leaders drop to blocks 1 and 2, lowering progress.
-        top_z = torch.tensor([[0.12, 0.06, 0.06]])
-        xy = torch.tensor([[[0.0, 0.0], [0.1, 0.0], [0.2, 0.0]]])
-        assert two_stacks_progress(top_z, xy, 0.0, 0.12, 0.06)[0].item() == (
-            pytest.approx(0.75)
-        )
-        exclude = torch.tensor([[True, False, False]])
-        p = two_stacks_progress(top_z, xy, 0.0, 0.12, 0.06, exclude=exclude)
-        assert p[0].item() == pytest.approx(0.5)
 
 
 # ---------------------------------------------------------------------------

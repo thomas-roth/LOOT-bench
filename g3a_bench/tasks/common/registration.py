@@ -33,7 +33,8 @@ def register_category(
         category: capitalized category name; task ids become
             ``G3A-<category>-<task>-<variation>-<robot.name>`` (the
             ``<variation>`` segment is omitted when ``task_id_parts`` returns
-            an empty string for it).
+            an empty string for it). Stack registers one category per target
+            height (``Stack3``/``Stack4``/``Stack5``).
         variants: the category's ``*_VARIANTS`` values; each needs a ``name``
             (used only for the internal experiment-name string, not the
             task id).
@@ -42,8 +43,8 @@ def register_category(
         ee_contact_sensors: forwarded to ``wire_manipulator_into_env``.
         grip_contact_sensor: forwarded to ``wire_manipulator_into_env``.
         task_id_parts: ``(task, variation)`` for a variant, e.g.
-            ``("Low", "DifferentBlocks")`` or ``("Low", "")`` for the base
-            case.
+            ``("3Pieces", "KnockOver")`` or ``("Easy", "")`` when the category
+            has no variation segment.
         max_iterations: PPO iteration budget (kept so ``g3a-play`` and the
             mjlab registry tooling work; QC has its own trainer).
     """

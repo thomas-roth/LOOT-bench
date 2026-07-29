@@ -31,7 +31,6 @@ from g3a_bench.tasks.domino.mdp.commands import DominoCommand
 from g3a_bench.tasks.shape_sorter.assets import BOARD_POS, load_sorter_layout
 from g3a_bench.tasks.shape_sorter.mdp.commands import ShapeSorterCommand
 from g3a_bench.tasks.stack.mdp.commands import StackCommand
-from g3a_bench.tasks.stack.variants import FORM_HALF_EXTENTS
 
 _NUM_ENVS = 8
 _STEPS = 10
@@ -95,7 +94,7 @@ def _teleport_stack(
 ) -> None:
     """Stack every block at one xy, resting directly on top of each other."""
     origins = env.scene.env_origins
-    half_h = [FORM_HALF_EXTENTS[b.form][2] for b in cmd.variant.blocks]
+    half_h = [b.half_extents[2] for b in cmd.variant.blocks]
     quat = _upright_quat(cmd.num_envs, device)
     xy_t = torch.tensor(xy, device=device)
     cum = 0.0
@@ -110,53 +109,13 @@ def _teleport_stack(
         cum += 2 * h
 
 
-def _teleport_two_stacks(
-    cmd: StackCommand, env: ManagerBasedRlEnv, device: str, *, separation: float
-) -> None:
-    """Two separate n-block stacks, ``separation`` m apart in y."""
-    origins = env.scene.env_origins
-    half_h = [FORM_HALF_EXTENTS[b.form][2] for b in cmd.variant.blocks]
-    quat = _upright_quat(cmd.num_envs, device)
-    n = cmd.variant.target_blocks
-    xy_by_stack = (
-        torch.tensor([0.30, -separation / 2], device=device),
-        torch.tensor([0.30, separation / 2], device=device),
-    )
-    cum = [0.0, 0.0]
-    for i, block in enumerate(cmd.blocks):
-        stack = 0 if i < n else 1
-        h = half_h[i]
-        z = origins[:, 2] + cum[stack] + h
-        pos = torch.cat([origins[:, :2] + xy_by_stack[stack], z.unsqueeze(-1)], dim=-1)
-        block.write_root_link_pose_to_sim(torch.cat([pos, quat], dim=-1))
-        block.write_root_link_velocity_to_sim(
-            torch.zeros(cmd.num_envs, 6, device=device)
-        )
-        cum[stack] += 2 * h
-
-
-def _check_stack_low(device: str, *, render: bool = False) -> str | None:
-    task_id = "G3A-Stack-Low-Dk1_uni"
+def _check_stack3_medium(device: str, *, render: bool = False) -> str | None:
+    task_id = "G3A-Stack3-Medium-Dk1_uni"
     env = _make_env(task_id, device)
     cmd = cast(StackCommand, env.command_manager.get_term("task"))
     zeros = _zeros(env, device)
     env.step(zeros)
     _teleport_stack(cmd, env, device, xy=(0.30, 0.0))
-    for _ in range(_STEPS):
-        env.step(zeros)
-    frac = cmd.progress.mean().item()
-    _render_goal(env, task_id, render)
-    env.close()
-    return None if frac > 0.9 else f"progress={frac:.3f} (expected >0.9)"
-
-
-def _check_stack_low_two_stacks(device: str, *, render: bool = False) -> str | None:
-    task_id = "G3A-Stack-Low-TwoStacks-Dk1_uni"
-    env = _make_env(task_id, device)
-    cmd = cast(StackCommand, env.command_manager.get_term("task"))
-    zeros = _zeros(env, device)
-    env.step(zeros)
-    _teleport_two_stacks(cmd, env, device, separation=0.12)
     for _ in range(_STEPS):
         env.step(zeros)
     frac = cmd.progress.mean().item()
@@ -182,7 +141,7 @@ def _check_stack_held_block_excluded(
     target. ``progress`` must reflect only the resting blocks while the cube
     is held, then jump when the gripper opens and the cube counts again.
     """
-    task_id = "G3A-Stack-Low-Dk1_uni"
+    task_id = "G3A-Stack3-Medium-Dk1_uni"
     env = _make_env(task_id, device)
     cmd = cast(StackCommand, env.command_manager.get_term("task"))
     robot = env.scene["robot"]
@@ -263,7 +222,7 @@ def _check_stack_empty_gripper_no_grip(
     progress. Here every block is sunk out of reach so any force can only be
     finger self-contact.
     """
-    task_id = "G3A-Stack-Low-Dk1_uni"
+    task_id = "G3A-Stack3-Medium-Dk1_uni"
     env = _make_env(task_id, device)
     cmd = cast(StackCommand, env.command_manager.get_term("task"))
     ne, dim = _NUM_ENVS, env.action_manager.action.shape[1]
@@ -583,10 +542,9 @@ def _check_ball_minigolf_using_wall(device: str, *, render: bool = False) -> str
 # ---------------------------------------------------------------------------
 
 _CHECKS: list[tuple[str, str]] = [
-    ("Stack     Low          ", "stack_low"),
-    ("Stack     Low-TwoStacks", "stack_low_two_stacks"),
-    ("Stack     Low-HeldBlock ", "stack_held_block"),
-    ("Stack     Low-EmptyGrip ", "stack_empty_gripper"),
+    ("Stack3    Medium       ", "stack3_medium"),
+    ("Stack3    Med-HeldBlock ", "stack_held_block"),
+    ("Stack3    Med-EmptyGrip ", "stack_empty_gripper"),
     ("Domino    3Pieces       ", "domino_3pieces"),
     ("Domino    3Pieces-KnockOver", "domino_knockover"),
     ("Sorter    3Shapes-Full ", "shape_sorter_full"),
@@ -597,10 +555,8 @@ _CHECKS: list[tuple[str, str]] = [
 
 
 def _dispatch(key: str, device: str, *, render: bool = False) -> str | None:
-    if key == "stack_low":
-        return _check_stack_low(device, render=render)
-    if key == "stack_low_two_stacks":
-        return _check_stack_low_two_stacks(device, render=render)
+    if key == "stack3_medium":
+        return _check_stack3_medium(device, render=render)
     if key == "stack_held_block":
         return _check_stack_held_block_excluded(device, render=render)
     if key == "stack_empty_gripper":

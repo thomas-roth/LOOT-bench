@@ -36,14 +36,8 @@ from g3a_bench.tasks.stack.mdp.success import (
     block_top_heights,
     stack_progress,
     stack_reached,
-    two_stacks_progress,
-    two_stacks_success,
 )
-from g3a_bench.tasks.stack.variants import (
-    FORM_HALF_EXTENTS,
-    MIN_STACK_SEPARATION,
-    StackVariantCfg,
-)
+from g3a_bench.tasks.stack.variants import StackVariantCfg
 
 if TYPE_CHECKING:
     from mjlab.envs.manager_based_rl_env import ManagerBasedRlEnv
@@ -94,7 +88,7 @@ class StackCommand(CommandTerm):
         E, N = self.num_envs, self.num_blocks
         dev = self.device
 
-        halves = [FORM_HALF_EXTENTS[b.form] for b in variant.blocks]
+        halves = [b.half_extents for b in variant.blocks]
         self._half_h = torch.tensor([h[2] for h in halves], device=dev)
         # Bounding-circle radius of the widest footprint (collision-free
         # scatter must hold at any yaw).
@@ -149,7 +143,6 @@ class StackCommand(CommandTerm):
         table_z = self._env.scene.env_origins[:, 2]
         target = self.variant.target_height
         top_z = block_top_heights(self.block_pos_w[:, :, 2], self._half_h)
-        xy = self.block_pos_w[:, :, :2]
 
         self.block_reached = stack_reached(
             top_z, table_z, target, self.variant.height_tol
@@ -157,14 +150,8 @@ class StackCommand(CommandTerm):
         robot = self._env.scene["robot"]
         pads_free = self._contact_gate(self._grip_sensor)  # pads exert no force
         held = self._held_block_mask(robot, gripping=~pads_free)
-        if self.variant.two_stacks:
-            task_done = two_stacks_success(self.block_reached, xy, MIN_STACK_SEPARATION)
-            self.progress = two_stacks_progress(
-                top_z, xy, table_z, target, MIN_STACK_SEPARATION, exclude=held
-            )
-        else:
-            task_done = self.block_reached.any(dim=-1)
-            self.progress = stack_progress(top_z, table_z, target, exclude=held)
+        task_done = self.block_reached.any(dim=-1)
+        self.progress = stack_progress(top_z, table_z, target, exclude=held)
 
         speed = torch.stack(
             [b.data.root_link_lin_vel_w for b in self.blocks], dim=1

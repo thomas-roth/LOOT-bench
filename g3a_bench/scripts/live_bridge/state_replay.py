@@ -9,7 +9,7 @@ bitwise-exact reproduction of the recorded trajectory.
 
 Usage:
     uv run python g3a_bench/scripts/live_bridge/state_replay.py \
-        --dataset-dir out/demos/success/G3A-Stack-Low-Dk1_uni/2026-07-11_18-23-00
+        --dataset-dir out/demos/success/G3A-Stack3-Medium-Dk1_uni/2026-07-11_18-23-00
 
     # replay a specific episode
     uv run python g3a_bench/scripts/live_bridge/state_replay.py \
@@ -220,7 +220,7 @@ def main():
     parser.add_argument(
         "--task",
         type=str,
-        default="G3A-Stack-Low-Dk1_uni",
+        default="G3A-Stack3-Medium-Dk1_uni",
         help="MJLab task name to load.",
     )
     args = parser.parse_args()

@@ -1,13 +1,15 @@
 # pyright: reportAttributeAccessIssue=false
 """Split a recorded demo dataset into easier same-family tasks (offline relabel).
 
-Supported categories: **Stack**, **Domino** (base, RandomRow and
-DifferentDominoes; KnockOver is not splittable — its topple is a global chain
-over all pieces) and **Sorter** (all spawn variations). Each tail-extends (an
-easier task's objects are the first ``k`` of the harder one), so an easier
-task's rollout is embedded in the hardest task's recording. Splits stay inside
-one family: the base Domino tasks use the fixed row and ``RandomRow`` the
-sampled one, so their recordings are never mixed. Each source episode is
+Supported categories: **Stack** (``Stack3``/``Stack4``/``Stack5``),
+**Domino** (base, RandomRow and DifferentDominoes; KnockOver is not
+splittable — its topple is a global chain over all pieces) and **Sorter** (all
+spawn variations). Each tail-extends (an easier task's objects are the first
+``k`` of the harder one), so an easier task's rollout is embedded in the
+hardest task's recording. Splits stay inside one family: Stack blocks only
+tail-extend within one difficulty (the block shape differs between Easy,
+Medium and Hard), the base Domino tasks use the fixed row and ``RandomRow``
+the sampled one, so their recordings are never mixed. Each source episode is
 relabeled WITHOUT re-simulating:
 
 - truncate the trailing objects from every object-major slice of
@@ -26,8 +28,8 @@ category the first time real demos of it are split).
 
 Usage:
     uv run python g3a_bench/scripts/live_bridge/split_demos.py \\
-        --source-dir dataset/demos/G3A-Stack-High-Dk1_uni/<stamp> \\
-        --source-task G3A-Stack-High-Dk1_uni \\
+        --source-dir dataset/demos/G3A-Stack5-Medium-Dk1_uni/<stamp> \\
+        --source-task G3A-Stack5-Medium-Dk1_uni \\
         --output-dir dataset/demos_split            # all easier same-family tasks
     # or an explicit subset:
         --target-task G3A-Domino-2Pieces-Dk1_uni
@@ -58,10 +60,8 @@ from g3a_bench.tasks.stack.mdp.success import (
     block_top_heights,
     stack_progress,
     stack_reached,
-    two_stacks_progress,
-    two_stacks_success,
 )
-from g3a_bench.tasks.stack.variants import FORM_HALF_EXTENTS, MIN_STACK_SEPARATION
+from g3a_bench.tasks.stack.variants import TARGET_BLOCKS
 
 # Env sim constants (tasks/common/env_cfg.py: timestep=0.005, decimation=4).
 # reward stored per frame is step_dt * (progress + success); a wrong value here
@@ -100,18 +100,12 @@ def _stack_progress_and_gate(
     """Stack: height-only success over the block-pose section."""
     blk = sections[0]  # (T, k, 7) env-local pos+quat
     half_h = torch.tensor(
-        [FORM_HALF_EXTENTS[b.form][2] for b in variant.blocks], dtype=torch.float64
+        [b.half_extents[2] for b in variant.blocks], dtype=torch.float64
     )
-    pos_z, xy = blk[:, :, 2], blk[:, :, :2]
-    top_z = block_top_heights(pos_z, half_h)
+    top_z = block_top_heights(blk[:, :, 2], half_h)
     target, tol = variant.target_height, variant.height_tol
-    reached = stack_reached(top_z, 0.0, target, tol)
-    if variant.two_stacks:
-        task_done = two_stacks_success(reached, xy, MIN_STACK_SEPARATION)
-        progress = two_stacks_progress(top_z, xy, 0.0, target, MIN_STACK_SEPARATION)
-    else:
-        task_done = reached.any(dim=-1)
-        progress = stack_progress(top_z, 0.0, target)
+    task_done = stack_reached(top_z, 0.0, target, tol).any(dim=-1)
+    progress = stack_progress(top_z, 0.0, target)
     at_rest = speed.amax(dim=-1) <= OBJECT_VEL_THRESHOLD
     return progress, task_done & at_rest & grip_open
 
@@ -166,13 +160,18 @@ def _sorter_progress_and_gate(
 
 @dataclass(frozen=True)
 class CategoryAdapter:
-    category: str
+    categories: tuple[str, ...]
+    """Category segments this adapter owns; Stack spans one per target height."""
     obs_section_widths: tuple[int, ...]
     """Per-object width of each object-major obs slice, in obs order.
     Stack: (7,) = block poses. Domino: (7, 1, 7) = piece poses, slot_placed,
     per-slot command."""
     variants: dict[str, Any]
     id_parts: Callable[[Any], tuple[str, str]]  # variant -> (task, variation)
+    category_of: Callable[[Any], str]  # variant -> category segment
+    family: Callable[[Any], Any]
+    """Split family key: only variants of one family tail-extend each other
+    (Stack: the block shape; Domino/Sorter: the variation)."""
     n_objects: Callable[[Any], int]
     object_signatures: Callable[
         [Any], tuple
@@ -186,21 +185,28 @@ class CategoryAdapter:
     """Free bodies kept verbatim before the truncatable objects in qpos/qvel.
     Sorter = 1 (the cube, also carried in the obs head as cube_pose)."""
 
-    def variant_index(self) -> dict[tuple[str, str], Any]:
-        return {self.id_parts(v): v for v in self.variants.values()}
+    def task_id_middle(self, variant: Any) -> str:
+        """The ``<Category>-<Task>[-<Variation>]`` part of the task id."""
+        task, variation = self.id_parts(variant)
+        return "-".join(p for p in (self.category_of(variant), task, variation) if p)
+
+    def variant_index(self) -> dict[str, Any]:
+        return {self.task_id_middle(v): v for v in self.variants.values()}
 
 
 def _make_stack_adapter() -> CategoryAdapter:
-    from g3a_bench.tasks.stack.config import _task_id_parts
+    from g3a_bench.tasks.stack.config import _category, _task_id_parts
     from g3a_bench.tasks.stack.variants import STACK_VARIANTS
 
     return CategoryAdapter(
-        category="Stack",
+        categories=_STACK_CATEGORIES,
         obs_section_widths=(7,),
         variants=STACK_VARIANTS,
         id_parts=_task_id_parts,
+        category_of=_category,
+        family=lambda v: v.difficulty,
         n_objects=lambda v: len(v.blocks),
-        object_signatures=lambda v: tuple(b.form for b in v.blocks),
+        object_signatures=lambda v: tuple(b.difficulty for b in v.blocks),
         splittable=lambda v: True,
         progress_and_gate=_stack_progress_and_gate,
     )
@@ -211,10 +217,12 @@ def _make_domino_adapter() -> CategoryAdapter:
     from g3a_bench.tasks.domino.variants import DOMINO_VARIANTS
 
     return CategoryAdapter(
-        category="Domino",
+        categories=("Domino",),
         obs_section_widths=(7, 1, 7),
         variants=DOMINO_VARIANTS,
         id_parts=_task_id_parts,
+        category_of=lambda v: "Domino",
+        family=lambda v: _task_id_parts(v)[1],
         n_objects=lambda v: v.num_dominoes,
         object_signatures=lambda v: v.half_extents,
         splittable=lambda v: not v.knock_over,
@@ -227,12 +235,14 @@ def _make_sorter_adapter() -> CategoryAdapter:
     from g3a_bench.tasks.shape_sorter.variants import SHAPE_SORTER_VARIANTS
 
     return CategoryAdapter(
-        category="Sorter",
+        categories=("Sorter",),
         # obs = [proprio | cube_pose 7 (rides in the head) | piece_poses N*7 |
         # socket_inserted N | actions]; command_obs=False.
         obs_section_widths=(7, 1),
         variants=SHAPE_SORTER_VARIANTS,
         id_parts=_task_id_parts,
+        category_of=lambda v: "Sorter",
+        family=lambda v: _task_id_parts(v)[1],
         n_objects=lambda v: v.num_pieces,
         object_signatures=lambda v: v.shapes,
         splittable=lambda v: True,
@@ -241,8 +251,10 @@ def _make_sorter_adapter() -> CategoryAdapter:
     )
 
 
+_STACK_CATEGORIES = tuple(f"Stack{n}" for n in TARGET_BLOCKS)
+
 _ADAPTERS: dict[str, Callable[[], CategoryAdapter]] = {
-    "Stack": _make_stack_adapter,
+    **dict.fromkeys(_STACK_CATEGORIES, _make_stack_adapter),
     "Domino": _make_domino_adapter,
     "Sorter": _make_sorter_adapter,
 }
@@ -270,30 +282,29 @@ def adapter_for(task_id: str) -> CategoryAdapter:
 
 
 def variant_from_task_id(task_id: str) -> Any:
-    _, task, variation, _ = parse_task_id(task_id)
+    category, task, variation, _ = parse_task_id(task_id)
+    middle = "-".join(p for p in (category, task, variation) if p)
     index = adapter_for(task_id).variant_index()
-    if (task, variation) not in index:
+    if middle not in index:
         raise ValueError(f"unknown variant for task id {task_id!r}")
-    return index[(task, variation)]
+    return index[middle]
 
 
 def easier_target_task_ids(source_task_id: str) -> list[str]:
     """All registered same-family, splittable tasks with fewer objects."""
-    category, _, src_variation, robot = parse_task_id(source_task_id)
+    robot = parse_task_id(source_task_id)[3]
     adapter = adapter_for(source_task_id)
     src = variant_from_task_id(source_task_id)
     if not adapter.splittable(src):
         return []
     n_src = adapter.n_objects(src)
-    out = []
-    for (task, variation), v in adapter.variant_index().items():
-        if (
-            variation == src_variation
-            and adapter.splittable(v)
-            and adapter.n_objects(v) < n_src
-        ):
-            suffix = f"-{variation}" if variation else ""
-            out.append(f"G3A-{category}-{task}{suffix}-{robot}")
+    out = [
+        f"G3A-{middle}-{robot}"
+        for middle, v in adapter.variant_index().items()
+        if adapter.family(v) == adapter.family(src)
+        and adapter.splittable(v)
+        and adapter.n_objects(v) < n_src
+    ]
     out.sort(key=lambda t: adapter.n_objects(variant_from_task_id(t)), reverse=True)
     return out
 
@@ -319,7 +330,7 @@ class SplitPlan:
 
     def validate(self) -> None:
         a = self.adapter
-        assert a.id_parts(self.source)[1] == a.id_parts(self.target)[1], (
+        assert a.family(self.source) == a.family(self.target), (
             "source and target are not the same family"
         )
         assert a.splittable(self.source) and a.splittable(self.target), (
@@ -588,7 +599,7 @@ def split_to_task(
         }
         if new_seeds:
             extra["episode_seeds"] = new_seeds
-        extra["split_from"] = plan.adapter.id_parts(plan.source)
+        extra["split_from"] = plan.adapter.task_id_middle(plan.source)
         write_extra_info(dataset.meta.root, extra)
         dataset.finalize()
 
@@ -657,7 +668,9 @@ def _print_summary(source_task: str, summaries: list[dict]) -> None:
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--source-dir", required=True, help="source LeRobot dataset root")
-    p.add_argument("--source-task", required=True, help="e.g. G3A-Stack-High-Dk1_uni")
+    p.add_argument(
+        "--source-task", required=True, help="e.g. G3A-Stack5-Medium-Dk1_uni"
+    )
     p.add_argument(
         "--target-task",
         action="append",

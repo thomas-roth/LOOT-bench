@@ -48,15 +48,15 @@ To manually run the pre-commit hooks on all files:
 uv run pre-commit run --all-files
 ```
 
-## Example G3A-Stack-Low-Dk1_uni
+## Example G3A-Stack3-Medium-Dk1_uni
 View:
 ```shell
-uv run g3a-play G3A-Stack-Low-Dk1_uni --agent zero --viewer native --num-envs 1 --no-terminations True
+uv run g3a-play G3A-Stack3-Medium-Dk1_uni --agent zero --viewer native --num-envs 1 --no-terminations True
 ```
 
 Training is offline-to-online RL via QC-FQL, not the mjlab RSL-RL PPO loop
 (see `g3a_bench/scripts/qc_fql/README.md`):
 ```shell
 uv run g3a-train-qcfql --dataset-path demos.npz --offline-steps 1000000 \
-    --task G3A-Stack-Low-Dk1_uni --checkpoint-path agent.pt
+    --task G3A-Stack3-Medium-Dk1_uni --checkpoint-path agent.pt
 ```

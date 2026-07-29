@@ -13,7 +13,7 @@ import pytest
 
 from g3a_bench.scripts.qc_fql.scripts.mjlab_env import MjlabSingleEnv
 
-TASK_ID = "G3A-Stack-Low-Dk1_uni"
+TASK_ID = "G3A-Stack3-Medium-Dk1_uni"
 
 
 def test_denormalize_action_maps_to_physical_limits():

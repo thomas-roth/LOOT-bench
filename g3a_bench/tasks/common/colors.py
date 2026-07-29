@@ -27,8 +27,9 @@ def order_color(index: int, first_tier: int, second_tier: int) -> str:
     order is visible in every variant (and demos can be collected in index
     order and split on the color boundaries): the easiest task's objects are
     black, the middle tier's addition gray, the hardest tier's addition (and
-    any spares) white. E.g. Stack (first_tier=3, second_tier=4): a 5-high
-    stack reads black, black, black, gray, white bottom-to-top.
+    any spares) white. E.g. Stack (first_tier=6, second_tier=8, the Stack3
+    and Stack4 block counts): Stack5's 10 blocks read 6 black, 2 gray, 2
+    white in index order.
     """
     if index < first_tier:
         return "black"

@@ -13,7 +13,8 @@ training is QC-FQL (offline-to-online RL; see `g3a_bench/scripts/qc_fql/`).
 
 Four task categories, 40 tasks total, currently registered for one robot
 (`-Dk1_uni`) → task ids look like `G3A-<Category>-<Task>[-<Variation>]-<Robot>`:
-`tasks/stack` (stack blocks to a target height, registered as `Stack`),
+`tasks/stack` (stack blocks to a target height; the target height rides in the
+category segment, so its ids read `G3A-Stack{3,4,5}-{Easy,Medium,Hard}`),
 `tasks/domino` (place and optionally knock over a row of dominoes),
 `tasks/shape_sorter` (insert shapes into a sorter board, registered as
 `Sorter`), `tasks/ball` (minigolf / throw a ball to a target).
@@ -36,11 +37,11 @@ uv run pyright             # type check (config in pyrightconfig.json, basic mod
 uv run pre-commit run --all-files
 
 # Play a task (wraps mjlab's player after importing g3a_bench to register tasks)
-uv run g3a-play G3A-Stack-Low-Dk1_uni
+uv run g3a-play G3A-Stack3-Medium-Dk1_uni
 
 # Offline-to-online RL training (QC-FQL; see g3a_bench/scripts/qc_fql/README.md)
 uv run g3a-train-qcfql --dataset-path demos.npz --offline-steps 1000000 \
-    --online-steps 50000 --task G3A-Stack-Low-Dk1_uni --checkpoint-path agent.pt
+    --online-steps 50000 --task G3A-Stack3-Medium-Dk1_uni --checkpoint-path agent.pt
 uv run g3a-play-qcfql --checkpoint agent.pt --dataset-path demos.npz
 
 # Verification scripts (see tests/tasks/README.md), not installed as console scripts

@@ -30,7 +30,7 @@ and require *every* compared frame to match.
 Usage:
     # verify episode 0 of a recorded session
     uv run python g3a_bench/scripts/live_bridge/verify_replay.py \\
-        --dataset-dir out/demos/success/G3A-Stack-Low-Dk1_uni/2026-07-11_18-23-00
+        --dataset-dir out/demos/success/G3A-Stack3-Medium-Dk1_uni/2026-07-11_18-23-00
 
     # verify a specific episode, stricter tolerance, per-frame CSV
     uv run python g3a_bench/scripts/live_bridge/verify_replay.py \\
@@ -543,7 +543,7 @@ def main() -> None:
     parser.add_argument(
         "--task",
         type=str,
-        default="G3A-Stack-Low-Dk1_uni",
+        default="G3A-Stack3-Medium-Dk1_uni",
         help="MJLab task the demo was recorded on",
     )
     parser.add_argument(

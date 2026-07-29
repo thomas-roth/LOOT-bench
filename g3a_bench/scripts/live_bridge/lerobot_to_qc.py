@@ -51,7 +51,7 @@ Two normalization methods are supported (``--action-norm`` / ``action_norm`` arg
 Usage:
     # only successful episodes, physical normalization (defaults)
     uv run python g3a_bench/scripts/live_bridge/lerobot_to_qc.py \\
-        --success-dir out/demos/success/G3A-Stack-Low-Dk1_uni/2026-06-29_10-00-00 \\
+        --success-dir out/demos/success/G3A-Stack3-Medium-Dk1_uni/2026-06-29_10-00-00 \\
         --output dataset.npz
 
     # data-driven normalization
@@ -60,8 +60,8 @@ Usage:
 
     # include failure episodes too
     uv run python g3a_bench/scripts/live_bridge/lerobot_to_qc.py \\
-        --success-dir out/demos/success/G3A-Stack-Low-Dk1_uni/2026-06-29_10-00-00 \\
-        --failure-dir out/demos/failure/G3A-Stack-Low-Dk1_uni/2026-06-29_10-00-00 \\
+        --success-dir out/demos/success/G3A-Stack3-Medium-Dk1_uni/2026-06-29_10-00-00 \\
+        --failure-dir out/demos/failure/G3A-Stack3-Medium-Dk1_uni/2026-06-29_10-00-00 \\
         --output dataset.npz
 """
 
@@ -129,7 +129,7 @@ def convert(
 
     Args:
         success_dir: Path to the success LeRobotDataset root, e.g.
-            ``out/demos/success/G3A-Stack-Low-Dk1_uni/2026-06-29_10-00-00``.
+            ``out/demos/success/G3A-Stack3-Medium-Dk1_uni/2026-06-29_10-00-00``.
         output_path: Where to write the ``.npz`` file.
         failure_dir: Path to the sibling failure LeRobotDataset root. When
             given, failure episodes are included alongside the successes;
@@ -285,7 +285,7 @@ if __name__ == "__main__":
         required=True,
         help=(
             "Path to the success LeRobotDataset root, "
-            "e.g. out/demos/success/G3A-Stack-Low-Dk1_uni/2026-06-29_10-00-00"
+            "e.g. out/demos/success/G3A-Stack3-Medium-Dk1_uni/2026-06-29_10-00-00"
         ),
     )
     parser.add_argument(

@@ -22,27 +22,31 @@ always randomize objects & goal poses (position and orientation) a little if not
 ## Category: Stack
 
 Stack blocks to reach a target height. Only the final height matters; block
-position does not. Block sets carry extra material beyond the minimum
-needed, so support structures (staircase, pyramid) are viable strategies —
-height, not block count, is the constraint.
+position does not. Every variant carries `2n` identical blocks, more than the
+minimum needed, so support structures (staircase, pyramid) are viable
+strategies — height, not block count, is the constraint.
 
 | **Evaluated Capabilities** | Description |
 | --- | --- |
-| Combinatorial complexity and transfer | Use different block sets and stacking strategies. |
+| Combinatorial complexity and transfer | Use different stacking strategies for differently shaped blocks. |
 | Robustness | Continue building even with an unstable base. |
 
 | **Task** | Description |
 | --- | --- |
-| Low | Build a stack three standard blocks high. |
-| Medium | Build a stack four standard blocks high. |
-| High | Build a stack five standard blocks high. |
+| Stack3 | Build a stack three blocks high. |
+| Stack4 | Build a stack four blocks high. |
+| Stack5 | Build a stack five blocks high. |
 
 | **Variation** | Description |
 | --- | --- |
-| `base` | Identical cubes only, `2n` of them for a target height of `n` blocks. |
-| `differentBlocks` | A mixed prefix of four forms plus cubes: `cube` (balanced baseline), `plate` (wide, stabilizing, barely any height), `tall` (most height per placement, slender and tippy), `cylinder` (good height, yaw-invariant grasp, rolls when tipped). All heights are multiples of 0.02 m, so every set has an exact-height combination for the target. |
-| `2Stacks` | Build two separate stacks that each reach the target height, `2n+2` cubes. |
-| `2StacksDifferentBlocks` | `2Stacks` with a doubled mixed prefix of the four forms plus cubes. |
+| `Easy` | Flat, wide blocks (0.05 x 0.05 x 0.025 m, h:w 0.5): large landing area, low center of mass per placement, short tower. |
+| `Medium` | Standard cubes (0.04 m, h:w 1.0). |
+| `Hard` | Tall, slender blocks (0.03 x 0.03 x 0.06 m, h:w 2.0): small top face, tippy stack, and a Stack5 tower reaching 0.30 m. |
+
+All blocks of a variant are identical, so the target height is reachable by
+exactly `n` blocks and by no other count. Blocks tail-extend across the target
+height *within one difficulty* only — the block shape differs between Easy,
+Medium and Hard, so their recordings are never mixed when splitting demos.
 
 ## Category: Domino
 

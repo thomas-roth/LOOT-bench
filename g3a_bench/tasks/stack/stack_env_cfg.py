@@ -90,12 +90,12 @@ def make_stack_env_cfg(
         task_terminations=task_terminations,
         sensors=sensors,
         env_spacing=1.5,
-        episode_length_s=10.0 * variant.target_blocks * (variant.two_stacks + 1),
+        episode_length_s=10.0 * variant.target_blocks,
         nconmax=100 + 120 * num_blocks,
         # nativeccd is disabled for better box-to-box collisions, which raises
         # the constraint count for multi-block contacts; give njmax headroom.
-        # Block sets now carry more material (2n / 2n+2, see variants.py), so
-        # this needs more headroom than the old n-block formula provided.
-        njmax=1200 + (400 if variant.two_stacks else 300) * num_blocks,
+        # Block sets carry spares (2n blocks, see variants.py), so this needs
+        # more headroom than an n-block formula would provide.
+        njmax=1200 + 300 * num_blocks,
         play=play,
     )

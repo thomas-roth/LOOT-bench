@@ -8,7 +8,7 @@ Usage:
     uv run g3a-play-qcfql \
         --checkpoint out/agent.pt \
         --dataset-path out/demos/success/combined_45demos.npz \
-        --task G3A-Stack-Low-Dk1_uni
+        --task G3A-Stack3-Medium-Dk1_uni
 
 Installed as g3a-play-qcfql (see pyproject.toml).
 """
@@ -71,7 +71,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--task",
-        default="G3A-Stack-Low-Dk1_uni",
+        default="G3A-Stack3-Medium-Dk1_uni",
         help="mjlab task id",
     )
     parser.add_argument("--device", default="cuda", help="torch device")
