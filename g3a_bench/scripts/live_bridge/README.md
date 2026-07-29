@@ -44,9 +44,9 @@ joint states instead of leader actions.
 
 Turn one recording of the *hardest* task into demos for the easier tasks in the
 same family, so you only teleoperate the hard task. **Stack** and **Domino**
-(base + DifferentDominoes; not KnockOver) variants tail-extend (an easier task's
-objects are the first `k` of the harder one) and resets are seed-prefix safe, so
-an easier task's rollout is embedded in the hard recording. Each episode is
+(base, RandomRow + DifferentDominoes; not KnockOver) variants tail-extend (an
+easier task's objects are the first `k` of the harder one) and resets are
+seed-prefix safe, so an easier task's rollout is embedded in the hard recording. Each episode is
 relabeled **offline** (no re-sim): trailing objects are truncated from every
 object-major slice of `observation.state` and from `qpos`/`qvel`, the target's
 `progress`/`success` reward is recomputed from the stored state
@@ -68,7 +68,8 @@ Output is a LeRobot dataset per target task (same format as `live_record.py`,
 so `lerobot_to_qc.py` and `verify_replay.py` work on it), with each source
 episode's seed carried over unchanged (seed-prefix reset reproduces the kept
 objects in the target env). Splits only within a family, down the object-count
-axis (Stack Low/Medium/High, Domino 2/3/4 Pieces), and only when demos are
+axis (Stack Low/Medium/High, Domino 2/3/4 Pieces — the fixed-row base family and
+`RandomRow` split separately, never into each other), and only when demos are
 collected **Ordered** (use the low-index objects first) and **settled at each
 intermediate stage**: an episode with no settled+released frame at the target
 stage is skipped, and movement of a dropped (non-prefix) object is flagged (see

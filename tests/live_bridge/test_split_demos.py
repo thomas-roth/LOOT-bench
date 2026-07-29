@@ -4,12 +4,14 @@ Pure-logic tests (parse/enumerate/validate) cover Stack and Domino with no
 data. The relabel/write tests run against the committed Stack-Low demos and are
 skipped if absent. Because Low is the easiest registered task, the object
 truncation is exercised with a synthetic target that keeps the first 4 of the 6
-cubes. Domino has no committed demos, so only its pure logic is tested — the
-per-episode source self-check in relabel_episode validates the Domino recompute
-the first time a real Domino recording is split.
+cubes. Domino's recompute is covered by synthetic episodes at several row
+angles — the fixed row (the base family) sits at yaw=pi/2, while a `RandomRow`
+row is tilted and may have negative yaw, and the recompute recovers that angle
+from the stored slot quaternion.
 """
 
 import glob
+import math
 from pathlib import Path
 
 import numpy as np
@@ -107,6 +109,26 @@ def test_parse_and_enumerate_domino():
     assert easier_target_task_ids("G3A-Domino-2Pieces-Dk1_uni") == []
 
 
+def test_parse_and_enumerate_domino_random_row():
+    # RandomRow is its own family: the base family's row is fixed, so a base
+    # recording must never be relabeled into a RandomRow task or vice versa.
+    assert parse_task_id("G3A-Domino-4Pieces-RandomRow-Dk1_uni") == (
+        "Domino",
+        "4Pieces",
+        "RandomRow",
+        "Dk1_uni",
+    )
+    assert easier_target_task_ids("G3A-Domino-4Pieces-RandomRow-Dk1_uni") == [
+        "G3A-Domino-3Pieces-RandomRow-Dk1_uni",
+        "G3A-Domino-2Pieces-RandomRow-Dk1_uni",
+    ]
+    assert easier_target_task_ids("G3A-Domino-2Pieces-RandomRow-Dk1_uni") == []
+    # the base family's targets stay fixed-row only
+    assert "G3A-Domino-3Pieces-RandomRow-Dk1_uni" not in easier_target_task_ids(
+        "G3A-Domino-4Pieces-Dk1_uni"
+    )
+
+
 def test_validate_rejects_bad_plans():
     high = variant_from_task_id("G3A-Stack-High-Dk1_uni")
     low = variant_from_task_id("G3A-Stack-Low-Dk1_uni")
@@ -125,6 +147,14 @@ def test_validate_rejects_bad_plans():
     with pytest.raises(AssertionError):
         SplitPlan(d_adapter, d4knock, d3).validate()  # KnockOver not splittable
 
+    d4rand = variant_from_task_id("G3A-Domino-4Pieces-RandomRow-Dk1_uni")
+    d3rand = variant_from_task_id("G3A-Domino-3Pieces-RandomRow-Dk1_uni")
+    SplitPlan(d_adapter, d4rand, d3rand).validate()  # ok
+    with pytest.raises(AssertionError):
+        SplitPlan(d_adapter, d4, d3rand).validate()  # fixed row -> random row
+    with pytest.raises(AssertionError):
+        SplitPlan(d_adapter, d4rand, d3).validate()  # random row -> fixed row
+
 
 def test_domino_obs_layout():
     # obs = [proprio | poses G*7 | slot_placed G | command G*7 | actions 7]
@@ -132,16 +162,22 @@ def test_domino_obs_layout():
     assert adapter_for("G3A-Stack-Low-Dk1_uni").obs_section_widths == (7,)
 
 
-def _domino_episode(placed_per_frame: list[bool]):
+def _domino_episode(placed_per_frame: list[bool], row_yaw: float = math.pi / 2):
     """Synthetic Domino-4 episode. Each frame either has all pieces exactly on
-    their slots (placed=True) or piece 0 displaced out of tolerance."""
-    import math
+    their slots (placed=True) or piece 0 displaced out of tolerance.
 
+    ``row_yaw`` is the row direction: pi/2 (along +y) is the fixed row of the
+    base family; RandomRow recordings use arbitrary, often negative angles.
+    """
     n, proprio = 4, 23
-    q = np.array([math.cos(math.pi / 4), 0, 0, math.sin(math.pi / 4)], np.float32)
+    q = np.array(
+        [math.cos(row_yaw / 2), 0, 0, math.sin(row_yaw / 2)], np.float32
+    )  # quat_from_euler_xyz(0, 0, row_yaw)
+    d = np.array([math.cos(row_yaw), math.sin(row_yaw)])
     slots = np.array(
-        [[0.3, -0.075 + i * 0.05, 0.035, *q] for i in range(n)], np.float32
-    )  # row along +y, upright/row-aligned, z = domino half height
+        [[*(np.array([0.3, -0.075]) + i * 0.05 * d), 0.035, *q] for i in range(n)],
+        np.float32,
+    )  # upright/row-aligned, z = domino half height
     robot = np.array([0, 1.7, 1.7, -1.5708, 0, 0, 0.0, 0.0], np.float32)  # gripper open
     obs, qpos, qvel = [], [], []
     for placed in placed_per_frame:
@@ -206,6 +242,41 @@ def test_domino_synthetic_recompute_and_truncation():
     # obs = [proprio 23 | poses 3*7 | slot_placed 3 | command 3*7 | actions 7]
     assert rel.obs.shape[1] == 23 + 3 * 7 + 3 + 3 * 7 + 7
     assert rel.qpos.shape[1] == 3 * 7 + 8 and rel.qvel.shape[1] == 3 * 6 + 8
+
+
+# RandomRow rows are tilted and often negative; the fixed row is exactly pi/2.
+# The recompute reads the angle back from the slot quaternion via atan2, so it
+# must hold across the whole sampled range (+-pi/2 +- 0.6 rad).
+@pytest.mark.parametrize("row_yaw", [math.pi / 2, -math.pi / 2, -1.3388, 2.1, 0.0])
+def test_domino_recompute_across_row_angles(row_yaw):
+    import torch
+
+    from g3a_bench.scripts.live_bridge.split_demos import _obs_sections
+
+    adapter = adapter_for("G3A-Domino-4Pieces-RandomRow-Dk1_uni")
+    d4 = variant_from_task_id("G3A-Domino-4Pieces-RandomRow-Dk1_uni")
+    d3 = variant_from_task_id("G3A-Domino-3Pieces-RandomRow-Dk1_uni")
+    obs, qpos, qvel = _domino_episode([False, False, True], row_yaw=row_yaw)
+
+    o = torch.from_numpy(obs.astype(np.float64))
+    sections = _obs_sections(o, 23, adapter.obs_section_widths, 4, 4)
+    speed = torch.zeros(3, 4, dtype=torch.float64)
+    grip_open = torch.ones(3, dtype=torch.bool)
+    prog, gate = adapter.progress_and_gate(d4, sections, speed, grip_open)
+    assert prog[2].item() == 1.0 and bool(gate[2])
+    assert prog[0].item() == 0.75 and not bool(gate[0])
+
+    reward = (_STEP_DT * (prog + gate.double())).numpy().astype(np.float32)
+    rel = relabel_episode(
+        obs=obs,
+        qpos=qpos,
+        qvel=qvel,
+        action=np.zeros((3, 7), np.float32),
+        robot_state=np.zeros((3, 7), np.float32),
+        reward=reward,
+        plan=SplitPlan(adapter, d4, d3),
+    )
+    assert rel is not None and rel.cut_frame == 2
 
 
 def test_parse_and_enumerate_sorter():

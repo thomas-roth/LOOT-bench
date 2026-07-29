@@ -1,12 +1,14 @@
 # pyright: reportAttributeAccessIssue=false
 """Split a recorded demo dataset into easier same-family tasks (offline relabel).
 
-Supported categories: **Stack**, **Domino** (base + DifferentDominoes;
-KnockOver is not splittable — its topple is a global chain over all pieces) and
-**Sorter** (all spawn variations). Each tail-extends (an easier task's objects
-are the first ``k`` of the harder one), so an easier task's rollout is embedded
-in the hardest task's recording. Each source episode is relabeled WITHOUT
-re-simulating:
+Supported categories: **Stack**, **Domino** (base, RandomRow and
+DifferentDominoes; KnockOver is not splittable — its topple is a global chain
+over all pieces) and **Sorter** (all spawn variations). Each tail-extends (an
+easier task's objects are the first ``k`` of the harder one), so an easier
+task's rollout is embedded in the hardest task's recording. Splits stay inside
+one family: the base Domino tasks use the fixed row and ``RandomRow`` the
+sampled one, so their recordings are never mixed. Each source episode is
+relabeled WITHOUT re-simulating:
 
 - truncate the trailing objects from every object-major slice of
   ``observation.state`` and from ``qpos``/``qvel``,
