@@ -6,10 +6,11 @@ A variant fixes two independent axes:
   blocks stacked on top of each other. Each variant carries ``2n`` identical
   blocks, strictly more than needed, so height (not block count) is the
   binding constraint and support structures stay viable.
-- **{Easy,Medium,Hard}** — the block's height:width ratio (0.5 / 1.0 / 2.0,
-  see ``DIFFICULTY_HALF_EXTENTS``). All blocks of a variant are identical, so
-  the ratio alone decides how big the landing area is, how high the center of
-  mass of each placement sits, and how tall the finished stack gets.
+- **{Easy,Medium,Hard}** — the block's height:width ratio (1.0 / 1.67 / 2.4,
+  see ``DIFFICULTY_HALF_EXTENTS``): the standard cube, then narrower and
+  taller from there. All blocks of a variant are identical, so the ratio
+  alone decides how big the landing area is, how high the center of mass of
+  each placement sits, and how tall the finished stack gets.
 
 All blocks of a variant have the same height, so the target height is
 reachable by exactly ``target_blocks`` blocks and by no other count (the
@@ -38,16 +39,16 @@ TARGET_BLOCKS: tuple[int, ...] = (3, 4, 5)
 """Target heights in blocks; the Stack{n} half of the task id."""
 
 # Half extents (hx, hy, hz) per difficulty. The footprint is square (blocks
-# spawn at a random yaw, so both horizontal axes must be graspable), which
-# makes the difficulty exactly the height:width ratio: 0.5 flat and wide
-# (large landing area, low center of mass, short stack), 1.0 the standard
-# cube, 2.0 tall and slender (small top face, tippy, and a Stack5 tower
-# reaches 0.30 m). Volumes stay within 20% of each other, so the difficulty
-# is the shape, not the size of a block.
+# spawn at a random yaw, so both horizontal axes must be graspable), so the
+# difficulty is exactly the height:width ratio: Easy is the standard cube
+# (1.0), and every step from there is narrower *and* taller (1.67, 2.4) —
+# a smaller landing area and grasp target, a higher center of mass per
+# placement, and a taller tower. Hard tops out at a 0.30 m Stack5 tower,
+# which is the highest the arm can still place a block on.
 DIFFICULTY_HALF_EXTENTS: dict[Difficulty, tuple[float, float, float]] = {
-    "Easy": (0.025, 0.025, 0.0125),
-    "Medium": (0.02, 0.02, 0.02),
-    "Hard": (0.015, 0.015, 0.03),
+    "Easy": (0.02, 0.02, 0.02),
+    "Medium": (0.015, 0.015, 0.025),
+    "Hard": (0.0125, 0.0125, 0.03),
 }
 
 BLOCK_DENSITY = 1562.5

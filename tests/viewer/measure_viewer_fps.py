@@ -15,7 +15,7 @@ from mjlab.viewer import NativeMujocoViewer
 import g3a_bench  # noqa: F401  (registers tasks)
 from g3a_bench.scripts.utils.viewer_wrapper import NativeViewerWrapper
 
-DEFAULT_TASK = "G3A-Stack3-Medium-Dk1_uni"
+DEFAULT_TASK = "G3A-Stack3-Easy-Dk1_uni"
 
 
 def main() -> int:

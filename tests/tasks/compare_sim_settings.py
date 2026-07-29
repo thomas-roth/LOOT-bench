@@ -89,7 +89,7 @@ from mjlab.tasks.registry import load_env_cfg
 import g3a_bench  # noqa: F401  (registers tasks)
 from g3a_bench.tasks.stack.mdp.commands import StackCommand
 
-DEFAULT_TASK = "G3A-Stack3-Medium-Dk1_uni"
+DEFAULT_TASK = "G3A-Stack3-Easy-Dk1_uni"
 SAMPLE_DT = 0.02  # sim-time spacing of accuracy samples; every profile's
 # step_dt must divide this so all profiles are compared at identical times.
 OBJECT_DRIFT_THRESHOLD = 1e-3  # 1 mm / 1 mrad: "first divergence" marker

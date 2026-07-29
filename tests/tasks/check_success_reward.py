@@ -110,7 +110,7 @@ def _teleport_stack(
 
 
 def _check_stack3_medium(device: str, *, render: bool = False) -> str | None:
-    task_id = "G3A-Stack3-Medium-Dk1_uni"
+    task_id = "G3A-Stack3-Easy-Dk1_uni"
     env = _make_env(task_id, device)
     cmd = cast(StackCommand, env.command_manager.get_term("task"))
     zeros = _zeros(env, device)
@@ -141,7 +141,7 @@ def _check_stack_held_block_excluded(
     target. ``progress`` must reflect only the resting blocks while the cube
     is held, then jump when the gripper opens and the cube counts again.
     """
-    task_id = "G3A-Stack3-Medium-Dk1_uni"
+    task_id = "G3A-Stack3-Easy-Dk1_uni"
     env = _make_env(task_id, device)
     cmd = cast(StackCommand, env.command_manager.get_term("task"))
     robot = env.scene["robot"]
@@ -222,7 +222,7 @@ def _check_stack_empty_gripper_no_grip(
     progress. Here every block is sunk out of reach so any force can only be
     finger self-contact.
     """
-    task_id = "G3A-Stack3-Medium-Dk1_uni"
+    task_id = "G3A-Stack3-Easy-Dk1_uni"
     env = _make_env(task_id, device)
     cmd = cast(StackCommand, env.command_manager.get_term("task"))
     ne, dim = _NUM_ENVS, env.action_manager.action.shape[1]

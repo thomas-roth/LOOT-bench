@@ -28,8 +28,8 @@ category the first time real demos of it are split).
 
 Usage:
     uv run python g3a_bench/scripts/live_bridge/split_demos.py \\
-        --source-dir dataset/demos/G3A-Stack5-Medium-Dk1_uni/<stamp> \\
-        --source-task G3A-Stack5-Medium-Dk1_uni \\
+        --source-dir dataset/demos/G3A-Stack5-Easy-Dk1_uni/<stamp> \\
+        --source-task G3A-Stack5-Easy-Dk1_uni \\
         --output-dir dataset/demos_split            # all easier same-family tasks
     # or an explicit subset:
         --target-task G3A-Domino-2Pieces-Dk1_uni
@@ -668,9 +668,7 @@ def _print_summary(source_task: str, summaries: list[dict]) -> None:
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--source-dir", required=True, help="source LeRobot dataset root")
-    p.add_argument(
-        "--source-task", required=True, help="e.g. G3A-Stack5-Medium-Dk1_uni"
-    )
+    p.add_argument("--source-task", required=True, help="e.g. G3A-Stack5-Easy-Dk1_uni")
     p.add_argument(
         "--target-task",
         action="append",

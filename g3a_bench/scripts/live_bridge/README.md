@@ -58,10 +58,10 @@ first time real demos of it are split). No hardware, no GPU.
 
 ```bash
 uv run python g3a_bench/scripts/live_bridge/split_demos.py \
-    --source-dir dataset/demos/G3A-Stack5-Medium-Dk1_uni/<stamp> \
-    --source-task G3A-Stack5-Medium-Dk1_uni \
+    --source-dir dataset/demos/G3A-Stack5-Easy-Dk1_uni/<stamp> \
+    --source-task G3A-Stack5-Easy-Dk1_uni \
     --output-dir dataset/demos_split            # all easier same-family tasks
-# or a subset: --target-task G3A-Stack3-Medium-Dk1_uni [--target-task ...]
+# or a subset: --target-task G3A-Stack3-Easy-Dk1_uni [--target-task ...]
 ```
 
 Output is a LeRobot dataset per target task (same format as `live_record.py`,

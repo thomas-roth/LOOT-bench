@@ -37,11 +37,11 @@ uv run pyright             # type check (config in pyrightconfig.json, basic mod
 uv run pre-commit run --all-files
 
 # Play a task (wraps mjlab's player after importing g3a_bench to register tasks)
-uv run g3a-play G3A-Stack3-Medium-Dk1_uni
+uv run g3a-play G3A-Stack3-Easy-Dk1_uni
 
 # Offline-to-online RL training (QC-FQL; see g3a_bench/scripts/qc_fql/README.md)
 uv run g3a-train-qcfql --dataset-path demos.npz --offline-steps 1000000 \
-    --online-steps 50000 --task G3A-Stack3-Medium-Dk1_uni --checkpoint-path agent.pt
+    --online-steps 50000 --task G3A-Stack3-Easy-Dk1_uni --checkpoint-path agent.pt
 uv run g3a-play-qcfql --checkpoint agent.pt --dataset-path demos.npz
 
 # Verification scripts (see tests/tasks/README.md), not installed as console scripts

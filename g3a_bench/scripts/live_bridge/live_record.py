@@ -851,7 +851,7 @@ def main():
     parser.add_argument(
         "--task",
         type=str,
-        default="G3A-Stack3-Medium-Dk1_uni",
+        default="G3A-Stack3-Easy-Dk1_uni",
         help="MJLab task name",
     )
     parser.add_argument(

@@ -39,9 +39,9 @@ strategies — height, not block count, is the constraint.
 
 | **Variation** | Description |
 | --- | --- |
-| `Easy` | Flat, wide blocks (0.05 x 0.05 x 0.025 m, h:w 0.5): large landing area, low center of mass per placement, short tower. |
-| `Medium` | Standard cubes (0.04 m, h:w 1.0). |
-| `Hard` | Tall, slender blocks (0.03 x 0.03 x 0.06 m, h:w 2.0): small top face, tippy stack, and a Stack5 tower reaching 0.30 m. |
+| `Easy` | Standard cubes (0.04 m, h:w 1.0). |
+| `Medium` | Narrower and taller (0.03 x 0.03 x 0.05 m, h:w 1.67): smaller landing area and grasp target, higher center of mass per placement. |
+| `Hard` | Narrowest and tallest (0.025 x 0.025 x 0.06 m, h:w 2.4): tippy stack, and a Stack5 tower reaching 0.30 m — the highest the arm can still place a block on. |
 
 All blocks of a variant are identical, so the target height is reachable by
 exactly `n` blocks and by no other count. Blocks tail-extend across the target

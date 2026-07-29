@@ -19,18 +19,20 @@ structures (staircase, buttress, pyramid) stay viable.
 
 The footprint is square (blocks spawn at a random yaw, so both horizontal axes
 must be graspable), which makes the difficulty exactly the height:width ratio.
-Mass follows the shape at a constant density of 1562.5 kg/m³ (the standard
-cube's 100 g), so the slender Hard block is also the lightest:
+Easy is the standard cube; every step from there is narrower *and* taller.
+Mass follows the shape at a constant density of 1562.5 kg/m³ (the cube's
+100 g), so the slender blocks are also the lightest:
 
-| Difficulty | Size (m)             | h:w | Mass  | Stack5 height |
-| ---------- | -------------------- | --- | ----- | ------------- |
-| `Easy`     | 0.05 x 0.05 x 0.025  | 0.5 | 98 g  | 0.125 m       |
-| `Medium`   | 0.04 x 0.04 x 0.04   | 1.0 | 100 g | 0.20 m        |
-| `Hard`     | 0.03 x 0.03 x 0.06   | 2.0 | 84 g  | 0.30 m        |
+| Difficulty | Size (m)             | h:w  | Mass  | Stack5 height |
+| ---------- | -------------------- | ---- | ----- | ------------- |
+| `Easy`     | 0.04 x 0.04 x 0.04   | 1.0  | 100 g | 0.20 m        |
+| `Medium`   | 0.03 x 0.03 x 0.05   | 1.67 | 70 g  | 0.25 m        |
+| `Hard`     | 0.025 x 0.025 x 0.06 | 2.4  | 59 g  | 0.30 m        |
 
-Flat and wide means a large landing area, a low center of mass per placement
-and a short tower; tall and slender means a small top face, a tippy stack and
-a tower that reaches far above the workspace.
+Narrower and taller means a smaller landing area and grasp target, a higher
+center of mass per placement, and a tower that reaches further above the
+workspace — Hard's 0.30 m Stack5 tower is the highest the arm can still place
+a block on.
 
 Block lists tail-extend across the target height *within one difficulty*
 (Stack3's blocks are blocks 0..5 of Stack4) and resets draw per-block
@@ -64,12 +66,12 @@ the real stack's xy is free; it is off during training and teleop recording
 
 | Task id (`-Dk1_uni`)             | Description                              |
 | -------------------------------- | ---------------------------------------- |
-| `G3A-Stack{3,4,5}-Easy`          | 3/4/5 flat wide blocks high (6/8/10 blocks) |
-| `G3A-Stack{3,4,5}-Medium`        | 3/4/5 standard cubes high (6/8/10 blocks)   |
-| `G3A-Stack{3,4,5}-Hard`          | 3/4/5 tall slender blocks high (6/8/10 blocks) |
+| `G3A-Stack{3,4,5}-Easy`          | 3/4/5 standard cubes high (6/8/10 blocks) |
+| `G3A-Stack{3,4,5}-Medium`        | 3/4/5 narrower, taller blocks high (6/8/10 blocks) |
+| `G3A-Stack{3,4,5}-Hard`          | 3/4/5 narrowest, tallest blocks high (6/8/10 blocks) |
 
 Play e.g. with:
 
 ```bash
-uv run g3a-play G3A-Stack3-Medium-Dk1_uni
+uv run g3a-play G3A-Stack3-Easy-Dk1_uni
 ```
