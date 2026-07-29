@@ -38,6 +38,17 @@ randomness in index order, so demos for easier tasks can be cut from the
 hardest task's recordings (see `docs/task_categories.md`). Across difficulties
 the block shape differs, so those recordings are never mixed.
 
+## Debug visualization
+
+A translucent plane over the workspace marks the target height (green once
+reached, brighter green on full success). The play entry point
+(`g3a_bench/scripts/play.py`, i.e. `g3a-play`) additionally switches on a
+**ghost stack** beside the workspace — `target_blocks` outlined ghost blocks
+showing how many blocks of that shape reach the target, each level turning
+green as `progress` passes it. It stands next to the scatter region because
+the real stack's xy is free; it is off during training and teleop recording
+(`SHOW_GOAL_STACK` in `mdp/commands.py`).
+
 ## Observations (state-based)
 
 - joint positions/velocities, EE pose, last action

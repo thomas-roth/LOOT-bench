@@ -8,6 +8,11 @@ seed-prefix safe: no shared draws, then per-block draws in index order via
 
 Every step it recomputes the height-only success criterion (``success.py``
 kernels) and feeds it through the shared at-rest + released gate.
+
+The debug vis marks the target height as a translucent plane over the
+workspace. The play entry point additionally switches on a ghost stack next
+to the workspace (:data:`SHOW_GOAL_STACK`) that shows how many blocks high to
+build and which levels are already reached.
 """
 
 from __future__ import annotations
@@ -29,7 +34,12 @@ from g3a_bench.tasks.common.commands import (
     GripperGateCommandCfg,
     GripperOpenGate,
 )
-from g3a_bench.tasks.common.debug_markers import marker_color
+from g3a_bench.tasks.common.debug_markers import (
+    MARKER_INFLATE,
+    OUTLINE_RGBA,
+    add_box_wireframe,
+    marker_color,
+)
 from g3a_bench.tasks.common.scatter import ScatterGrid, write_upright_spawn
 from g3a_bench.tasks.common.success import OBJECT_VEL_THRESHOLD, SuccessGate
 from g3a_bench.tasks.stack.mdp.success import (
@@ -45,6 +55,19 @@ if TYPE_CHECKING:
 
 # Debug-vis plane color while the target height is not reached yet.
 _PLANE_RGBA = (0.95, 0.95, 0.95, 1.0)
+
+SHOW_GOAL_STACK = False
+"""Draw the ghost target stack (see :meth:`StackCommand._debug_vis_impl`).
+
+Off by default and switched on by the play entry point (``scripts/play.py``)
+only: it is a build guide for interactive play, not something a teleop
+recording should show. Success is height-only, so the guide stands *beside*
+the workspace — the real stack may be built anywhere in it."""
+
+# Ghost-stack placement: clearance (m) between the scatter region and the
+# guide tower, so the guide never overlaps the blocks it describes.
+_GOAL_STACK_MARGIN = 0.06
+_GOAL_STACK_RGBA = (0.55, 0.75, 1.0, 1.0)  # base (pending) color, alpha unused
 
 
 def get_command(env: ManagerBasedRlEnv, name: str) -> StackCommand:
@@ -217,4 +240,59 @@ class StackCommand(CommandTerm):
                 mat=np.eye(3),
                 color=marker_color(_PLANE_RGBA, reached, success),
                 label=f"target_height_{batch}",
+            )
+            if SHOW_GOAL_STACK:
+                self._draw_goal_stack(visualizer, batch, origin, cx, success)
+
+    def _level_reached(self, batch: int) -> np.ndarray:
+        """(target_blocks,) bool: the resting stack has reached that level.
+
+        Derived from ``progress`` (the tallest *resting* block's height
+        fraction, block in the gripper excluded), so the guide fills up
+        exactly like the reward — no level lights up from a block merely
+        lifted to it.
+        """
+        variant = self.variant
+        height = float(self.progress[batch]) * variant.target_height
+        levels = variant.block_height * np.arange(1, variant.target_blocks + 1)
+        return height >= levels - variant.height_tol
+
+    def _draw_goal_stack(
+        self,
+        visualizer: DebugVisualizer,
+        batch: int,
+        origin: np.ndarray,
+        cx: float,
+        success: bool,
+    ) -> None:
+        """Ghost stack of ``target_blocks`` blocks beside the workspace.
+
+        A build guide for interactive play (:data:`SHOW_GOAL_STACK`): it shows
+        the block count and shape that reach the target height, each level
+        turning green once ``progress`` passes it. It stands next to the
+        scatter region because the real stack's xy is free.
+        """
+        variant = self.variant
+        half = np.array(variant.blocks[0].half_extents) + MARKER_INFLATE
+        gy = self.cfg.workspace_y[1] + _GOAL_STACK_MARGIN + half[1]
+        reached = self._level_reached(batch)
+        for level in range(variant.target_blocks):
+            center = origin + np.array([cx, gy, (level + 0.5) * variant.block_height])
+            color = marker_color(_GOAL_STACK_RGBA, bool(reached[level]), success)
+            visualizer.add_box(
+                center=center,
+                size=half,
+                mat=np.eye(3),
+                color=color,
+                label=f"goal_stack_{batch}_{level}",
+            )
+            # Edge wireframe marks it as a virtual target, not a real block
+            # (same convention as the domino slot markers).
+            add_box_wireframe(
+                visualizer,
+                center=center,
+                half_extents=half,
+                mat=np.eye(3),
+                color=OUTLINE_RGBA,
+                label_prefix=f"goal_stack_outline_{batch}_{level}",
             )
