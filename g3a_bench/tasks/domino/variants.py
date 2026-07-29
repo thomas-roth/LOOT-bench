@@ -1,8 +1,11 @@
 """Variant definitions for the domino task category.
 
-A variant fixes the domino count and two boolean modifiers:
+A variant fixes the domino count and one modifier:
 
-- Domino{2,3,4}: n identical dominoes standing upright in a row.
+- Domino{2,3,4}: n identical dominoes standing upright in a row, at the same
+  fixed row every reset (workspace-centred, along +y).
+- Domino{n}RandomRow: the row's start position and yaw are instead drawn
+  uniformly at random each reset.
 - Domino{n}DifferentDominoes: dominoes get progressively thinner and lighter
   along the row (same height/width), so upright-standing/knock-over physics
   vary along the row.
@@ -11,6 +14,11 @@ A variant fixes the domino count and two boolean modifiers:
   fall along the row axis, all leaning the same way, in row order (sideways
   or out-of-order toppling doesn't count); a `phase` observation flags the
   build (0) vs. topple (1) half of the episode.
+
+The row is fixed by default because a teleoperator building demos benefits
+from a layout that does not move between takes; ``RandomRow`` is the one
+variant that opts back into the sampled row. The dominoes' *spawn* poses
+stay random in every variant.
 """
 
 from dataclasses import dataclass
@@ -25,9 +33,9 @@ SPACING = 0.05
 the next."""
 
 HARDEST_COUNT = 4
-"""The row-placement clamp always sizes the reach band for this count, so
-the row's start-position/yaw distribution does not depend on the variant's
-actual n (seed-prefix rule)."""
+"""The row is always laid out for this count — the random row's reach-band
+clamp and the fixed row's centring both size for it — so the start pose does
+not depend on the variant's actual n (seed-prefix rule)."""
 
 DOMINO_COLORS: tuple[str, ...] = ("sky", "cobalt", "indigo", "violet")
 """Per-index identity color (``tasks/common/colors.PALETTE`` keys), index 0
@@ -67,11 +75,14 @@ class DominoVariantCfg:
     """Progressively thinner/lighter dominoes along the row."""
     knock_over: bool = False
     """Require toppling the completed line after it is built."""
-    ordered: bool = True
+    ordered: bool = False
     """Identity slot assignment; False allows proximity re-matching
     (interchangeable dominoes only, i.e. never combined with `different`)."""
     margin: float = 1.0
     """Scale on the position/tilt success tolerances."""
+    random_row: bool = False
+    """Sample the row's start pose and yaw each reset; default is the fixed,
+    workspace-centred row."""
 
     @property
     def half_extents(self) -> tuple[tuple[float, float, float], ...]:
@@ -93,10 +104,21 @@ DOMINO_VARIANTS: dict[str, DominoVariantCfg] = {
     v.name: v
     for n in (2, 3, 4)
     for v in (
-        DominoVariantCfg(name=f"Domino{n}", num_dominoes=n),
+        DominoVariantCfg(name=f"Domino{n}", num_dominoes=n, ordered=True),
         DominoVariantCfg(
-            name=f"Domino{n}DifferentDominoes", num_dominoes=n, different=True
+            name=f"Domino{n}RandomRow",
+            num_dominoes=n,
+            ordered=True,
+            random_row=True,
         ),
-        DominoVariantCfg(name=f"Domino{n}KnockOver", num_dominoes=n, knock_over=True),
+        DominoVariantCfg(
+            name=f"Domino{n}DifferentDominoes",
+            num_dominoes=n,
+            different=True,
+            ordered=True,
+        ),
+        DominoVariantCfg(
+            name=f"Domino{n}KnockOver", num_dominoes=n, knock_over=True, ordered=True
+        ),
     )
 }

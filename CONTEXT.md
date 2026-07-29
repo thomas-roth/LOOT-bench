@@ -83,6 +83,11 @@ between just outside the mouth and just below the crossing plane.
 Collision-free-by-construction spawn sampling: distinct cells of a grid,
 each jittered by less than the half-cell size.
 
+**Keep-out**:
+Grid cells a `ScatterGrid` may not spawn into because they sit within a
+clearance of a goal position — an object dropped on its own target is
+awkward to align from there. Used by the domino row (`blocked_near`).
+
 **Distractor**:
 An extra free body with no goal slot/socket, present only to make the task
 harder.
