@@ -64,6 +64,30 @@ HOME_JOINT_POS: dict[str, float] = {
 }
 
 
+# Rest pose: where the physical arm actually sits, and therefore where every
+# teleop recording begins -- the operator aligns the leader arm to this pose
+# (shown as a ghost) before recording resumes. Episodes must *start* here so
+# the offline demonstrations and evaluation share a start state; see
+# `tasks.common.events.reset_joints_to_pose` and
+# `ManipulatorInterface.reset_joint_pos`.
+#
+# This is deliberately NOT the keyframe. HOME_JOINT_POS stays the reference
+# for the `joint_pos_rel` observation and the zero point of
+# `JointPositionActionCfg`, and `live_bridge/mapper.py` derives the action
+# normalization span from it. Moving the keyframe here would reinterpret every
+# recorded observation while leaving the mapper pointing at the old reference.
+REST_JOINT_POS: dict[str, float] = {
+    "joint1": +0.1565,
+    "joint2": +0.0015,
+    "joint3": +0.0015,
+    "joint4": -0.0153,
+    "joint5": +0.0153,
+    "joint6": +0.0276,
+    "gripper_left": 0.0,
+    "gripper_right": 0.0,
+}
+
+
 def _home_keyframe(prefix: str = "") -> EntityCfg.InitialStateCfg:
     return EntityCfg.InitialStateCfg(
         pos=(0.0, 0.0, 0.0),

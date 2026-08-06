@@ -81,7 +81,7 @@ from mjlab.viewer.native.keys import KEY_C, KEY_D, KEY_F, KEY_Q, KEY_U, KEY_V
 from mjlab.viewer.native.visualizer import MujocoNativeDebugVisualizer
 
 import g3a_bench  # noqa: F401
-from g3a_bench.robots.trlc_dk1.dk1_constants import HOME_JOINT_POS
+from g3a_bench.robots.trlc_dk1.dk1_constants import HOME_JOINT_POS, REST_JOINT_POS
 from g3a_bench.scripts.live_bridge.mapper import (
     lerobot_to_mjlab_raw_action,
 )
@@ -112,13 +112,11 @@ USE_FOLLOWER_STATE_FOR_SIM = (
 # state machine all live in recording_mixin (shared with the Viser viewer).
 
 LIVE_REST_POSE: dict[str, float] = {
-    "joint1": +0.1565,
-    "joint2": +0.0015,
-    "joint3": +0.0015,
-    "joint4": -0.0153,
-    "joint5": +0.0153,
-    "joint6": +0.0276,
+    name: value for name, value in REST_JOINT_POS.items() if name.startswith("joint")
 }
+"""Arm-only view of the robot's canonical rest pose. Single-sourced from
+``REST_JOINT_POS`` so the pose the operator records from and the pose the env
+resets to cannot drift apart."""
 # Same rest pose mapped into the sim frame — lives in the same frame as
 # the teleop'd arm and the action mapper.
 _SIM_REST_POSE: dict[str, float] = {

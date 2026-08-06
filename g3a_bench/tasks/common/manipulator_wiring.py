@@ -9,11 +9,13 @@ contact sensors, if any; everything else is identical across categories.
 
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs.mdp.actions import JointPositionActionCfg
+from mjlab.managers.event_manager import EventTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.sensor import ContactSensorCfg
 
 from g3a_bench.robots.interface import ManipulatorInterface
 from g3a_bench.tasks.common.commands import GripperGateCommandCfg
+from g3a_bench.tasks.common.events import reset_joints_to_pose
 
 
 def wire_manipulator_into_env(
@@ -34,6 +36,9 @@ def wire_manipulator_into_env(
     end-effector subtree as their primary match pattern. The sensor named
     ``grip_contact_sensor``, if any, gets the finger-pad geom pattern as its
     primary match pattern (see ``tasks.common.commands.ContactReleaseGate``).
+    If the robot declares a ``reset_joint_pos``, the shared
+    ``reset_robot_joints`` event is replaced by one resetting to that absolute
+    pose instead of to the keyframe.
     """
     cfg.scene.entities["robot"] = manipulator.entity_cfg_fn()
 
@@ -68,5 +73,15 @@ def wire_manipulator_into_env(
             if sensor.name == grip_contact_sensor:
                 assert isinstance(sensor, ContactSensorCfg)
                 sensor.primary.pattern = manipulator.pad_geoms
+
+    if manipulator.reset_joint_pos is not None:
+        cfg.events["reset_robot_joints"] = EventTermCfg(
+            func=reset_joints_to_pose,
+            mode="reset",
+            params={
+                "joint_pos": dict(manipulator.reset_joint_pos),
+                "asset_cfg": SceneEntityCfg("robot"),
+            },
+        )
 
     cfg.viewer.body_name = manipulator.viewer_body

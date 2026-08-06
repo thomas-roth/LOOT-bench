@@ -50,3 +50,13 @@ class ManipulatorInterface:
     ``tasks.common.commands.ContactReleaseGate``)."""
     viewer_body: str
     """Body the viewer camera tracks."""
+    reset_joint_pos: dict[str, float] | None = None
+    """Absolute joint pose to reset to, if the robot's episodes should not
+    start from its keyframe/home pose. Set this to the pose teleop recordings
+    actually start from, so the offline demonstrations and evaluation share a
+    start state. ``None`` keeps mjlab's default (reset to the keyframe).
+
+    This deliberately does *not* move the keyframe: ``default_joint_pos`` is
+    also the reference for the ``joint_pos_rel`` observation and the zero
+    point of the joint-position action, so moving it would silently
+    reinterpret every recorded demonstration."""
