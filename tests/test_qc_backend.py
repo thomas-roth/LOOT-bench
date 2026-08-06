@@ -118,6 +118,58 @@ def test_validate_qc_dataset_against_env_rejects_shape_mismatch():
         qc.validate_qc_dataset_against_env(bad_actions, env)
 
 
+@dataclass
+class _FakeRewardEnv:
+    """Just the surface ``validate_reward_convention`` reads off an env."""
+
+    reward_max: float | None
+    task_id: str = "G3A-Fake-v0"
+
+
+class TestRewardConvention:
+    """Offline dataset and online env must agree on what a step is worth.
+
+    Nothing else catches a disagreement: QC trains happily on either scale and
+    only the learned policy degrades, which is what kept the earlier
+    ``{0,+1}``-dataset / ``{0,+0.02}``-env split invisible until online
+    fine-tuning.
+    """
+
+    @staticmethod
+    def _env(reward_max: float | None) -> _FakeRewardEnv:
+        return _FakeRewardEnv(reward_max=reward_max)
+
+    def test_accepts_matching_convention(self, tmp_path):
+        path = tmp_path / "dataset.npz"
+        _write_dataset(path, reward_max=np.array(2.0, dtype=np.float32))
+        qc.validate_reward_convention(path, self._env(2.0))
+
+    def test_rejects_mismatched_reward_max(self, tmp_path):
+        """e.g. a shaped-task dataset against a task whose progress term went."""
+        path = tmp_path / "dataset.npz"
+        _write_dataset(path, reward_max=np.array(2.0, dtype=np.float32))
+        with pytest.raises(ValueError, match="Reward convention mismatch"):
+            qc.validate_reward_convention(path, self._env(1.0))
+
+    def test_rejects_dataset_without_reward_metadata(self, tmp_path):
+        """Files written before the convention landed are on the old scale."""
+        path = tmp_path / "dataset.npz"
+        _write_dataset(path)
+        with pytest.raises(ValueError, match="predates the reward_max metadata"):
+            qc.validate_reward_convention(path, self._env(1.0))
+
+    def test_warns_but_passes_when_env_has_no_offset_term(self, tmp_path):
+        """Test doubles and cfgs outside the shared skeleton opt out — loudly.
+
+        Failing open is deliberate, but silence is not: this is the only check
+        between a mis-scaled dataset and a silently degraded policy.
+        """
+        path = tmp_path / "dataset.npz"
+        _write_dataset(path)
+        with pytest.warns(RuntimeWarning, match="cannot be verified"):
+            qc.validate_reward_convention(path, self._env(None))
+
+
 class _FakeCommand:
     episode_success = np.array([1.0], dtype=np.float32)
 

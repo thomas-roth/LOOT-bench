@@ -1,6 +1,12 @@
 """Merge multiple lerobot_to_qc .npz files into one combined dataset.
 
-All input files must use the same --action-norm method (default: physical).
+All input files must agree on the ``--action-norm`` method (default: physical)
+*and* on ``reward_max``, i.e. they must come from tasks with the same reward
+config -- merging a 2.0 (progress+success) file with a 1.0 (success-only) one
+would produce a dataset whose rewards mean two different things. Both are
+carried through to the output, because ``g3a_bench.qc`` refuses to train on a
+dataset whose reward convention it cannot check.
+
 Episode indices are automatically renumbered to stay unique across files,
 and terminals/masks remain correct because each file already marks its last
 frame as terminal.
@@ -34,6 +40,23 @@ def _norm_method(value) -> str:
     return str(np.atleast_1d(np.asarray(value))[0])
 
 
+def _reward_max(path: str, d) -> float:
+    """Read a file's ``reward_max``, rejecting pre-convention files.
+
+    Merging cannot invent this: a file without it is on the old positive,
+    dt-scaled reward convention, and the merged output would be untrainable
+    (``g3a_bench.qc.validate_reward_convention`` rejects it) for a reason the
+    merge step is better placed to explain.
+    """
+    if "reward_max" not in d:
+        raise ValueError(
+            f"{path} has no reward_max metadata, so it predates the negative "
+            f"reward convention and cannot be merged. Regenerate it with "
+            f"lerobot_to_qc.py from a current recording."
+        )
+    return float(np.asarray(d["reward_max"]).reshape(-1)[0])
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Merge multiple dataset .npz files")
     parser.add_argument("inputs", nargs="+", help=".npz files to merge")
@@ -59,6 +82,23 @@ def main() -> None:
     if len(methods) > 1:
         raise ValueError(f"Mixed action_norm methods: {methods} — cannot merge")
     method = next(iter(methods))
+
+    # Same for the reward convention: rewards are `progress + success -
+    # reward_max`, so files built against different reward_max values are on
+    # different scales and must not be concatenated.
+    reward_maxes = {_reward_max(f, d) for f, d in zip(args.inputs, loaded, strict=True)}
+    if len(reward_maxes) > 1:
+        raise ValueError(
+            f"Mixed reward_max values: {sorted(reward_maxes)} — cannot merge. "
+            f"These files come from tasks with different reward configs, so "
+            f"their rewards are on different scales."
+        )
+    reward_max = next(iter(reward_maxes))
+
+    task_ids = {_norm_method(d["task_id"]) for d in loaded if "task_id" in d}
+    if len(task_ids) > 1:
+        raise ValueError(f"Mixed task ids: {sorted(task_ids)} — cannot merge")
+    task_id = next(iter(task_ids)) if task_ids else ""
 
     combined: dict[str, np.ndarray] = {}
 
@@ -98,6 +138,10 @@ def main() -> None:
         action_min=combined["action_min"],
         action_max=combined["action_max"],
         action_norm_method=combined["action_norm_method"],
+        # Carried through, not recomputed: without these the merged file is
+        # rejected at training time as pre-convention.
+        reward_max=np.array(reward_max, dtype=np.float32),
+        task_id=np.array(task_id),
     )
 
     n_episodes = int(combined["terminals"].sum())
@@ -106,6 +150,7 @@ def main() -> None:
         f"Merged {len(loaded)} files ({n_episodes} episodes, {n_frames} frames) → {args.output}"
     )
     print(f"  action_norm: {method!r}")
+    print(f"  task: {task_id!r}  reward_max: {reward_max}")
 
 
 if __name__ == "__main__":

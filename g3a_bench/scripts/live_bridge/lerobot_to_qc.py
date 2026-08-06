@@ -16,7 +16,11 @@ The output .npz contains two logical sections:
 
     Metadata (preserved for analysis; strip before Dataset.create()):
         episode_index, frame_index, timestamp, success,
-        action_min, action_max  (denormalize at deployment)
+        action_min, action_max  (denormalize at deployment),
+        action_norm_method, reward_max, task_id
+        (the reward convention this file was built under; g3a_bench.qc
+        checks it against the live env before training)
+
 
 Loading for QC training::
 
@@ -84,7 +88,131 @@ QC_KEYS = frozenset(
 
 ACTION_NORM_METHODS = ("physical", "data")
 
-REWARD_MODES = ("dense", "sparse")
+
+def _resolve_reward_max(task_id: str | None, override: float | None) -> float:
+    """Per-step reward maximum of the task these demos were recorded on.
+
+    This is the constant the env subtracts (``tasks/common/rewards.py``): 2.0
+    for the ``progress`` + ``success`` categories, 1.0 for the success-only
+    ones.  Resolved from the registered task cfg so the dataset cannot drift
+    from the env it will be trained against.
+
+    Cannot be inferred from the recording itself: rewards live in
+    ``[-reward_max, 0]``, but the floor is only reached at ``progress == 0``,
+    which real demos never sit at.
+    """
+    if override is not None:
+        return float(override)
+    if not task_id:
+        raise ValueError(
+            "Could not determine the task id from the recording; pass --task "
+            "(e.g. --task G3A-Stack-Low-Dk1_uni) or --reward-max explicitly."
+        )
+
+    from mjlab.tasks.registry import load_env_cfg
+
+    import g3a_bench  # noqa: F401  -- registers the tasks
+    from g3a_bench.tasks.common.rewards import reward_max
+
+    try:
+        cfg = load_env_cfg(task_id, play=False)
+    except Exception as exc:  # noqa: BLE001 -- surfaced with actionable advice
+        raise ValueError(
+            f"Task {task_id!r} (read from the recording) is not registered, so "
+            f"its reward_max cannot be resolved. Old recordings may name a "
+            f"since-renamed task. Pass --task with the current id, or "
+            f"--reward-max to set it directly."
+        ) from exc
+    return reward_max(cfg.rewards)
+
+
+def _check_recorded_reward_range(
+    rewards: np.ndarray, reward_max: float, task_id: str | None
+) -> None:
+    """Reject a recording that is not on the task's current reward convention.
+
+    The env emits ``progress + success - reward_max``, so every recorded reward
+    must lie in ``[-reward_max, 0]``.  Both bounds catch a real failure:
+
+    - **above 0**: the recording predates the negative convention, when rewards
+      were the raw positive term sum scaled by ``step_dt``.
+    - **below -reward_max**: the task had *more* reward terms when it was
+      recorded than it has now (e.g. Place demos carry a ``progress`` term that
+      was removed from the task in d02dc77).
+
+    Neither is recoverable by rescaling -- the second is a different MDP, and
+    training on it reintroduces exactly the offline/online reward split this
+    convention exists to remove.  Re-record against the current task cfg.
+    """
+    if not rewards.size:
+        return
+    lo, hi = float(rewards.min()), float(rewards.max())
+    tol = 1e-4
+    if hi <= tol and lo >= -reward_max - tol:
+        return
+    raise ValueError(
+        f"Recorded rewards span [{lo:.6f}, {hi:.6f}], outside the "
+        f"[{-reward_max}, 0] this task's reward cfg produces "
+        f"(task={task_id!r}, reward_max={reward_max}). "
+        + (
+            "Positive rewards mean the recording predates the negative reward "
+            "convention. "
+            if hi > tol
+            else "Rewards below the floor mean the task had more reward terms "
+            "when this was recorded than it has now. "
+        )
+        + "Neither is fixable by rescaling; re-record against the current task "
+        "cfg (or pass --reward-max if you are certain the recording is right "
+        "and the lookup is wrong)."
+    )
+
+
+def _check_absorbing_frames_scored_success(
+    rewards: np.ndarray, masks: np.ndarray, episode_idx: np.ndarray
+) -> None:
+    """Reject episodes whose terminal is absorbing but was never scored a success.
+
+    ``masks`` and ``rewards`` come from two *different* sources that nothing
+    else cross-checks:
+
+    - ``masks == 0`` is derived from the operator's save-as-success keypress
+      (``recorder.save_episode(success=...)``, V vs F).
+    - ``rewards`` is what the env emitted.
+
+    A ``masks == 0`` frame is a genuine terminal MDP state, so Q-learning uses
+    its reward *as* the target with no bootstrap. If the operator saved an
+    episode as a success but the env's ``SuccessGate`` had not fired on the
+    last recorded frame, that target becomes ``-reward_max`` instead of ~0 --
+    silently teaching the critic that reaching the goal is worth as little as
+    never reaching it, which is the exact anchor this whole reward convention
+    rests on. ``sim_done`` exists to spot this (operator-stopped episodes have
+    ``next.done == False`` on their last frame) but is metadata only.
+
+    The test: ``success`` contributes exactly its weight (1.0 in every
+    category) when it fires, so a scored frame sits 1.0 above the same state
+    unscored. Half that is a clean separator, and it comfortably tolerates the
+    one category where a success frame is not exactly 0 -- Stack's success is a
+    two-sided tolerance band (``|height - target| <= 0.01``) while its
+    ``progress`` is ``(best/target).clamp(0, 1)``, so an in-band undershoot
+    scores up to ``tol / target_height`` (<= 0.083) short.
+    """
+    absorbing = masks == 0.0
+    if not absorbing.any():
+        return
+    bad = absorbing & (rewards < -0.5)
+    if not bad.any():
+        return
+    bad_eps = np.unique(episode_idx[bad])
+    raise ValueError(
+        f"{int(bad.sum())} frame(s) across episode(s) {bad_eps.tolist()} are "
+        f"marked as terminal successes (masks == 0) but scored "
+        f"{rewards[bad].min():.4f}..{rewards[bad].max():.4f}, i.e. the env's "
+        f"success term never fired there. Q-learning would treat those as "
+        f"absorbing states worth that much instead of ~0. This happens when an "
+        f"episode is saved with the success key before the task's success gate "
+        f"latches. Drop or re-record those episodes (check `sim_done` in the "
+        f"recording to find them)."
+    )
 
 
 def _compute_terminals_and_masks(
@@ -133,7 +261,11 @@ def _load_dataset_columns(dataset_root: str, episode_offset: int) -> dict:
     """
     ds = LeRobotDataset("live_record", root=dataset_root)
     hf = ds.hf_dataset
+    # `task` is the MJLab task id live_record.py was run with; LeRobot stores
+    # it as the index of the tasks table. Used to look up the task's reward_max.
+    task_ids = list(ds.meta.tasks.index)
     return {
+        "task_id": task_ids[0] if len(task_ids) == 1 else None,
         "episode_index": np.array(hf["episode_index"]) + episode_offset,
         "frame_index": np.array(hf["frame_index"]),
         "obs": np.array(hf["observation.state"], dtype=np.float32),
@@ -154,7 +286,8 @@ def convert(
     output_path: str | Path,
     failure_dir: str | None = None,
     action_norm: str = "physical",
-    reward_mode: str = "dense",
+    task: str | None = None,
+    reward_max: float | None = None,
 ) -> dict:
     """Convert live_record.py LeRobot dataset(s) to QC transition format.
 
@@ -167,6 +300,15 @@ def convert(
     QC training, filter to ``QC_KEYS`` before calling ``Dataset.create()``;
     see module docstring.
 
+    Rewards are the recorded per-step env reward, passed through **unchanged**.
+    No arithmetic is applied and there is no reward-mode switch: the env itself
+    emits ``progress + success - reward_max`` (see ``tasks/common/rewards.py``),
+    so whatever ``live_record`` stored is already the training convention, and
+    the dataset is identical to what the env emits online by construction.
+    Recordings predating that convention are rejected rather than converted --
+    their reward config no longer describes the task, and no rescaling recovers
+    a term the current env does not emit.
+
     Args:
         success_dir: Path to the success LeRobotDataset root, e.g.
             ``out/demos/success/G3A-Stack-Low-Dk1_uni/2026-06-29_10-00-00``.
@@ -178,12 +320,11 @@ def convert(
             uses the full DK1 joint range in raw_action space — fixed and
             session-independent. ``"data"`` uses per-joint min/max of this
             dataset — fills [-1, 1] fully but is session-specific.
-        reward_mode: Reward signal to store. ``"dense"`` (default) keeps the
-            recorded per-step env reward (progress shaping). ``"sparse"`` emits
-            ``+1`` only on the goal-reached frame of each successful episode and
-            ``0`` everywhere else, matching a success-only (sparse) env reward
-            config. Sparse is derived from episode boundaries + outcome (the same
-            signal as ``masks``), so it needs no per-step success replay.
+        task: MJLab task id these demos were recorded on. Defaults to the id
+            stored in the recording. Used only to look up ``reward_max``, which
+            is stamped into the ``.npz`` for the training-time convention check.
+        reward_max: Override for the task's per-step reward maximum (1.0 or
+            2.0), skipping the registry lookup. Rarely needed.
 
     Returns:
         The full assembled dict (QC keys + metadata) as numpy arrays.
@@ -192,11 +333,6 @@ def convert(
         raise ValueError(
             f"action_norm must be one of {ACTION_NORM_METHODS}, got {action_norm!r}"
         )
-    if reward_mode not in REWARD_MODES:
-        raise ValueError(
-            f"reward_mode must be one of {REWARD_MODES}, got {reward_mode!r}"
-        )
-
     # 1. Load dataset(s). Success and failure roots are independently indexed
     # from 0 by the recorder, so offset the failure episode_index past the
     # success episodes to keep episode boundaries (used for terminals) global.
@@ -206,6 +342,19 @@ def convert(
     n_failure_eps = 0
     if failure_dir is not None:
         failure_cols = _load_dataset_columns(failure_dir, episode_offset=n_success_eps)
+        # Both roots must be the same task: reward_max is looked up from the
+        # success root's id, and mismatched roots would put two reward scales
+        # (and two observation layouts) in one dataset.
+        if (
+            failure_cols["task_id"] is not None
+            and success_cols["task_id"] is not None
+            and failure_cols["task_id"] != success_cols["task_id"]
+        ):
+            raise ValueError(
+                f"success-dir is task {success_cols['task_id']!r} but "
+                f"failure-dir is {failure_cols['task_id']!r}; these cannot be "
+                f"merged into one dataset."
+            )
         n_failure_eps = int(len(np.unique(failure_cols["episode_index"])))
         parts.append(failure_cols)
 
@@ -217,6 +366,12 @@ def convert(
     success = np.concatenate([p["success"] for p in parts])
     timestamp = np.concatenate([p["timestamp"] for p in parts])
     sim_done = np.concatenate([p["sim_done"] for p in parts])
+
+    # 1b. Resolve the task's reward_max, the constant the env subtracts. Both
+    # reward modes are expressed relative to it, and it is stored in the .npz
+    # so training can reject a dataset built against a different reward cfg.
+    task_id = task or success_cols["task_id"]
+    resolved_reward_max = _resolve_reward_max(task_id, reward_max)
 
     print(
         f"[INFO] Loaded {len(obs)} frames across {n_success_eps + n_failure_eps} "
@@ -270,14 +425,14 @@ def convert(
     # each other in general (only success-terminated episodes get masks=0).
     terminals, masks = _compute_terminals_and_masks(episode_idx, success)
 
-    # 6b. Optionally replace the dense recorded reward with a sparse goal reward.
-    # A genuine terminal MDP state (masks==0) only occurs at a *successful*
-    # episode's last frame (see _compute_terminals_and_masks), so
-    # terminals * (1 - masks) is +1 exactly on each goal-reached frame and 0
-    # elsewhere — the offline analogue of a success-only env reward. Failure
-    # episodes (masks stays 1 at their terminal) contribute no reward.
-    if reward_mode == "sparse":
-        rewards = (terminals * (1.0 - masks)).astype(np.float32)
+    # 6b. Reward: the recorded per-step env reward, passed through untouched.
+    # `rewards` is already `progress + success - reward_max` because the env
+    # applies the shift itself and live_record stores what env.step() returned.
+    # All this block does is check the recording is on that convention: the
+    # right scale overall, and a reward consistent with `masks` at each
+    # absorbing frame.
+    _check_recorded_reward_range(rewards, resolved_reward_max, task_id)
+    _check_absorbing_frames_scored_success(rewards, masks, episode_idx)
 
     # 7. Assemble and save.
     out = {
@@ -298,13 +453,17 @@ def convert(
         "action_min": a_min.astype(np.float32),
         "action_max": a_max.astype(np.float32),
         "action_norm_method": np.array(action_norm),
-        "reward_mode": np.array(reward_mode),
+        # Reward convention this file was built under. g3a_bench.qc checks it
+        # against the live env and refuses to train on a mismatch.
+        "reward_max": np.array(resolved_reward_max, dtype=np.float32),
+        "task_id": np.array(task_id if task_id else ""),
     }
     np.savez(output_path, **out)
 
     print(
         f"[INFO] Saved to {output_path}  "
-        f"(action_norm={action_norm!r}, reward_mode={reward_mode!r})"
+        f"(action_norm={action_norm!r}, task={task_id!r}, "
+        f"reward_max={resolved_reward_max})"
     )
     print("       QC keys → pass to Dataset.create()")
     print(f"         observations:      {obs.shape} {obs.dtype}")
@@ -372,14 +531,22 @@ if __name__ == "__main__":
         ),
     )
     parser.add_argument(
-        "--reward-mode",
-        default="dense",
-        choices=list(REWARD_MODES),
+        "--task",
+        default=None,
         help=(
-            "Reward signal to store. "
-            "'dense' (default): the recorded per-step env reward (progress shaping). "
-            "'sparse': +1 only on each successful episode's goal frame, 0 elsewhere — "
-            "use with a success-only (sparse) env reward config."
+            "MJLab task id the demos were recorded on, e.g. "
+            "G3A-Stack-Low-Dk1_uni. Default: read from the recording. Used to "
+            "look up the task's reward_max."
+        ),
+    )
+    parser.add_argument(
+        "--reward-max",
+        type=float,
+        default=None,
+        help=(
+            "Override the task's per-step reward maximum instead of looking it "
+            "up in the task registry (2.0 for progress+success categories, 1.0 "
+            "for success-only). Rarely needed."
         ),
     )
     args = parser.parse_args()
@@ -389,5 +556,6 @@ if __name__ == "__main__":
         output_path=args.output,
         failure_dir=args.failure_dir,
         action_norm=args.action_norm,
-        reward_mode=args.reward_mode,
+        task=args.task,
+        reward_max=args.reward_max,
     )

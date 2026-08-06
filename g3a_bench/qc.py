@@ -11,6 +11,7 @@ directly.
 from __future__ import annotations
 
 import time
+import warnings
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -41,7 +42,17 @@ class _ShapeEnv(Protocol):
     def action_space(self) -> _ShapeSpace: ...
 
 
-def _decode_action_norm_method(value: Any) -> str:
+class _RewardEnv(Protocol):
+    """Just the reward-convention surface ``validate_reward_convention`` reads."""
+
+    @property
+    def task_id(self) -> str: ...
+
+    @property
+    def reward_max(self) -> float | None: ...
+
+
+def _decode_str_metadata(value: Any) -> str:
     """Decode scalar/string numpy metadata into a plain Python string."""
     return str(np.atleast_1d(np.asarray(value))[0])
 
@@ -118,6 +129,11 @@ class G3AMjlabEnv:
         self.obs_group = obs_group
         self.render_mode = render_mode
         self.env = _make_manager_env(task_id, self.device, render_mode)
+        # Per-step reward is in [-reward_max, 0], 0 exactly at success (the
+        # env applies the shift itself; see tasks/common/rewards.py). Recorded
+        # datasets must have been produced under the same value -- checked by
+        # validate_reward_convention().
+        self.reward_max = _env_reward_max(self.env)
         self._normalizer = ActionNormalizer.physical()
         self._reset_episode_stats()
         self.total_timesteps = 0
@@ -243,6 +259,83 @@ class G3AMjlabEnv:
         self.env.close()
 
 
+def _env_reward_max(manager_env: Any) -> float | None:
+    """``reward_max`` the MJLab env was built with, or ``None`` if unknown.
+
+    Read back off the constructed cfg rather than recomputed, so it tracks
+    whatever ``make_manipulation_env_cfg`` actually assembled.  Returns
+    ``None`` for envs without the shared offset term (test doubles, or a task
+    cfg built outside the shared skeleton) so callers can skip the check
+    instead of failing on a missing attribute.
+    """
+    from g3a_bench.tasks.common.rewards import REWARD_OFFSET_TERM
+
+    cfg = getattr(manager_env, "cfg", None)
+    rewards = getattr(cfg, "rewards", None)
+    if not isinstance(rewards, dict) or REWARD_OFFSET_TERM not in rewards:
+        return None
+    return -float(rewards[REWARD_OFFSET_TERM].weight)
+
+
+def read_dataset_reward_max(dataset_path: str | Path) -> float | None:
+    """``reward_max`` recorded in a QC ``.npz``, or ``None`` if not stamped."""
+    with np.load(dataset_path) as raw:
+        if "reward_max" not in raw:
+            return None
+        return float(np.asarray(raw["reward_max"]).reshape(-1)[0])
+
+
+def validate_reward_convention(
+    dataset_path: str | Path,
+    env: _RewardEnv,
+) -> None:
+    """Fail fast when a dataset's reward convention disagrees with the env.
+
+    The offline dataset and the online env feed the *same* replay buffer, so
+    they must agree on what a step is worth.  Nothing else catches a
+    disagreement: QC trains happily on either scale and only the learned
+    policy degrades, which is what made the previous ``{0,+1}`` dataset vs
+    ``{0,+0.02}`` env mismatch invisible until online fine-tuning.
+
+    Raises:
+        ValueError: when the dataset's ``reward_max`` differs from the env's,
+            or when the dataset predates that metadata (and is therefore on the
+            old positive, dt-scaled convention).
+    """
+    env_max = env.reward_max
+    if env_max is None:
+        # Fail open rather than hard, so test doubles and cfgs built outside
+        # the shared skeleton stay usable -- but say so, because this is the
+        # only check standing between a mis-scaled dataset and a silently
+        # degraded policy.
+        warnings.warn(
+            f"{env.task_id} has no {'max_reward_offset'!r} reward term, so the "
+            f"reward convention of {dataset_path} cannot be verified against "
+            f"it. Tasks built via make_manipulation_env_cfg always have one.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return
+
+    dataset_max = read_dataset_reward_max(dataset_path)
+
+    if dataset_max is None:
+        raise ValueError(
+            f"{dataset_path} predates the reward_max metadata, so it is on the "
+            f"old positive, dt-scaled reward convention and cannot be trained "
+            f"against {env.task_id} (which emits rewards in [{-env_max}, 0]). "
+            f"Regenerate it with lerobot_to_qc.py from a current recording."
+        )
+    if abs(dataset_max - env_max) > 1e-6:
+        raise ValueError(
+            f"Reward convention mismatch: {dataset_path} was built with "
+            f"reward_max={dataset_max}, but {env.task_id} emits rewards in "
+            f"[{-env_max}, 0] (reward_max={env_max}). Offline and online "
+            f"transitions would disagree on what a step is worth. Regenerate "
+            f"the dataset against the current task cfg."
+        )
+
+
 def load_qc_dataset(dataset_path: str | Path) -> dict[str, np.ndarray]:
     """Load a LeRobot-to-QC ``.npz`` as the six arrays upstream QC consumes."""
     dataset_path = Path(dataset_path)
@@ -260,7 +353,7 @@ def load_qc_dataset(dataset_path: str | Path) -> dict[str, np.ndarray]:
                 f"{dataset_path} is missing action_norm_method metadata; "
                 f"expected {SUPPORTED_ACTION_NORM_METHOD!r}"
             )
-        action_norm_method = _decode_action_norm_method(raw["action_norm_method"])
+        action_norm_method = _decode_str_metadata(raw["action_norm_method"])
         if action_norm_method != SUPPORTED_ACTION_NORM_METHOD:
             raise ValueError(
                 f"Unsupported action_norm_method={action_norm_method!r}; "
@@ -340,6 +433,11 @@ def make_env_and_datasets(
     ``None``.
     """
     env = cur_env
+
+    train_dataset = None
+    if dataset_path is not None:
+        train_dataset = load_qc_dataset(dataset_path)
+
     if not dataset_only:
         env = G3AMjlabEnv(
             dataset_name,
@@ -351,13 +449,13 @@ def make_env_and_datasets(
     if env_only:
         return env
 
-    if dataset_path is None:
+    if dataset_path is None or train_dataset is None:
         raise ValueError("dataset_path is required for G3A QC datasets")
-
-    train_dataset = load_qc_dataset(dataset_path)
 
     if validate_dataset and env is not None:
         validate_qc_dataset_against_env(train_dataset, env)
+        # Both halves of QC's replay buffer must agree on the reward scale.
+        validate_reward_convention(dataset_path, env)
 
     if dataset_only:
         return train_dataset, None

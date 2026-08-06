@@ -32,6 +32,11 @@ from mjlab.utils.noise import UniformNoiseCfg as Unoise
 from mjlab.viewer import ViewerConfig
 
 from g3a_bench.tasks.common.observations import ee_pose_w
+from g3a_bench.tasks.common.rewards import (
+    REWARD_OFFSET_TERM,
+    constant_one,
+    reward_max,
+)
 
 
 def make_manipulation_env_cfg(
@@ -76,7 +81,17 @@ def make_manipulation_env_cfg(
             next action by echoing the last one (momentum) instead of reading
             the scene. The training dataset's observations must be sliced to
             match (see ``scripts/live_bridge/drop_last_action_obs.py``).
-        task_rewards: category reward terms.
+        task_rewards: category reward terms. Each *individual* term is in
+            ``[0, 1]`` -- ``progress`` is a completion fraction, ``success`` an
+            indicator -- so the per-step **total** is in ``[0, sum of weights]``:
+            2.0 for the categories with both (stack, domino, sorter), 1.0 for
+            the success-only ones (place, ball). That sum is ``reward_max``, and
+            a constant ``-reward_max`` term is appended here, shifting the total
+            to ``[-reward_max, 0]`` with ``0`` reached at success (exactly, bar
+            stack -- see ``tasks/common/rewards.py``, which also covers why
+            negative). A category that adds a term outside ``[0, 1]`` breaks the
+            ``sum of weights`` shortcut and must not be added without revisiting
+            the offset.
         task_terminations: category terminations, placed after ``time_out``.
         sensors: scene sensors (e.g. an end-effector contact sensor).
         play: strip observation corruption and make the episode endless, for
@@ -168,6 +183,18 @@ def make_manipulation_env_cfg(
         **task_terminations,
     }
 
+    # Shift the task's own terms so the per-step reward is <= 0 and reaches 0
+    # exactly at success (tasks/common/rewards.py documents why). Paired with
+    # scale_rewards_by_dt=False below -- the offset is a fixed quantity, not a
+    # rate, and mjlab's default dt-scaling would shrink both by 1/50.
+    rewards = {
+        **task_rewards,
+        REWARD_OFFSET_TERM: RewardTermCfg(
+            func=constant_one,
+            weight=-reward_max(task_rewards),
+        ),
+    }
+
     # Not PPO residue: `num_envs=1` is QC-FQL's own single-env requirement
     # (it matches the JAX reference implementation), not a leftover default
     # meant for PPO's hundreds/thousands of parallel envs -- it was already
@@ -187,8 +214,15 @@ def make_manipulation_env_cfg(
         actions=actions,
         commands={command_name: command_cfg},
         events=events,
-        rewards=dict(task_rewards),
+        rewards=rewards,
         terminations=terminations,
+        # mjlab defaults to True, which treats every reward term as a *rate*
+        # and multiplies it by step_dt (0.02 s here). That is right for
+        # locomotion terms (velocity, torque, energy) but wrong for ours:
+        # `progress` is a dimensionless completion fraction and `success` a
+        # one-shot indicator that ends the episode, so integrating them over
+        # time is meaningless and only shrinks the whole reward by 1/50.
+        scale_rewards_by_dt=False,
         viewer=ViewerConfig(
             origin_type=ViewerConfig.OriginType.ASSET_BODY,
             entity_name="robot",
