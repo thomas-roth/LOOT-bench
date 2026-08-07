@@ -194,14 +194,6 @@ def make_manipulation_env_cfg(
             weight=-reward_max(task_rewards),
         ),
     }
-
-    # Not PPO residue: `num_envs=1` is QC-FQL's own single-env requirement
-    # (it matches the JAX reference implementation), not a leftover default
-    # meant for PPO's hundreds/thousands of parallel envs -- it was already
-    # single-env before this cleanup and stays that way regardless of
-    # training algorithm. `env_spacing`/`nconmax`/`njmax` below are per-task
-    # sim/collision-budget parameters mjlab's simulator needs to construct
-    # the scene at all, independent of whatever trains the policy.
     cfg = ManagerBasedRlEnvCfg(
         scene=SceneCfg(
             terrain=TerrainEntityCfg(terrain_type="plane"),

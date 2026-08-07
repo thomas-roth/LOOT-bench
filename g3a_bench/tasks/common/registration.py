@@ -75,14 +75,6 @@ def register_category(
                 ee_contact_sensors=ee_contact_sensors,
                 grip_contact_sensor=grip_contact_sensor,
             )
-
-            # Not PPO residue: `rl_cfg=`/`runner_cls=` are required, non-optional
-            # arguments of mjlab's own `register_mjlab_task` (no default exists
-            # for either) -- some valid object/class must be passed for
-            # registration to succeed at all, even though nothing here trains
-            # via PPO anymore. `runner_cls` is only ever exercised by mjlab's
-            # own `--agent trained` play mode, which is unusable regardless
-            # (nothing produces an RSL-RL checkpoint since training is QC-FQL).
             register_mjlab_task(
                 task_id=task_id,
                 env_cfg=env_cfg,
