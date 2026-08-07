@@ -1,5 +1,6 @@
 from g3a_bench.robots.interface import ManipulatorInterface
 from g3a_bench.robots.trlc_dk1.dk1_actuators import (
+    ARM_JOINTS,
     DK1_ACTION_SCALE_BIMANUAL,
     DK1_ACTION_SCALE_UNIMANUAL,
 )
@@ -30,6 +31,8 @@ def get_unimanual_dk1_interface() -> ManipulatorInterface:
         ee_subtree=DK1_EE_SUBTREE,
         pad_geoms=DK1_PAD_GEOMS_PATTERN,
         viewer_body=DK1_VIEWER_BODY,
+        arm_actuator_names=tuple(ARM_JOINTS.keys()),
+        gripper_actuator_names=DK1_GRIPPER_JOINTS_UNIMANUAL,
         reset_joint_pos=REST_JOINT_POS,
     )
 

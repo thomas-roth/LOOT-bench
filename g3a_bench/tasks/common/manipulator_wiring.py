@@ -7,6 +7,8 @@ and zero task edits. Each category's ``config/__init__.py`` names its own
 contact sensors, if any; everything else is identical across categories.
 """
 
+from typing import Literal
+
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.envs.mdp.actions import JointPositionActionCfg
 from mjlab.managers.event_manager import EventTermCfg
@@ -16,12 +18,16 @@ from mjlab.sensor import ContactSensorCfg
 from g3a_bench.robots.interface import ManipulatorInterface
 from g3a_bench.tasks.common.commands import GripperGateCommandCfg
 from g3a_bench.tasks.common.events import reset_joints_to_pose
+from g3a_bench.tasks.common.ik_action import make_ik_actions
+
+ActionSpace = Literal["joint", "ik"]
 
 
 def wire_manipulator_into_env(
     cfg: ManagerBasedRlEnvCfg,
     manipulator: ManipulatorInterface,
     *,
+    action_space: ActionSpace = "joint",
     ee_contact_sensors: tuple[str, ...] = (),
     grip_contact_sensor: str | None = None,
 ) -> None:
@@ -39,12 +45,23 @@ def wire_manipulator_into_env(
     If the robot declares a ``reset_joint_pos``, the shared
     ``reset_robot_joints`` event is replaced by one resetting to that absolute
     pose instead of to the keyframe.
+
+    Args:
+        action_space: ``"joint"`` (default) keeps the shared
+            ``JointPositionActionCfg`` over every actuator; ``"ik"`` swaps in
+            the task-space differential-IK action dict (arm 6-DoF delta pose +
+            separate gripper term, see ``tasks.common.ik_action``). The robot
+            must declare ``arm_actuator_names``/``gripper_actuator_names`` for
+            ``"ik"``.
     """
     cfg.scene.entities["robot"] = manipulator.entity_cfg_fn()
 
-    action = cfg.actions["joint_pos"]
-    assert isinstance(action, JointPositionActionCfg)
-    action.scale = manipulator.action_scale
+    if action_space == "ik":
+        cfg.actions = make_ik_actions(manipulator)
+    else:
+        action = cfg.actions["joint_pos"]
+        assert isinstance(action, JointPositionActionCfg)
+        action.scale = manipulator.action_scale
 
     grasp = (manipulator.grasp_site,)
     for group in cfg.observations.values():

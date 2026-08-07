@@ -21,6 +21,7 @@ register_category(
     variants=DOMINO_VARIANTS.values(),
     make_env_cfg=make_domino_env_cfg,
     robots=(get_unimanual_dk1_interface(),),
+    action_spaces=("joint", "ik"),
     task_id_parts=_task_id_parts,
     grip_contact_sensor=GRIP_CONTACT_SENSOR_NAME,
 )

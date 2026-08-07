@@ -22,6 +22,7 @@ register_category(
     variants=STACK_VARIANTS.values(),
     make_env_cfg=make_stack_env_cfg,
     robots=(get_unimanual_dk1_interface(),),
+    action_spaces=("joint", "ik"),
     task_id_parts=_task_id_parts,
     grip_contact_sensor=GRIP_CONTACT_SENSOR_NAME,
 )

@@ -258,7 +258,13 @@ class _ReplayAndRecord:
         if self._fallback_action_np is None:
             self._fallback_action_np = frame.leader_action.copy()
 
-        raw_action = lerobot_to_mjlab_raw_action(frame.leader_action, True)
+        # Task-space (-Ik) recordings store the env action itself (EE delta +
+        # gripper), so replay them verbatim; joint recordings store raw leader
+        # joints, mapped to the joint-position raw action as during recording.
+        if self.task.endswith("-Ik"):
+            raw_action = np.asarray(frame.leader_action, dtype=np.float32)
+        else:
+            raw_action = lerobot_to_mjlab_raw_action(frame.leader_action, True)
         return torch.from_numpy(raw_action).unsqueeze(0).to(self.device)
 
     def record_step_result(

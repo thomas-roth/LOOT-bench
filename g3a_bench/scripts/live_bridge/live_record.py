@@ -81,6 +81,9 @@ from mjlab.viewer.native.visualizer import MujocoNativeDebugVisualizer
 import g3a_bench  # noqa: F401
 from g3a_bench.robots.trlc_dk1.dk1_constants import HOME_JOINT_POS, REST_JOINT_POS
 from g3a_bench.scripts.live_bridge.mapper import (
+    leader_to_ik_env_action as lerobot_to_ik_env_action,
+)
+from g3a_bench.scripts.live_bridge.mapper import (
     lerobot_to_mjlab_raw_action,
 )
 from g3a_bench.scripts.live_bridge.recorder import Recorder
@@ -274,6 +277,70 @@ class _LivePolicy:
                 torch.from_numpy(raw_action).unsqueeze(0).to(self._device)
             )
         return self._last_raw_action
+
+
+class _LiveIKPolicy:
+    """Viewer policy for the task-space (``-Ik``) variant.
+
+    Same leader-following contract as :class:`_LivePolicy`, but instead of
+    mapping the leader joints to a joint-position action it maps them to the
+    env's 6-DoF end-effector delta-pose action (+ gripper): each call reads the
+    sim grasp-site and base pose, computes the delta that drives the grasp site
+    toward the leader's forward-kinematics pose (see
+    ``mapper.leader_to_ik_env_action``), and exposes that env action as
+    ``latest_leader_action`` so the recorder stores the *actual* action sent to
+    ``env.step`` (the raw leader joints are still kept in
+    ``observation.robot_state``).
+    """
+
+    def __init__(
+        self,
+        action_list: list,
+        device: str,
+        env,
+        *,
+        delta_pos_scale: float,
+        delta_ori_scale: float,
+    ):
+        from mjlab.managers.scene_entity_config import SceneEntityCfg
+
+        self.action_list = action_list
+        self._device = device
+        self._env = env
+        self._delta_pos_scale = delta_pos_scale
+        self._delta_ori_scale = delta_ori_scale
+        self._last_action = torch.zeros(1, 7, device=device)
+        self.latest_leader_action: np.ndarray | None = None
+        robot = env.env.scene["robot"]
+        grasp_cfg = SceneEntityCfg("robot", site_names=(GRASP_SITE_NAME,))
+        grasp_cfg.resolve(env.env.scene)
+        self._robot = robot
+        self._grasp_site_ids = grasp_cfg.site_ids
+
+    def __call__(self, obs):
+        leader_action = self.action_list[0]
+        if leader_action is not None:
+            data = self._robot.data
+            ee_pos = data.site_pos_w[0, self._grasp_site_ids].squeeze(0).cpu().numpy()
+            ee_quat = data.site_quat_w[0, self._grasp_site_ids].squeeze(0).cpu().numpy()
+            base_pos = data.root_link_pos_w[0].cpu().numpy()
+            base_quat = data.root_link_quat_w[0].cpu().numpy()
+            ik_action = lerobot_to_ik_env_action(
+                leader_action,
+                base_pos_w=base_pos,
+                base_quat_w=base_quat,
+                ee_pos_w=ee_pos,
+                ee_quat_w=ee_quat,
+                delta_pos_scale=self._delta_pos_scale,
+                delta_ori_scale=self._delta_ori_scale,
+            )
+            # Stored by the recorder as the dataset "action" (the true env
+            # action), unlike _LivePolicy which records the raw leader joints.
+            self.latest_leader_action = ik_action
+            self._last_action = (
+                torch.from_numpy(ik_action).unsqueeze(0).to(self._device)
+            )
+        return self._last_action
 
 
 class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
@@ -914,8 +981,22 @@ def main():
             "[INFO] Running leader-only (no follower connected). Pass --follower to enable."
         )
 
-    # 8. Create live policy and viewer.
-    live_policy = _LivePolicy(action_list, device)
+    # 8. Create live policy and viewer. Tasks whose id ends in "-Ik" use the
+    #    task-space (differential-IK) action variant, so the leader is mapped to
+    #    a 6-DoF end-effector delta + gripper instead of joint targets.
+    is_ik = args.task.endswith("-Ik")
+    if is_ik:
+        arm_ik_cfg = cfg.actions["arm_ik"]
+        live_policy = _LiveIKPolicy(
+            action_list,
+            device,
+            env,
+            delta_pos_scale=arm_ik_cfg.delta_pos_scale,
+            delta_ori_scale=arm_ik_cfg.delta_ori_scale,
+        )
+        print("[INFO] Task-space (IK) action variant: recording EE delta actions")
+    else:
+        live_policy = _LivePolicy(action_list, device)
 
     print("[INFO] Starting native MuJoCo viewer")
     print("[INFO] Move the leader arm to control the sim and follower")

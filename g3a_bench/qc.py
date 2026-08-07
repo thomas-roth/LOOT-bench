@@ -26,7 +26,12 @@ QC_DATASET_KEYS = (
     "masks",
 )
 
-SUPPORTED_ACTION_NORM_METHOD = "physical"
+SUPPORTED_ACTION_NORM_METHODS = ("physical", "ik")
+
+# Task-id suffix marking the task-space (differential-IK) action variant, whose
+# datasets normalize actions with ``ActionNormalizer.ik()`` instead of the
+# joint-space ``.physical()`` scheme.
+IK_TASK_SUFFIX = "-Ik"
 
 
 class _ShapeSpace(Protocol):
@@ -134,7 +139,14 @@ class G3AMjlabEnv:
         # datasets must have been produced under the same value -- checked by
         # validate_reward_convention().
         self.reward_max = _env_reward_max(self.env)
-        self._normalizer = ActionNormalizer.physical()
+        # -Ik tasks consume the env action directly (EE delta + gripper); their
+        # datasets are normalized with the IK bounds (identity arm + physical
+        # gripper). Joint tasks use the DK1 physical joint range.
+        self._normalizer = (
+            ActionNormalizer.ik()
+            if task_id.endswith(IK_TASK_SUFFIX)
+            else ActionNormalizer.physical()
+        )
         self._reset_episode_stats()
         self.total_timesteps = 0
 
@@ -351,14 +363,14 @@ def load_qc_dataset(dataset_path: str | Path) -> dict[str, np.ndarray]:
         if "action_norm_method" not in raw:
             raise ValueError(
                 f"{dataset_path} is missing action_norm_method metadata; "
-                f"expected {SUPPORTED_ACTION_NORM_METHOD!r}"
+                f"expected one of {SUPPORTED_ACTION_NORM_METHODS!r}"
             )
         action_norm_method = _decode_str_metadata(raw["action_norm_method"])
-        if action_norm_method != SUPPORTED_ACTION_NORM_METHOD:
+        if action_norm_method not in SUPPORTED_ACTION_NORM_METHODS:
             raise ValueError(
                 f"Unsupported action_norm_method={action_norm_method!r}; "
-                f"G3A QC integration currently requires "
-                f"{SUPPORTED_ACTION_NORM_METHOD!r}"
+                f"G3A QC integration currently supports "
+                f"{SUPPORTED_ACTION_NORM_METHODS!r}"
             )
 
         dataset = {

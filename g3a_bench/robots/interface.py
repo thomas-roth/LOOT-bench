@@ -50,6 +50,23 @@ class ManipulatorInterface:
     ``tasks.common.commands.ContactReleaseGate``)."""
     viewer_body: str
     """Body the viewer camera tracks."""
+    arm_actuator_names: tuple[str, ...] = ()
+    """Arm actuators driven by the differential-IK action term in the
+    task-space (``"ik"``) action variant. Empty ``()`` means the robot has no
+    IK variant registered (only ``JointPositionActionCfg`` joint control)."""
+    gripper_actuator_names: tuple[str, ...] = ()
+    """Gripper actuator(s) driven by the separate 1-DoF ``JointPositionAction``
+    term in the IK variant (mjlab's differential IK controls the arm only).
+    Their scale is read from :attr:`action_scale`."""
+    ik_delta_pos_scale: float = 0.05
+    """Metres of end-effector translation commanded by a full-magnitude (``1.0``)
+    position action component in the IK variant. Maps the policy's ``[-1, 1]``
+    output to a per-step position delta (see mjlab
+    ``DifferentialIKActionCfg.delta_pos_scale``)."""
+    ik_delta_ori_scale: float = 0.5
+    """Radians of end-effector rotation commanded by a full-magnitude (``1.0``)
+    orientation action component in the IK variant (mjlab
+    ``DifferentialIKActionCfg.delta_ori_scale``)."""
     reset_joint_pos: dict[str, float] | None = None
     """Absolute joint pose to reset to, if the robot's episodes should not
     start from its keyframe/home pose. Set this to the pose teleop recordings

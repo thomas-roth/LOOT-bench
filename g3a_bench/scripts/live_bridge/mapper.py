@@ -84,6 +84,13 @@ class ActionNormalizer:
     def physical(cls) -> "ActionNormalizer":
         return cls(PHYSICAL_RAW_ACTION_MIN, PHYSICAL_RAW_ACTION_MAX)
 
+    @classmethod
+    def ik(cls) -> "ActionNormalizer":
+        """Bounds for the task-space (``-Ik``) env action: identity ``[-1, 1]``
+        on the 6 arm delta dims, physical DK1 range on the gripper dim (see
+        ``IK_RAW_ACTION_MIN``/``MAX``)."""
+        return cls(IK_RAW_ACTION_MIN, IK_RAW_ACTION_MAX)
+
     def normalize(self, raw_action: np.ndarray) -> np.ndarray:
         """raw action → [-1, 1]. Guards zero-range (constant) dims against /0."""
         span = self.action_max - self.action_min
@@ -188,3 +195,143 @@ def lerobot_to_mjlab_raw_action(
     if gravity_compensate:
         ctrl = gravity_compensate_ctrl(ctrl)
     return (ctrl - HOME_JOINT_POS_ACTUATED) / ACTION_SCALE_ACTUATED
+
+
+# ── Task-space (differential-IK) action mapping ──────────────────────────────
+#
+# The ``-Ik`` task variant's env action is
+#     [dx, dy, dz, drx, dry, drz, gripper]   (7-D)
+#     └──── arm end-effector delta pose ────┘ └grip┘
+# (see ``tasks/common/ik_action.py``). The arm block is a *relative* delta the
+# env applies to the current grasp-site pose each control step; the gripper
+# block is the *same* physical raw joint action as under joint control, so the
+# gripper behaves identically in both variants. These helpers turn a live
+# teleop leader pose into that env action, and normalize it to the ``[-1, 1]``
+# policy space (arm dims already live there, so only the gripper dim is scaled
+# by its physical range).
+
+IK_ARM_ACTION_DIM = 6
+
+# IK env-action normalization bounds. The 6 arm delta dims are policy-native
+# (the env's ``delta_pos_scale``/``delta_ori_scale`` already map [-1, 1] to a
+# metre/radian step), so their bounds are the identity [-1, 1]; the gripper dim
+# reuses the physical DK1 range so the same 1-DoF joint action calibration
+# holds across both variants.
+IK_RAW_ACTION_MIN: np.ndarray = np.concatenate(
+    [-np.ones(IK_ARM_ACTION_DIM, dtype=np.float32), PHYSICAL_RAW_ACTION_MIN[6:7]]
+).astype(np.float32)
+IK_RAW_ACTION_MAX: np.ndarray = np.concatenate(
+    [np.ones(IK_ARM_ACTION_DIM, dtype=np.float32), PHYSICAL_RAW_ACTION_MAX[6:7]]
+).astype(np.float32)
+
+
+# Standalone (non-rendering) DK1 model used only for forward kinematics of the
+# teleop leader pose. Built lazily on first use (same rationale as the gravity
+# scratch model above) and reused across calls.
+_fk_model: mujoco.MjModel | None = None
+_fk_data: mujoco.MjData | None = None
+_fk_grasp_site_id: int | None = None
+_fk_arm_qposadr: np.ndarray | None = None
+
+
+def _fk_scratch() -> tuple[mujoco.MjModel, mujoco.MjData, int, np.ndarray]:
+    global _fk_model, _fk_data, _fk_grasp_site_id, _fk_arm_qposadr
+    if _fk_model is None:
+        from mjlab.entity import Entity
+
+        from g3a_bench.robots.trlc_dk1.dk1_constants import DK1_GRASP_SITE
+
+        entity = Entity(get_unimanual_dk1_robot_cfg())
+        _fk_model = entity.compile()
+        _fk_data = mujoco.MjData(_fk_model)
+        # The compiled standalone entity names its site "grasp_site" (no scene
+        # prefix), but match by suffix to stay robust to any prefixing.
+        site_id = -1
+        for sid in range(_fk_model.nsite):
+            name = mujoco.mj_id2name(_fk_model, mujoco.mjtObj.mjOBJ_SITE, sid) or ""
+            if name == DK1_GRASP_SITE or name.endswith("/" + DK1_GRASP_SITE):
+                site_id = sid
+                break
+        assert site_id >= 0, f"grasp site {DK1_GRASP_SITE!r} not found in DK1 model"
+        _fk_grasp_site_id = site_id
+        _fk_arm_qposadr = np.array(
+            [
+                _fk_model.jnt_qposadr[
+                    mujoco.mj_name2id(_fk_model, mujoco.mjtObj.mjOBJ_JOINT, name)
+                ]
+                for name in _ARM_JOINT_NAMES
+            ]
+        )
+    assert _fk_data is not None and _fk_grasp_site_id is not None
+    assert _fk_arm_qposadr is not None
+    return _fk_model, _fk_data, _fk_grasp_site_id, _fk_arm_qposadr
+
+
+def leader_ee_pose_base(joint_pos: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Forward-kinematics grasp-site pose for a leader joint reading.
+
+    Returns ``(pos, quat_wxyz)`` of the grasp site in the robot base frame,
+    given a real-robot ``joint_pos`` (7,) (only the 6 arm joints are used; the
+    gripper does not move the grasp site).
+    """
+    model, data, site_id, arm_qposadr = _fk_scratch()
+    data.qpos[arm_qposadr] = joint_pos[:6]
+    mujoco.mj_forward(model, data)
+    pos = data.site_xpos[site_id].astype(np.float32).copy()
+    quat = np.empty(4, dtype=np.float64)
+    mujoco.mju_mat2Quat(quat, data.site_xmat[site_id])
+    return pos, quat.astype(np.float32)
+
+
+def leader_to_ik_env_action(
+    joint_pos: np.ndarray,
+    *,
+    base_pos_w: np.ndarray,
+    base_quat_w: np.ndarray,
+    ee_pos_w: np.ndarray,
+    ee_quat_w: np.ndarray,
+    delta_pos_scale: float,
+    delta_ori_scale: float,
+) -> np.ndarray:
+    """Env action (7,) for the ``-Ik`` variant from a live teleop step.
+
+    Drives the sim grasp site toward the leader's commanded grasp pose: the arm
+    block is the relative delta ``compute_pose_error(current_ee, desired_ee)``
+    (the exact inverse of the env's ``apply_delta_pose``) divided by the env's
+    delta scales and clipped to ``[-1, 1]``; the gripper block is the same
+    physical raw joint action used under joint control.
+
+    Args:
+        joint_pos: real-robot leader reading (7,).
+        base_pos_w, base_quat_w: robot base link pose in the (env-local) world
+            frame — used to lift the base-frame FK pose into that frame so the
+            delta matches what the env's world-frame IK term consumes.
+        ee_pos_w, ee_quat_w: current sim grasp-site pose in the same frame.
+        delta_pos_scale, delta_ori_scale: the env's IK cfg scales, so the
+            recorded delta lands in policy units.
+    """
+    import torch
+    from mjlab.utils.lab_api.math import compute_pose_error, quat_apply, quat_mul
+
+    def _t(a: np.ndarray) -> torch.Tensor:
+        return torch.as_tensor(np.asarray(a, dtype=np.float32)).unsqueeze(0)
+
+    fk_pos_base, fk_quat_base = leader_ee_pose_base(joint_pos)
+    base_p, base_q = _t(base_pos_w), _t(base_quat_w)
+    # desired grasp pose in world = base_pose ∘ FK(base frame)
+    desired_pos = base_p + quat_apply(base_q, _t(fk_pos_base))
+    desired_quat = quat_mul(base_q, _t(fk_quat_base))
+
+    pos_err, rot_err = compute_pose_error(
+        _t(ee_pos_w), _t(ee_quat_w), desired_pos, desired_quat, "axis_angle"
+    )
+    arm = np.concatenate(
+        [
+            (pos_err[0].numpy() / delta_pos_scale),
+            (rot_err[0].numpy() / delta_ori_scale),
+        ]
+    ).astype(np.float32)
+    arm = np.clip(arm, -1.0, 1.0)
+
+    gripper = lerobot_to_mjlab_raw_action(joint_pos, gravity_compensate=False)[6]
+    return np.concatenate([arm, [gripper]]).astype(np.float32)

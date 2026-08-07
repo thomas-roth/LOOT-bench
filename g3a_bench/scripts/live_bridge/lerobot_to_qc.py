@@ -76,6 +76,8 @@ import numpy as np
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
 from g3a_bench.scripts.live_bridge.mapper import (
+    IK_RAW_ACTION_MAX,
+    IK_RAW_ACTION_MIN,
     PHYSICAL_RAW_ACTION_MAX,
     PHYSICAL_RAW_ACTION_MIN,
     ActionNormalizer,
@@ -87,6 +89,12 @@ QC_KEYS = frozenset(
 )
 
 ACTION_NORM_METHODS = ("physical", "data")
+
+# Task-id suffix marking the task-space (differential-IK) action variant. Its
+# recordings already store the env action (EE delta + gripper), so they skip
+# the joint remap and use the fixed IK normalization bounds regardless of the
+# --action-norm flag (which only chooses between joint-space schemes).
+IK_TASK_SUFFIX = "-Ik"
 
 
 def _resolve_reward_max(task_id: str | None, override: float | None) -> float:
@@ -379,16 +387,24 @@ def convert(
     )
 
     # 2. Reconstruct the actual sim action sent to env.step() during recording.
-    # live_record._LivePolicy called lerobot_to_mjlab_raw_action with
-    # gravity_compensate=True. The stored leader_action is in real-robot space;
-    # this recovers the exact raw_action that caused each obs[t] → obs[t+1] transition.
-    sim_actions = np.array(
-        [
-            lerobot_to_mjlab_raw_action(a, gravity_compensate=True)
-            for a in leader_actions
-        ],
-        dtype=np.float32,
-    )  # (N, 7)
+    #
+    # Task-space (-Ik) recordings already store the env action itself (the EE
+    # delta + gripper produced by live_record._LiveIKPolicy), so they are used
+    # verbatim. Joint recordings store the raw leader joints, which
+    # live_record._LivePolicy mapped through lerobot_to_mjlab_raw_action
+    # (gravity_compensate=True) before env.step(); this recovers the exact
+    # raw_action that caused each obs[t] → obs[t+1] transition.
+    is_ik = bool(task_id) and task_id.endswith(IK_TASK_SUFFIX)
+    if is_ik:
+        sim_actions = leader_actions.astype(np.float32)  # (N, 7) — already env actions
+    else:
+        sim_actions = np.array(
+            [
+                lerobot_to_mjlab_raw_action(a, gravity_compensate=True)
+                for a in leader_actions
+            ],
+            dtype=np.float32,
+        )  # (N, 7)
 
     # 3. Sort by (episode_index, frame_index) to guarantee correct order.
     order = np.lexsort((frame_idx, episode_idx))
@@ -402,10 +418,19 @@ def convert(
     sim_done = sim_done[order]
 
     # 4. Normalize sim_actions to [-1, 1].
-    if action_norm == "physical":
+    if is_ik:
+        # Fixed IK bounds: identity on the 6 EE-delta dims, physical DK1 range
+        # on the gripper dim. Session-independent, so IK datasets combine
+        # safely; the --action-norm flag (a joint-space choice) is ignored.
+        stored_action_norm = "ik"
+        a_min = IK_RAW_ACTION_MIN
+        a_max = IK_RAW_ACTION_MAX
+    elif action_norm == "physical":
+        stored_action_norm = "physical"
         a_min = PHYSICAL_RAW_ACTION_MIN
         a_max = PHYSICAL_RAW_ACTION_MAX
     else:  # "data"
+        stored_action_norm = "data"
         a_min = sim_actions.min(axis=0)
         a_max = sim_actions.max(axis=0)
     actions = ActionNormalizer(a_min, a_max).normalize(sim_actions).astype(np.float32)
@@ -452,7 +477,7 @@ def convert(
         # Denormalize at deployment: raw_action = (norm+1)/2*(action_max-action_min)+action_min
         "action_min": a_min.astype(np.float32),
         "action_max": a_max.astype(np.float32),
-        "action_norm_method": np.array(action_norm),
+        "action_norm_method": np.array(stored_action_norm),
         # Reward convention this file was built under. g3a_bench.qc checks it
         # against the live env and refuses to train on a mismatch.
         "reward_max": np.array(resolved_reward_max, dtype=np.float32),
@@ -462,7 +487,7 @@ def convert(
 
     print(
         f"[INFO] Saved to {output_path}  "
-        f"(action_norm={action_norm!r}, task={task_id!r}, "
+        f"(action_norm={stored_action_norm!r}, task={task_id!r}, "
         f"reward_max={resolved_reward_max})"
     )
     print("       QC keys → pass to Dataset.create()")
