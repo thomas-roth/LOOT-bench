@@ -72,57 +72,85 @@ def _dashboard(run_dir: Path, out_path: Path) -> None:
     boundary = max(off.get("step", [0])) if off.get("step") else None
 
     fig = make_subplots(
-        rows=4, cols=1,
+        rows=4,
+        cols=1,
         subplot_titles=(
             "Eval: Return & Success Rate",
             "Eval: Episode Length & Final Reward",
             "Training: Critic Q-values",
             "Training: Losses (log scale)",
         ),
-        specs=[[{"secondary_y": True}],
-               [{"secondary_y": True}],
-               [{"secondary_y": False}],
-               [{"secondary_y": False}]],
+        specs=[
+            [{"secondary_y": True}],
+            [{"secondary_y": True}],
+            [{"secondary_y": False}],
+            [{"secondary_y": False}],
+        ],
         vertical_spacing=0.12,
     )
 
     # --- Panel 1: eval return + success -------
     if ev.get("step") and ev.get("episode.return"):
         fig.add_trace(
-            go.Scatter(x=ev["step"], y=ev["episode.return"],
-                      mode="lines+markers", name="eval return",
-                      line=dict(color="blue", width=2),
-                      marker=dict(size=6)),
-            row=1, col=1, secondary_y=False,
+            go.Scatter(
+                x=ev["step"],
+                y=ev["episode.return"],
+                mode="lines+markers",
+                name="eval return",
+                line=dict(color="blue", width=2),
+                marker=dict(size=6),
+            ),
+            row=1,
+            col=1,
+            secondary_y=False,
         )
     if ev.get("step") and ev.get("success"):
         fig.add_trace(
-            go.Scatter(x=ev["step"], y=ev["success"],
-                      mode="lines+markers", name="success rate",
-                      line=dict(color="red", width=2),
-                      marker=dict(size=6)),
-            row=1, col=1, secondary_y=True,
+            go.Scatter(
+                x=ev["step"],
+                y=ev["success"],
+                mode="lines+markers",
+                name="success rate",
+                line=dict(color="red", width=2),
+                marker=dict(size=6),
+            ),
+            row=1,
+            col=1,
+            secondary_y=True,
         )
     fig.update_yaxes(title_text="episode return", row=1, col=1, secondary_y=False)
-    fig.update_yaxes(title_text="success rate", row=1, col=1, secondary_y=True,
-                    range=[-0.05, 1.05])
+    fig.update_yaxes(
+        title_text="success rate", row=1, col=1, secondary_y=True, range=[-0.05, 1.05]
+    )
 
     # --- Panel 2: episode length + final reward -------
     if ev.get("step") and ev.get("episode.length"):
         fig.add_trace(
-            go.Scatter(x=ev["step"], y=ev["episode.length"],
-                      mode="lines+markers", name="episode length",
-                      line=dict(color="orange", width=2),
-                      marker=dict(size=6)),
-            row=2, col=1, secondary_y=True,
+            go.Scatter(
+                x=ev["step"],
+                y=ev["episode.length"],
+                mode="lines+markers",
+                name="episode length",
+                line=dict(color="orange", width=2),
+                marker=dict(size=6),
+            ),
+            row=2,
+            col=1,
+            secondary_y=True,
         )
     if ev.get("step") and ev.get("episode.final_reward"):
         fig.add_trace(
-            go.Scatter(x=ev["step"], y=ev["episode.final_reward"],
-                      mode="lines+markers", name="final reward",
-                      line=dict(color="green", width=2),
-                      marker=dict(size=6)),
-            row=2, col=1, secondary_y=False,
+            go.Scatter(
+                x=ev["step"],
+                y=ev["episode.final_reward"],
+                mode="lines+markers",
+                name="final reward",
+                line=dict(color="green", width=2),
+                marker=dict(size=6),
+            ),
+            row=2,
+            col=1,
+            secondary_y=False,
         )
     fig.update_yaxes(title_text="final reward", row=2, col=1, secondary_y=False)
     fig.update_yaxes(title_text="episode length", row=2, col=1, secondary_y=True)
@@ -131,42 +159,64 @@ def _dashboard(run_dir: Path, out_path: Path) -> None:
     for src, style in ((off, "solid"), (on, "solid")):
         if src.get("step") and src.get("critic/q_mean"):
             fig.add_trace(
-                go.Scatter(x=src["step"], y=src["critic/q_mean"],
-                          mode="lines", name="q_mean",
-                          line=dict(color="blue", width=2, dash=style)),
-                row=3, col=1,
+                go.Scatter(
+                    x=src["step"],
+                    y=src["critic/q_mean"],
+                    mode="lines",
+                    name="q_mean",
+                    line=dict(color="blue", width=2, dash=style),
+                ),
+                row=3,
+                col=1,
             )
             if src.get("critic/q_min") and src.get("critic/q_max"):
                 fig.add_trace(
-                    go.Scatter(x=src["step"], y=src["critic/q_min"],
-                              mode="lines", name="q_min",
-                              line=dict(width=0),
-                              showlegend=False),
-                    row=3, col=1,
+                    go.Scatter(
+                        x=src["step"],
+                        y=src["critic/q_min"],
+                        mode="lines",
+                        name="q_min",
+                        line=dict(width=0),
+                        showlegend=False,
+                    ),
+                    row=3,
+                    col=1,
                 )
                 fig.add_trace(
-                    go.Scatter(x=src["step"], y=src["critic/q_max"],
-                              mode="lines", name="q_max",
-                              line=dict(width=0),
-                              fillcolor="rgba(0,100,200,0.2)",
-                              fill="tonexty",
-                              showlegend=False),
-                    row=3, col=1,
+                    go.Scatter(
+                        x=src["step"],
+                        y=src["critic/q_max"],
+                        mode="lines",
+                        name="q_max",
+                        line=dict(width=0),
+                        fillcolor="rgba(0,100,200,0.2)",
+                        fill="tonexty",
+                        showlegend=False,
+                    ),
+                    row=3,
+                    col=1,
                 )
             break  # only once
     fig.update_yaxes(title_text="Q value", row=3, col=1, type="linear")
 
     # --- Panel 4: losses (log) -------
-    for key, color in (("critic/critic_loss", "blue"),
-                       ("actor/bc_flow_loss", "orange"),
-                       ("actor/distill_loss", "green")):
+    for key, color in (
+        ("critic/critic_loss", "blue"),
+        ("actor/bc_flow_loss", "orange"),
+        ("actor/distill_loss", "green"),
+    ):
         for src in (off, on):
             if src.get("step") and src.get(key):
                 fig.add_trace(
-                    go.Scatter(x=src["step"], y=src[key],
-                              mode="lines", name=key,
-                              line=dict(color=color, width=1.5)),
-                    row=4, col=1,
+                    go.Scatter(
+                        x=src["step"],
+                        y=src[key],
+                        mode="lines",
+                        name=key,
+                        line=dict(color=color, width=1.5),
+                    ),
+                    row=4,
+                    col=1,
                 )
                 break  # only from offline
     fig.update_yaxes(title_text="loss (log)", row=4, col=1, type="log")
@@ -175,8 +225,7 @@ def _dashboard(run_dir: Path, out_path: Path) -> None:
     # Mark offline/online boundary on all axes
     if boundary:
         for i in range(1, 5):
-            fig.add_vline(x=boundary, line_dash="dash", line_color="gray",
-                         row=i, col=1)
+            fig.add_vline(x=boundary, line_dash="dash", line_color="gray", row=i, col=1)
 
     fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor="LightGray")
     fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor="LightGray")
@@ -197,15 +246,25 @@ def _dashboard(run_dir: Path, out_path: Path) -> None:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("run_dir", type=Path, help="QC run dir (or parent)")
-    ap.add_argument("--out", type=Path, default=None,
-                   help="output HTML (default: <run_dir>/dashboard.html)")
-    ap.add_argument("--watch", type=float, default=0.0,
-                   help="re-render every N seconds (for a running job)")
-    ap.add_argument("--open", action="store_true",
-                   help="open in browser after first render")
+    ap.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="output HTML (default: <run_dir>/dashboard.html)",
+    )
+    ap.add_argument(
+        "--watch",
+        type=float,
+        default=0.0,
+        help="re-render every N seconds (for a running job)",
+    )
+    ap.add_argument(
+        "--open", action="store_true", help="open in browser after first render"
+    )
     args = ap.parse_args()
 
     run_dir = find_run_dir(args.run_dir)

@@ -113,11 +113,18 @@ def _plot(run_dir: Path, out_path: Path) -> None:
     # --- 2. episode shape ------------------------------------------------
     ax = axes[1]
     if ev.get("episode.final_reward"):
-        ax.plot(ev["step"], ev["episode.final_reward"], "o-", color="C2",
-                label="final reward (0 = success)")
+        ax.plot(
+            ev["step"],
+            ev["episode.final_reward"],
+            "o-",
+            color="C2",
+            label="final reward (0 = success)",
+        )
     if ev.get("episode.length"):
         ax2 = ax.twinx()
-        ax2.plot(ev["step"], ev["episode.length"], "^-", color="C1", label="episode length")
+        ax2.plot(
+            ev["step"], ev["episode.length"], "^-", color="C1", label="episode length"
+        )
         ax2.set_ylabel("steps", color="C1")
         ax2.tick_params(axis="y", labelcolor="C1")
     ax.set_ylabel("final reward")
@@ -132,8 +139,13 @@ def _plot(run_dir: Path, out_path: Path) -> None:
         if src.get("critic/q_mean"):
             ax.plot(src["step"], src["critic/q_mean"], style, color="C0", lw=1.2)
             if src.get("critic/q_min") and src.get("critic/q_max"):
-                ax.fill_between(src["step"], src["critic/q_min"], src["critic/q_max"],
-                                color="C0", alpha=0.15)
+                ax.fill_between(
+                    src["step"],
+                    src["critic/q_min"],
+                    src["critic/q_max"],
+                    color="C0",
+                    alpha=0.15,
+                )
     ax.set_ylabel("Q value")
     ax.grid(alpha=0.3)
     mark_boundary(ax)
@@ -141,13 +153,20 @@ def _plot(run_dir: Path, out_path: Path) -> None:
 
     # --- 4. losses -------------------------------------------------------
     ax = axes[3]
-    for key, color in (("critic/critic_loss", "C0"),
-                       ("actor/bc_flow_loss", "C1"),
-                       ("actor/distill_loss", "C2")):
+    for key, color in (
+        ("critic/critic_loss", "C0"),
+        ("actor/bc_flow_loss", "C1"),
+        ("actor/distill_loss", "C2"),
+    ):
         for src in (off, on):
             if src.get(key):
-                ax.plot(src["step"], src[key], color=color, lw=1.2,
-                        label=key if src is off else None)
+                ax.plot(
+                    src["step"],
+                    src[key],
+                    color=color,
+                    lw=1.2,
+                    label=key if src is off else None,
+                )
     ax.set_yscale("log")
     ax.set_ylabel("loss (log)")
     ax.set_xlabel("training step")
@@ -164,20 +183,34 @@ def _plot(run_dir: Path, out_path: Path) -> None:
     if ev.get("success"):
         last = ev["success"][-1]
         best = max(ev["success"])
-        print(f"  eval success: last={last:.2f}  best={best:.2f}  "
-              f"({len(ev['success'])} evaluations)")
+        print(
+            f"  eval success: last={last:.2f}  best={best:.2f}  "
+            f"({len(ev['success'])} evaluations)"
+        )
     if ev.get("episode.return"):
-        print(f"  eval return:  last={ev['episode.return'][-1]:.1f}  "
-              f"best={max(ev['episode.return']):.1f}")
+        print(
+            f"  eval return:  last={ev['episode.return'][-1]:.1f}  "
+            f"best={max(ev['episode.return']):.1f}"
+        )
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__,
-                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     ap.add_argument("run_dir", type=Path, help="QC run dir (or a parent of it)")
-    ap.add_argument("--out", type=Path, default=None, help="output PNG (default: <run_dir>/training.png)")
-    ap.add_argument("--watch", type=float, default=0.0,
-                    help="re-render every N seconds (for a running job)")
+    ap.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="output PNG (default: <run_dir>/training.png)",
+    )
+    ap.add_argument(
+        "--watch",
+        type=float,
+        default=0.0,
+        help="re-render every N seconds (for a running job)",
+    )
     args = ap.parse_args()
 
     run_dir = find_run_dir(args.run_dir)
