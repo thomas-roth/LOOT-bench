@@ -28,6 +28,9 @@ G3A_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 QC_DIR="${QC_DIR:-$(cd "$G3A_DIR/../qc" 2>/dev/null && pwd || true)}"
 QC_RUN_ROOT="${QC_RUN_ROOT:-/tmp/$USER/qc-runs}"
 QC_MIRROR_EVERY="${QC_MIRROR_EVERY:-600}"
+# Online by default so the run is watchable on wandb.ai; set WANDB_MODE=offline
+# to keep it local (sync later with `wandb sync $RUN_DIR/wandb/offline-run-*`).
+WANDB_MODE="${WANDB_MODE:-online}"
 
 die() { printf 'error: %s\n' "$1" >&2; exit 1; }
 note() { printf '[train_qcfql] %s\n' "$1"; }
@@ -52,6 +55,21 @@ done
 if command -v klist >/dev/null 2>&1 && ! klist -s 2>/dev/null; then
     note "WARNING: no Kerberos ticket (klist -s failed). Run 'kinit' so the"
     note "         result mirror to the NFS home cannot be denied. Continuing."
+fi
+
+# wandb.init runs *after* the MJLab env and dataset are built, so an
+# unauthenticated online run would fail minutes in. Check it up front.
+if [ "$WANDB_MODE" = "online" ] && ! "$QC_DIR/.venv/bin/python" - <<'PY' 2>/dev/null
+import netrc, os, sys
+if os.environ.get("WANDB_API_KEY"):
+    sys.exit(0)
+try:
+    sys.exit(0 if netrc.netrc().authenticators("api.wandb.ai") else 1)
+except Exception:
+    sys.exit(1)
+PY
+then
+    die "wandb not authenticated. Run '$QC_DIR/.venv/bin/wandb login' (or export WANDB_API_KEY), or rerun with WANDB_MODE=offline."
 fi
 
 # Extract env_name for a readable run directory; fall back to a timestamp.
@@ -104,14 +122,15 @@ trap cleanup EXIT
 
 note "run dir:  $RUN_DIR"
 note "mirror:   $MIRROR_TARGET (every ${QC_MIRROR_EVERY}s)"
-note "wandb:    offline"
+note "wandb:    $WANDB_MODE"
 
 mirror_loop &
 mirror_pid=$!
 
 cd "$QC_DIR"
-WANDB_MODE=offline \
+WANDB_MODE="$WANDB_MODE" \
 WANDB_DIR="$RUN_DIR" \
+XLA_PYTHON_CLIENT_PREALLOCATE=false \
 PYTHONPATH="$G3A_DIR:${PYTHONPATH:-}" \
     "$QC_DIR/.venv/bin/python" main.py "$@" --save_dir="$RUN_DIR/exp" 2>&1 \
     | tee "$RUN_DIR/train.log"
