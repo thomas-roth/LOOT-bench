@@ -39,9 +39,13 @@ env-origin pose on every reset; mjlab wraps it as a mocap body. Contrast:
 free bodies (pieces, pegs, ball) are placed by the command's resample.
 
 **Reward mode**:
-A named tier of active task reward terms (`progress` keeps discrete progress
-shaping; `success` keeps only the sparse outcome signal). Regularization
-terms stay active in every mode.
+A named tier of active task reward terms (`progress` keeps the task's
+completion-fraction shaping on top of the outcome signal -- discrete for
+domino and the sorter, continuous distance for place; `success` keeps only
+the sparse outcome signal). Regularization terms stay active in every mode.
+A category may register one variant per mode (place does: `Easy` vs
+`Easy-Dense`); the modes differ in `reward_max`, so each needs its own
+recorded dataset.
 
 ### Success semantics
 

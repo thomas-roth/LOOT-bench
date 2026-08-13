@@ -260,9 +260,14 @@ def _check_domino_knockover(device: str, *, render: bool = False) -> str | None:
 # ---------------------------------------------------------------------------
 
 
-def _teleport_place(cmd: PlaceCommand, device: str) -> None:
-    """Place the cube directly at its target, upright, at rest."""
+def _teleport_place(cmd: PlaceCommand, device: str, *, x_offset: float = 0.0) -> None:
+    """Place the cube at its target, upright, at rest.
+
+    *x_offset* shifts it along +x, to land inside the success tolerance
+    without sitting exactly on the target.
+    """
     pos = cmd.target_pos_w.clone()
+    pos[:, 0] += x_offset
     quat = _upright_quat(cmd.num_envs, device)
     cmd.cube.write_root_link_pose_to_sim(torch.cat([pos, quat], dim=-1))
     cmd.cube.write_root_link_velocity_to_sim(
@@ -283,6 +288,46 @@ def _check_place_easy(device: str, *, render: bool = False) -> str | None:
     _render_goal(env, task_id, render)
     env.close()
     return None if frac > 0.9 else f"progress={frac:.3f} (expected >0.9)"
+
+
+def _check_place_dense_zero_at_success(
+    device: str, *, render: bool = False
+) -> str | None:
+    """The shaped variant must pay *exactly* 0 on the success frame.
+
+    Success is a tolerance ball, so a cube resting just inside it is short of
+    the target by up to ``pos_threshold``, and the raw distance shaping would
+    pay ~-0.03 there instead of 0. ``PlaceCommand`` clamps progress on success
+    frames to close that gap; without the clamp, upstream QC's ``--sparse``
+    (``(rewards != 0.0) * -1.0``) would turn the success frame into an
+    ordinary -1 step and erase the outcome signal.
+    """
+    task_id = "G3A-Place-Easy-Dense-Dk1_uni"
+    env = _make_env(task_id, device)
+    cmd = cast(PlaceCommand, env.command_manager.get_term("task"))
+    zeros = _zeros(env, device)
+    env.step(zeros)
+    _teleport_place(
+        cmd, device, x_offset=0.9 * cmd.cfg.pos_threshold * cmd.variant.margin
+    )
+    _render_goal(env, task_id, render)
+    # The success termination is popped by _make_env, so key off the command's
+    # own success flag. The first step still carries the pre-teleport state
+    # (the write lands on the next physics step), hence the >= 1 guard.
+    worst: float | None = None
+    for step in range(_STEPS):
+        _, reward, _, _, _ = env.step(zeros)
+        scored = cmd.success.bool()
+        if step >= 1 and bool(scored.all()):
+            worst = float(reward[scored].abs().max().item())
+            break
+    dist = cmd.dist_to_target.max().item()
+    env.close()
+    if worst is None:
+        return f"success never fired within {_STEPS} steps"
+    if dist == 0.0:
+        return "cube landed exactly on the target, so the clamp went untested"
+    return None if worst == 0.0 else f"reward on the success frame = {worst:+.4f}"
 
 
 # ---------------------------------------------------------------------------
@@ -496,6 +541,7 @@ _CHECKS: list[tuple[str, str]] = [
     ("Domino    3Pieces       ", "domino_3pieces"),
     ("Domino    3Pieces-KnockOver", "domino_knockover"),
     ("Place     Easy          ", "place_easy"),
+    ("Place     Easy-Dense    ", "place_easy_dense"),
     ("Sorter    3Shapes-Full ", "shape_sorter_full"),
     ("Ball      Minigolf-Direct", "ball_minigolf_direct"),
     ("Ball      Minigolf-UsingWall", "ball_minigolf_using_wall"),
@@ -514,6 +560,8 @@ def _dispatch(key: str, device: str, *, render: bool = False) -> str | None:
         return _check_domino_knockover(device, render=render)
     if key == "place_easy":
         return _check_place_easy(device, render=render)
+    if key == "place_easy_dense":
+        return _check_place_dense_zero_at_success(device, render=render)
     if key == "shape_sorter_full":
         return _check_shape_sorter_full(device, render=render)
     if key == "ball_minigolf_direct":

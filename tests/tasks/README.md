@@ -79,6 +79,7 @@ uv run python tests/tasks/compare_sim_settings.py --viewer
 Teleports objects to their goals for one representative task per category, plus structurally unusual variants (Stack Low-TwoStacks, Domino 3Pieces-KnockOver, Ball Minigolf-UsingWall, Ball Throw-U), and checks that the command term's success metric fires.
 The Domino KnockOver check builds the row (teleport), then tips only the first domino past its tip-over point and simulates the chain reaction, so it verifies the row topples along the row axis, all leaning the same way, in row order — not just that objects end up "fallen".
 The shape-sorter check reorients the free cube so the target hole faces up, then drives the piece through the mouth in two stations so the latched outside-to-inside crossing fires.
+The Place Easy-Dense check is the odd one out: it does not read the success metric but the *reward*. It rests the cube just inside the success tolerance (so distance shaping alone would pay ~-0.03) and requires the reward on the success frame to be exactly 0, which is what keeps the `[-reward_max, 0]` convention exact and keeps upstream QC's `--sparse` flag (`(rewards != 0.0) * -1.0`) from erasing the outcome signal.
 This confirms the metric *can* fire when objects are placed correctly; it does not verify that reward shaping guides a policy there.
 Run it after touching a category's `mdp/commands.py` or success-metric logic.
 

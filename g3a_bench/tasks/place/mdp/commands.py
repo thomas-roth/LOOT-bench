@@ -154,6 +154,17 @@ class PlaceCommand(CommandTerm):
         )
         self._gate.update(self.reached, speed, released)
 
+        # Pin progress to 1.0 on success frames, so the shaped reward
+        # (progress + success - reward_max) is *exactly* 0 in the absorbing
+        # state instead of short by tol / MAX_TRAVEL_DIST (~0.03). Two things
+        # need that exactness: the [-reward_max, 0] convention documented in
+        # tasks/common/rewards.py, and upstream QC's --sparse flag, which
+        # sparsifies a dataset with `(rewards != 0.0) * -1.0` (qc/main.py) and
+        # would flatten a -0.03 success frame into an ordinary -1 step.
+        # Contrast stack, which tolerates the same gap because nothing there
+        # depends on the exact zero.
+        self.progress = torch.maximum(self.progress, self._gate.success)
+
         self.metrics["dist_to_target"] = self.dist_to_target
         self.metrics["reached"] = self.reached.float()
         self.metrics["episode_success"] = self.episode_success

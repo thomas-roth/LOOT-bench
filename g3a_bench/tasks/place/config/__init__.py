@@ -11,6 +11,10 @@ from g3a_bench.tasks.place.variants import PLACE_VARIANTS, PlaceVariantCfg
 
 
 def _task_id_parts(variant: PlaceVariantCfg) -> tuple[str, str]:
+    # The reward mode is the category's only variation axis, so it carries the
+    # <Variation> segment: G3A-Place-Easy-Dense-Dk1_uni.
+    if variant.reward_mode == "progress":
+        return "Easy", "Dense"
     return variant.name, ""
 
 

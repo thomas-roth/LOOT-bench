@@ -47,6 +47,14 @@ def make_place_env_cfg(
             params={"command_name": COMMAND_NAME},
         ),
     }
+    if variant.reward_mode == "progress":
+        # Shaping on top of the sparse indicator, not instead of it: reward_max
+        # becomes 2.0, so this variant needs its own re-labelled dataset.
+        task_rewards["progress"] = RewardTermCfg(
+            func=place_mdp.progress_reward,
+            weight=1.0,
+            params={"command_name": COMMAND_NAME},
+        )
 
     task_terminations = {
         "success": TerminationTermCfg(
