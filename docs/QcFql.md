@@ -25,11 +25,10 @@ merge_datasets.py ─► combined .npz          (optional)
 g3a_bench.qc.make_env_and_datasets ─► (env, eval_env, train_dataset, None)
       │
       ▼
-qc/main.py  ─► checkpoints + eval.csv + offline/online_agent.csv
+qc/main.py  ─► wandb (project qc) + checkpoints + eval.csv + offline/online_agent.csv
       │
       ├── train_qcfql.sh        (production launcher)
       ├── play_qcfql.py         (checkpoint evaluation)
-      ├── dashboard.py          (interactive HTML plots)
       └── plot_training.py      (static PNG plots)
 ```
 
@@ -258,21 +257,12 @@ PYTHONPATH=../g3a-bench:$PYTHONPATH python ../g3a-bench/g3a_bench/scripts/play_q
 
 ## Analysis scripts
 
-Both read the CSV metrics QC flushes next to the checkpoints, so they work
-while a run is still training. `--watch N` re-renders every N seconds.
-
-### `dashboard.py`
-
-Interactive Plotly HTML dashboard:
-
-```bash
-uv run python g3a_bench/scripts/dashboard.py <run_dir> [--watch 30] [--open]
-```
-
-Four panels: eval return + success rate, episode length + final reward,
-critic Q-values, and losses (log scale), with a dashed line at the
-offline→online boundary. `<run_dir>` may be the `save_dir` or any parent of
-it (the newest matching dir is used). Needs plotly.
+Live training curves are viewed on **wandb**: `qc/main.py` logs every metric
+to the `qc` project (grouped by `--run_group`) alongside the CSVs, so the
+eval return/success, critic Q-values, and losses are all chartable while the
+run is training. The offline→online transition sits at step `offline_steps`
+(also recorded in the run's config). The script below is the offline/static
+fallback that does not need a wandb account.
 
 ### `plot_training.py`
 
