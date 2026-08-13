@@ -26,6 +26,11 @@ provides an OGBench-style env/dataset factory (`g3a_bench.qc.make_env_and_datase
 `qc/main.py` runs the actual training loop. There is no validation split —
 `val_dataset` is always `None`.
 
+See [`docs/QcFql.md`](docs/QcFql.md) for the full QC-FQL training path: the
+env/dataset factory, the reward convention, the `-Ik` task-space action
+variant, dataset conversion, the `train_qcfql.sh` launcher, checkpoint
+evaluation, and the analysis scripts.
+
 1. Record demos with `live_bridge` (see `g3a_bench/scripts/live_bridge/README.md`),
    then convert (+ merge, if more than one session) to a QC `.npz`:
    ```bash
