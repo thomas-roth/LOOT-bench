@@ -15,7 +15,6 @@ dependencies = [
     "lerobot-robot-trlc-dk1>=0.3.0",
     "snakeviz>=2.2.2",
     "pyqt5>=5.15.11",
-    "plotly>=6.9.0",
 ]
 
 [project.scripts]
