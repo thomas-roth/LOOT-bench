@@ -29,7 +29,7 @@ def wire_manipulator_into_env(
     *,
     action_space: ActionSpace = "joint",
     ee_contact_sensors: tuple[str, ...] = (),
-    grip_contact_sensor: str | None = None,
+    grip_contact_sensor: str | tuple[str, ...] | None = None,
 ) -> None:
     """Fill the robot placeholders left by a ``make_<cat>_env_cfg`` in place.
 
@@ -41,7 +41,11 @@ def wire_manipulator_into_env(
     joints/threshold. Sensors named in ``ee_contact_sensors`` get the
     end-effector subtree as their primary match pattern. The sensor named
     ``grip_contact_sensor``, if any, gets the finger-pad geom pattern as its
-    primary match pattern (see ``tasks.common.commands.ContactReleaseGate``).
+    primary match pattern (see ``tasks.common.commands.ContactReleaseGate``);
+    a tuple names several such sensors, which is how a category adds an
+    object-filtered pad sensor (``OBJECT_CONTACT_SENSOR_NAME``) alongside the
+    unfiltered one -- both need the same robot-specific pad pattern, and only
+    the wiring knows it.
     If the robot declares a ``reset_joint_pos``, the shared
     ``reset_robot_joints`` event is replaced by one resetting to that absolute
     pose instead of to the keyframe.
@@ -85,9 +89,14 @@ def wire_manipulator_into_env(
                 sensor.primary.pattern = manipulator.ee_subtree
 
     if grip_contact_sensor is not None:
+        pad_sensors = (
+            (grip_contact_sensor,)
+            if isinstance(grip_contact_sensor, str)
+            else grip_contact_sensor
+        )
         assert cfg.scene.sensors is not None
         for sensor in cfg.scene.sensors:
-            if sensor.name == grip_contact_sensor:
+            if sensor.name in pad_sensors:
                 assert isinstance(sensor, ContactSensorCfg)
                 sensor.primary.pattern = manipulator.pad_geoms
 

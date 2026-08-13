@@ -8,7 +8,10 @@ from mjlab.managers.termination_manager import TerminationTermCfg
 from mjlab.sensor import ContactMatch, ContactSensorCfg
 from mjlab.utils.noise import UniformNoiseCfg as Unoise
 
-from g3a_bench.tasks.common.commands import GRIP_CONTACT_SENSOR_NAME
+from g3a_bench.tasks.common.commands import (
+    GRIP_CONTACT_SENSOR_NAME,
+    OBJECT_CONTACT_SENSOR_NAME,
+)
 from g3a_bench.tasks.common.env_cfg import make_manipulation_env_cfg
 from g3a_bench.tasks.common.table import table_entity_cfg
 from g3a_bench.tasks.place import mdp as place_mdp
@@ -56,6 +59,16 @@ def make_place_env_cfg(
         ContactSensorCfg(
             name=GRIP_CONTACT_SENSOR_NAME,
             primary=ContactMatch(mode="geom", pattern="", entity="robot"),
+            fields=("force",),
+        ),
+        # Same pads, filtered to the cube. Unlike the gate sensor above this
+        # one must NOT see pad-on-pad contact: it exists to answer "did the
+        # policy reach the cube?" for eval logging, and an empty gripper
+        # closing on air registers ~2.4 N on the unfiltered sensor.
+        ContactSensorCfg(
+            name=OBJECT_CONTACT_SENSOR_NAME,
+            primary=ContactMatch(mode="geom", pattern="", entity="robot"),
+            secondary=ContactMatch(mode="body", pattern="cube", entity="cube"),
             fields=("force",),
         ),
     )

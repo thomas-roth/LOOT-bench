@@ -32,7 +32,7 @@ def register_category(
     task_id_parts: Callable[..., tuple[str, str]],
     action_spaces: tuple[ActionSpace, ...] = ("joint",),
     ee_contact_sensors: tuple[str, ...] = (),
-    grip_contact_sensor: str | None = None,
+    grip_contact_sensor: str | tuple[str, ...] | None = None,
 ) -> None:
     """Register all robot x variant (x action-space) tasks of one category.
 

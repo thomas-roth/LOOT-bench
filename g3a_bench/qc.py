@@ -13,7 +13,7 @@ from __future__ import annotations
 import time
 import warnings
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 import numpy as np
 
@@ -213,6 +213,50 @@ class G3AMjlabEnv:
         except (KeyError, AttributeError, TypeError):
             return None
 
+    def _get_gripper_contact(self) -> float | None:
+        """Peak finger-pad contact force [N], or ``None`` if the task has no
+        pad sensor.
+
+        Feeds upstream's contact counter (``qc/evaluation.py``), which reports
+        ``num_gripper_contacts`` / ``avg_gripper_contact_length`` in
+        ``eval.csv``. Those columns read 0 for every task until this key
+        exists, and they look like a measurement while they do -- upstream
+        skips the counter silently when the key is missing rather than
+        failing. Every registered category wires the gate sensor, so ``None``
+        is reached only by a task built without one (a test double, or a
+        future category that skips it) and keeps the old skip behaviour there.
+
+        Prefers the object-filtered sensor and falls back to the unfiltered
+        gate sensor, because the question this metric is logged to answer is
+        "did the policy reach the object?". The unfiltered sensor cannot
+        answer it: it has no secondary match, so an empty gripper closing on
+        air reads ~2.4 N off pad-on-pad contact, far above the threshold. The
+        fallback is still worth having for a category that wires only the
+        gate sensor -- but there it counts *grip attempts*, not object
+        contacts.
+
+        Upstream compares against a hardcoded ``> 0.1``, which is the same
+        number as ``MIN_GRIP_FORCE``. Nothing enforces that agreement across
+        the repo boundary -- if ``MIN_GRIP_FORCE`` moves, the two drift apart.
+        """
+        try:
+            from mjlab.sensor import ContactSensor
+
+            from g3a_bench.tasks.common.commands import (
+                GRIP_CONTACT_SENSOR_NAME,
+                OBJECT_CONTACT_SENSOR_NAME,
+                peak_pad_force,
+            )
+
+            sensors = self.env.scene.sensors
+            for name in (OBJECT_CONTACT_SENSOR_NAME, GRIP_CONTACT_SENSOR_NAME):
+                if name in sensors:
+                    sensor = cast(ContactSensor, sensors[name])
+                    return _scalar_float(peak_pad_force(sensor)[0])
+            return None
+        except (KeyError, AttributeError, TypeError, AssertionError):
+            return None
+
     def reset(self, *, seed: int | None = None, options: dict | None = None):
         del options
         self._reset_episode_stats()
@@ -243,6 +287,13 @@ class G3AMjlabEnv:
         success = self._get_success()
         if success is not None:
             info["success"] = success
+        # Top level, not nested under "proprio": upstream's nested branch
+        # (qc/evaluation.py:123-132) reads info["proprio"]["gripper_contact"]
+        # but then thresholds info["gripper_contact"], so a proprio-only key
+        # raises KeyError. Only the flat key works.
+        gripper_contact = self._get_gripper_contact()
+        if gripper_contact is not None:
+            info["gripper_contact"] = gripper_contact
         if done:
             info["episode"] = {
                 "final_reward": reward_value,

@@ -214,6 +214,90 @@ class _FakeManagerEnv:
         self.closed = True
 
 
+class _FakeContactSensor:
+    """Stands in for the ``grip_contact`` MJLab sensor.
+
+    ``force`` is (num_envs, num_pads, 3); the peak magnitude over the pads of
+    the single env is what reaches ``info``.
+    """
+
+    def __init__(self, force):
+        self.data = SimpleNamespace(force=force)
+
+
+class _FakeContactEnv(_FakeManagerEnv):
+    def __init__(self, **sensor_forces):
+        super().__init__()
+        self.scene = SimpleNamespace(
+            sensors={
+                name: _FakeContactSensor(force) for name, force in sensor_forces.items()
+            }
+        )
+
+
+def _force(*magnitudes):
+    """(1, len(magnitudes), 3) pad forces with the given magnitudes."""
+    import torch
+
+    return torch.tensor([[[0.0, m, 0.0] for m in magnitudes]])
+
+
+def test_step_info_omits_gripper_contact_without_a_pad_sensor(monkeypatch):
+    """Categories with no ``grip_contact`` sensor must leave the key absent.
+
+    Upstream (``qc/evaluation.py``) then skips its contact counter, which is
+    the pre-existing behaviour; emitting a bogus 0.0 would instead be logged
+    as "the gripper touched nothing".
+    """
+    monkeypatch.setattr(qc, "_make_manager_env", lambda *args: _FakeManagerEnv())
+
+    env = qc.G3AMjlabEnv("G3A-Fake-v0", device="cpu")
+    env.reset()
+    _, _, _, _, info = env.step(np.zeros(env.action_space.shape, dtype=np.float32))
+
+    assert "gripper_contact" not in info
+
+
+def test_step_info_reports_peak_pad_force_at_the_top_level(monkeypatch):
+    """The key is flat, and carries the peak force over the pads.
+
+    Flat because upstream's nested branch thresholds ``info["gripper_contact"]``
+    even when it read the value out of ``info["proprio"]``, so a proprio-only
+    key raises KeyError there.
+    """
+    fake = _FakeContactEnv(grip_contact=_force(0.5, 3.0))
+    monkeypatch.setattr(qc, "_make_manager_env", lambda *args: fake)
+
+    env = qc.G3AMjlabEnv("G3A-Fake-v0", device="cpu")
+    env.reset()
+    _, _, _, _, info = env.step(np.zeros(env.action_space.shape, dtype=np.float32))
+
+    assert info["gripper_contact"] == pytest.approx(3.0)
+    assert "proprio" not in info
+
+
+def test_object_filtered_sensor_wins_over_the_unfiltered_gate_sensor(monkeypatch):
+    """``grip_object_contact`` is preferred wherever both sensors exist.
+
+    The unfiltered ``grip_contact`` reads ~2.4 N when the gripper closes on
+    air (pad presses on pad), which would be logged as "the policy touched
+    the cube". Only the object-filtered reading answers that question, so it
+    must win -- here 0.0 N (not touching the cube) despite 2.4 N of
+    pad-on-pad force.
+    """
+    fake = _FakeContactEnv(
+        grip_contact=_force(2.4),
+        grip_object_contact=_force(0.0),
+    )
+    monkeypatch.setattr(qc, "_make_manager_env", lambda *args: fake)
+
+    env = qc.G3AMjlabEnv("G3A-Fake-v0", device="cpu")
+    env.reset()
+    _, _, _, _, info = env.step(np.zeros(env.action_space.shape, dtype=np.float32))
+
+    assert info["gripper_contact"] == pytest.approx(0.0)
+
+
 def test_g3a_mjlab_env_reset_step_returns_gym_values(monkeypatch):
     fake_env = _FakeManagerEnv()
     monkeypatch.setattr(qc, "_make_manager_env", lambda *args: fake_env)
