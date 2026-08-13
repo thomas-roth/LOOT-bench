@@ -21,6 +21,8 @@ lerobot_to_qc.py ─► QC-format .npz          (per session)
       ▼
 merge_datasets.py ─► combined .npz          (optional)
       │
+      ├─► relabel_place_dense.py ─► dense .npz   (optional, Place only)
+      │
       ▼
 g3a_bench.qc.make_env_and_datasets ─► (env, eval_env, train_dataset, None)
       │
@@ -169,6 +171,52 @@ Concatenates multiple `.npz` files into one. Rejects merges across different
 `action_norm_method` or `reward_max` (different reward scales), renumbers
 episode indices to stay unique, and carries the metadata through (a merged
 file without `reward_max` would be rejected at training).
+
+### `relabel_place_dense.py`
+
+Rewrites a Place `success`-mode dataset for the `progress` (dense) variant,
+which needs `reward_max=2.0` and therefore cannot train on the sparse file.
+No re-recording, and no simulator in the relabel path:
+
+```bash
+uv run python g3a_bench/scripts/live_bridge/relabel_place_dense.py \
+    --source dataset/demos/G3A-Place-Easy-Dk1_uni/G3A-Place-Easy-Dk1_uni_qc_physical.npz \
+    --target-task G3A-Place-Easy-Dense-Dk1_uni \
+    --output dataset/demos/G3A-Place-Easy-Dense-Dk1_uni/G3A-Place-Easy-Dense-Dk1_uni_qc_physical.npz \
+    --lerobot-dir dataset/demos/G3A-Place-Easy-Dk1_uni/2026-08-07_20-45-13 \
+    --verify-episodes 0 8 42 77 99
+```
+
+Both dense terms are pure functions of state the `.npz` already holds. The
+`success` indicator is read back out of the sparse reward (`rewards + 1.0`,
+exactly 0 or 1), and `progress` is `place_progress` of the cube-to-target
+distance, taken from the `cube_pose` and `command` slices of the same row.
+Both kernels are imported from the task, and the observation slices are read
+off the built env, so the relabel cannot drift from what the env emits.
+
+Only `rewards`, `reward_max` and `task_id` change; every other array is copied
+bit-for-bit, so the success frames stay on the same timesteps.
+
+**Use the pre-step observation, not `next_observations`.**
+`ManagerBasedRlEnv.step()` computes rewards *before* it refreshes the command
+manager, so a frame's reward is scored on the command metrics left standing
+from the previous step — the state `observations[i]` records. That one-step lag
+is consistent for every env and every step (mjlab documents the equivalent
+substep staleness), so the MDP is well defined, but a relabel that ignores it
+is off by one control step, worth up to 2.6e-2 of reward on fast transport
+frames.
+
+`--verify-episodes` re-simulates whole episodes through the target task
+(seeded reset + recorded actions) and compares the live per-frame reward with
+the relabelled one, at ~235 steps/s, so ~1 s per episode. Agreement measured
+over 14 episodes is 3.6e-7 … 8.0e-5. That residue belongs to the *replay*, not
+the relabel: an open-loop re-simulation walks up to 35 µm of cube position away
+from the recording, while the recorded observations and `observation.qpos`
+agree exactly with each other. `--sync-start` is not needed and is slightly
+worse (it zeroes the unrecorded start velocities).
+
+Place-specific by construction — `progress` is a category-specific term, and
+`stack`'s (a running best-height) is not recoverable from an observation row.
 
 ## Training
 
