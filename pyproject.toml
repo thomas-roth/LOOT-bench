@@ -5,6 +5,9 @@ description = "Long-horizon robot manipulation benchmark tasks (TRLC-DK1, mjlab)
 readme = "README.md"
 requires-python = ">=3.12, <3.14"
 dependencies = [
+    # Direct: g3a_bench/qc/env.py is a gymnasium.Env. It arrives via mjlab too,
+    # but the qc adapter is not willing to depend on that staying true.
+    "gymnasium>=1.0",
     "lerobot[dataset]>=0.6.0",
     # Upper bound is a hard constraint: mjlab 1.6.0 rejects the DK1 collision spec.
     "mjlab>=1.5.1,<1.6",
