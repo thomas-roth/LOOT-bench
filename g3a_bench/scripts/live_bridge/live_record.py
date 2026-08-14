@@ -77,7 +77,7 @@ from mjlab.viewer.native.keys import KEY_C, KEY_D, KEY_F, KEY_Q, KEY_U, KEY_V
 from mjlab.viewer.native.visualizer import MujocoNativeDebugVisualizer
 
 import g3a_bench  # noqa: F401
-from g3a_bench.robots.trlc_dk1.dk1_constants import HOME_JOINT_POS
+from g3a_bench.robots.trlc_dk1.dk1_constants import HOME_JOINT_POS, REST_JOINT_POS
 from g3a_bench.scripts.live_bridge.mapper import (
     lerobot_to_mjlab_raw_action,
 )
@@ -107,14 +107,9 @@ USE_FOLLOWER_STATE_FOR_SIM = (
 # Ghost-arm colors, feedback timing, the rest-pose threshold and the recording
 # state machine all live in recording_mixin (shared with the Viser viewer).
 
-LIVE_REST_POSE: dict[str, float] = {
-    "joint1": +0.1565,
-    "joint2": +0.0015,
-    "joint3": +0.0015,
-    "joint4": -0.0153,
-    "joint5": +0.0153,
-    "joint6": +0.0276,
-}
+# Sourced from the robot constant so the pose the operator aligns to and the
+# pose the env resets to cannot drift apart.
+LIVE_REST_POSE: dict[str, float] = dict(REST_JOINT_POS)
 # Same rest pose mapped into the sim frame — lives in the same frame as
 # the teleop'd arm and the action mapper.
 _SIM_REST_POSE: dict[str, float] = {

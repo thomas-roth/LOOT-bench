@@ -14,6 +14,7 @@ from mjlab.sensor import ContactSensorCfg
 
 from g3a_bench.robots.interface import ManipulatorInterface
 from g3a_bench.tasks.common.commands import GripperGateCommandCfg
+from g3a_bench.tasks.common.events import reset_joints_to_pose
 
 
 def wire_manipulator_into_env(
@@ -34,8 +35,23 @@ def wire_manipulator_into_env(
     end-effector subtree as their primary match pattern. The sensor named
     ``grip_contact_sensor``, if any, gets the finger-pad geom pattern as its
     primary match pattern (see ``tasks.common.commands.ContactReleaseGate``).
+
+    A robot declaring ``reset_joint_pos`` gets the ``reset_robot_joints`` event
+    swapped from mjlab's keyframe-relative offset reset to the absolute-pose
+    reset in ``tasks.common.events``. The task's own sample ranges carry over
+    unchanged, so ``start_pose_noise`` still means the same thing either way.
     """
     cfg.scene.entities["robot"] = manipulator.entity_cfg_fn()
+
+    if manipulator.reset_joint_pos is not None:
+        event = cfg.events["reset_robot_joints"]
+        event.func = reset_joints_to_pose
+        event.params = {
+            "pose": dict(manipulator.reset_joint_pos),
+            "position_range": event.params["position_range"],
+            "velocity_range": event.params["velocity_range"],
+            "asset_cfg": event.params["asset_cfg"],
+        }
 
     action = cfg.actions["joint_pos"]
     assert isinstance(action, JointPositionActionCfg)

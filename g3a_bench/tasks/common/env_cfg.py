@@ -51,6 +51,7 @@ def make_manipulation_env_cfg(
     njmax: int,
     viewer_distance: float = 1.5,
     viewer_elevation: float = -15.0,
+    start_pose_noise: float = 0.0,
     play: bool = False,
 ) -> ManagerBasedRlEnvCfg:
     """Assemble the shared workbench around a category core.
@@ -72,6 +73,13 @@ def make_manipulation_env_cfg(
         task_rewards: category reward terms.
         task_terminations: category terminations, placed after ``time_out``.
         sensors: scene sensors (e.g. an end-effector contact sensor).
+        start_pose_noise: half-width [rad] of the uniform sample added to
+            every robot joint at reset. ``0.0`` (the default) gives a
+            bit-identical start every episode, which every demo replay check
+            needs -- and which offers a policy exactly one start state to
+            generalize from. Raise it for training. Read back off
+            ``cfg.events["reset_robot_joints"].params["position_range"]``,
+            which is also where to override it on an already-built cfg.
         play: strip observation corruption and make the episode endless, for
             interactive play. Physics are unchanged, so demos and eval run
             under the same dynamics as training. The ``success`` termination
@@ -122,11 +130,13 @@ def make_manipulation_env_cfg(
             mode="reset",
             params={"pose_range": {}, "velocity_range": {}},
         ),
+        # Robots declaring a reset pose get the absolute-pose reset swapped in
+        # by wire_manipulator_into_env; the ranges below survive the swap.
         "reset_robot_joints": EventTermCfg(
             func=mdp.reset_joints_by_offset,
             mode="reset",
             params={
-                "position_range": (0.0, 0.0),
+                "position_range": (-start_pose_noise, start_pose_noise),
                 "velocity_range": (0.0, 0.0),
                 "asset_cfg": SceneEntityCfg("robot", joint_names=(".*",)),
             },

@@ -50,3 +50,11 @@ class ManipulatorInterface:
     ``tasks.common.commands.ContactReleaseGate``)."""
     viewer_body: str
     """Body the viewer camera tracks."""
+    reset_joint_pos: dict[str, float] | None = None
+    """Absolute joint pose episodes start from, or ``None`` to start from the
+    entity's own keyframe. Set it to the pose the robot rests in during
+    teleoperation: the recorded demos and the evaluated episodes must start
+    from the same state, otherwise a policy trained on the demos is evaluated
+    from a state it never saw. Consumed by ``manipulator_wiring.
+    wire_manipulator_into_env``, which swaps in
+    ``tasks.common.events.reset_joints_to_pose``."""

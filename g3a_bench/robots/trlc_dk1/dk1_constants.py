@@ -64,6 +64,26 @@ HOME_JOINT_POS: dict[str, float] = {
 }
 
 
+# Rest pose: where the leader arm hangs when the operator lets go, measured on
+# the physical DK1. Teleop sessions start here, so episodes must start here too
+# -- see ManipulatorInterface.reset_joint_pos. Far from HOME_JOINT_POS (q2 1.7
+# vs 0.0015, q4 -1.5708 vs -0.0153), so the two are not interchangeable.
+#
+# Arm joints only, deliberately. The reset event samples its start-pose noise
+# over exactly the joints listed here, and the gripper must not be sampled: its
+# whole stroke is 0.046 m, so even a small joint-space range would start
+# episodes with a half-closed hand. Omitted joints keep the keyframe value,
+# which leaves the gripper open at every reset.
+REST_JOINT_POS: dict[str, float] = {
+    "joint1": +0.1565,
+    "joint2": +0.0015,
+    "joint3": +0.0015,
+    "joint4": -0.0153,
+    "joint5": +0.0153,
+    "joint6": +0.0276,
+}
+
+
 def _home_keyframe(prefix: str = "") -> EntityCfg.InitialStateCfg:
     return EntityCfg.InitialStateCfg(
         pos=(0.0, 0.0, 0.0),

@@ -13,6 +13,7 @@ from g3a_bench.robots.trlc_dk1.dk1_constants import (
     DK1_NAME_BIMANUAL,
     DK1_NAME_UNIMANUAL,
     DK1_VIEWER_BODY,
+    REST_JOINT_POS,
     get_bimanual_dk1_robot_cfg,
     get_unimanual_dk1_robot_cfg,
 )
@@ -29,6 +30,7 @@ def get_unimanual_dk1_interface() -> ManipulatorInterface:
         ee_subtree=DK1_EE_SUBTREE,
         pad_geoms=DK1_PAD_GEOMS_PATTERN,
         viewer_body=DK1_VIEWER_BODY,
+        reset_joint_pos=REST_JOINT_POS,
     )
 
 
