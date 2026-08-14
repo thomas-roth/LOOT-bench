@@ -70,8 +70,8 @@ def make_ball_env_cfg(
         )
 
     task_rewards = {
-        "success": RewardTermCfg(
-            func=ball_mdp.success_reward,
+        "task": RewardTermCfg(
+            func=ball_mdp.task_reward,
             weight=1.0,
             params={"command_name": COMMAND_NAME},
         ),

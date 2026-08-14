@@ -207,6 +207,11 @@ def make_manipulation_env_cfg(
         ),
         decimation=4,
         episode_length_s=episode_length_s,
+        # Keep the reward exactly what the term returns. mjlab's default
+        # multiplies every reward by step_dt, which would tie the numbers
+        # baked into a recorded dataset to the decimation above. See the
+        # convention note in tasks/common/rewards.py.
+        scale_rewards_by_dt=False,
     )
 
     if play:

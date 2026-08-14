@@ -41,13 +41,8 @@ def make_stack_env_cfg(
     }
 
     task_rewards = {
-        "progress": RewardTermCfg(
-            func=stack_mdp.progress_reward,
-            weight=1.0,
-            params={"command_name": COMMAND_NAME},
-        ),
-        "success": RewardTermCfg(
-            func=stack_mdp.success_reward,
+        "task": RewardTermCfg(
+            func=stack_mdp.task_reward,
             weight=1.0,
             params={"command_name": COMMAND_NAME},
         ),

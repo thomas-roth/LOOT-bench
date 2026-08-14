@@ -55,13 +55,8 @@ def make_shape_sorter_env_cfg(
     }
 
     task_rewards = {
-        "progress": RewardTermCfg(
-            func=sorter_mdp.progress_reward,
-            weight=1.0,
-            params={"command_name": COMMAND_NAME},
-        ),
-        "success": RewardTermCfg(
-            func=sorter_mdp.success_reward,
+        "task": RewardTermCfg(
+            func=sorter_mdp.task_reward,
             weight=1.0,
             params={"command_name": COMMAND_NAME},
         ),

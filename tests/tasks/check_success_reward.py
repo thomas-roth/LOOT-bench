@@ -66,6 +66,44 @@ def _upright_quat(n: int, device: str) -> torch.Tensor:
     return quat_from_euler_xyz(z, z, z)
 
 
+def _reward_convention_error(env: ManagerBasedRlEnv, zeros: torch.Tensor) -> str | None:
+    """Check the reward convention on a live env holding a scored state.
+
+    ``tasks/common/rewards.py`` promises a reward in ``[-1, 0]`` that reads
+    exactly ``0`` only at success. ``tests/tasks/test_rewards.py`` pins the
+    kernel; this pins the wiring, which is the half a unit test cannot reach:
+    that each category's command really does feed its own success and progress
+    buffers to that kernel, and that the reward manager publishes the result
+    unscaled.
+
+    Takes one step of its own, because the reward lags the command by exactly
+    one step -- mjlab runs the reward manager before the command manager, so
+    the reward a step returns was computed from the success buffer as it stood
+    *before* that step. Snapshotting success first and then stepping is what
+    makes the comparison line up. Reading both after the same step instead
+    looks correct on a settled scene and silently disagrees on a moving one,
+    which is how a stale-by-one reward hides.
+
+    ``_make_env`` pops the success termination, so a scored env stays scored
+    instead of resetting out from under the read.
+    """
+    command = env.command_manager.get_term("task")
+    success = command.success.bool().clone()  # type: ignore[attr-defined]
+    env.step(zeros)
+    reward = env.reward_buf
+
+    lo, hi = float(reward.min()), float(reward.max())
+    if hi > 0.0 or lo < -1.0:
+        return f"reward {lo:.4f}..{hi:.4f} outside [-1, 0]"
+    scored = reward == 0.0
+    if not bool((scored == success).all()):
+        return (
+            f"reward==0 on {int(scored.sum())} envs but success on "
+            f"{int(success.sum())} of {reward.numel()}"
+        )
+    return None
+
+
 def _render_goal(env: ManagerBasedRlEnv, task_id: str, render: bool) -> None:
     """Save a picture of the teleported goal state for *task_id*.
 
@@ -145,9 +183,10 @@ def _check_stack_low(device: str, *, render: bool = False) -> str | None:
     for _ in range(_STEPS):
         env.step(zeros)
     frac = cmd.progress.mean().item()
+    reward_err = _reward_convention_error(env, zeros)
     _render_goal(env, task_id, render)
     env.close()
-    return None if frac > 0.9 else f"progress={frac:.3f} (expected >0.9)"
+    return f"progress={frac:.3f} (expected >0.9)" if frac <= 0.9 else reward_err
 
 
 def _check_stack_low_two_stacks(device: str, *, render: bool = False) -> str | None:
@@ -160,9 +199,10 @@ def _check_stack_low_two_stacks(device: str, *, render: bool = False) -> str | N
     for _ in range(_STEPS):
         env.step(zeros)
     frac = cmd.progress.mean().item()
+    reward_err = _reward_convention_error(env, zeros)
     _render_goal(env, task_id, render)
     env.close()
-    return None if frac > 0.9 else f"progress={frac:.3f} (expected >0.9)"
+    return f"progress={frac:.3f} (expected >0.9)" if frac <= 0.9 else reward_err
 
 
 # ---------------------------------------------------------------------------
@@ -226,9 +266,10 @@ def _check_domino_3pieces(device: str, *, render: bool = False) -> str | None:
     for _ in range(_STEPS):
         env.step(zeros)
     frac = cmd.progress.mean().item()
+    reward_err = _reward_convention_error(env, zeros)
     _render_goal(env, task_id, render)
     env.close()
-    return None if frac > 0.9 else f"placed_fraction={frac:.3f} (expected >0.9)"
+    return f"placed_fraction={frac:.3f} (expected >0.9)" if frac <= 0.9 else reward_err
 
 
 def _check_domino_knockover(device: str, *, render: bool = False) -> str | None:
@@ -249,9 +290,10 @@ def _check_domino_knockover(device: str, *, render: bool = False) -> str | None:
     for _ in range(_KNOCKOVER_STEPS):
         env.step(zeros)
     frac = cmd.progress.mean().item()
+    reward_err = _reward_convention_error(env, zeros)
     _render_goal(env, task_id, render)
     env.close()
-    return None if frac > 0.9 else f"progress={frac:.3f} (expected >0.9)"
+    return f"progress={frac:.3f} (expected >0.9)" if frac <= 0.9 else reward_err
 
 
 # ---------------------------------------------------------------------------
@@ -354,9 +396,10 @@ def _check_shape_sorter_full(device: str, *, render: bool = False) -> str | None
     for _ in range(_STEPS):
         env.step(zeros)
     frac = cmd.progress.mean().item()
+    reward_err = _reward_convention_error(env, zeros)
     _render_goal(env, task_id, render)
     env.close()
-    return None if frac > 0.9 else f"latched_fraction={frac:.3f} (expected >0.9)"
+    return f"latched_fraction={frac:.3f} (expected >0.9)" if frac <= 0.9 else reward_err
 
 
 # ---------------------------------------------------------------------------
@@ -388,9 +431,12 @@ def _check_ball_at_target(
     for _ in range(_STEPS):
         env.step(zeros)
     frac = cmd.at_target.mean().item()
+    reward_err = _reward_convention_error(env, zeros)
     _render_goal(env, task_id, render)
     env.close()
-    return None if frac > 0.9 else f"at_target_fraction={frac:.3f} (expected >0.9)"
+    return (
+        f"at_target_fraction={frac:.3f} (expected >0.9)" if frac <= 0.9 else reward_err
+    )
 
 
 def _segment_intersects_aabb(

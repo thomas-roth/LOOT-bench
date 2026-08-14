@@ -52,13 +52,8 @@ def make_domino_env_cfg(
         )
 
     task_rewards = {
-        "progress": RewardTermCfg(
-            func=domino_mdp.progress_reward,
-            weight=1.0,
-            params={"command_name": COMMAND_NAME},
-        ),
-        "success": RewardTermCfg(
-            func=domino_mdp.success_reward,
+        "task": RewardTermCfg(
+            func=domino_mdp.task_reward,
             weight=1.0,
             params={"command_name": COMMAND_NAME},
         ),

@@ -4,14 +4,12 @@ from __future__ import annotations
 
 from functools import partial
 
-from g3a_bench.tasks.common.rewards import (
-    command_progress_reward,
-    command_success_reward,
-)
+from g3a_bench.tasks.common.rewards import command_task_reward
 from g3a_bench.tasks.shape_sorter.mdp.commands import get_command
 
-progress_reward = partial(command_progress_reward, get_command=get_command)
-"""Fraction of pieces latched into their own hole, in [0, 1]."""
+task_reward = partial(command_task_reward, get_command=get_command)
+"""The category's whole reward, in [-1, 0], zero only at success.
 
-success_reward = partial(command_success_reward, get_command=get_command)
-"""Sparse bonus while every piece is latched and the gripper is open."""
+Shaped by the fraction of pieces latched into their own hole. Zero when every
+piece is latched and the gripper is open.
+"""
