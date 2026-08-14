@@ -19,3 +19,6 @@ wheels/
 
 # Cache
 .ruff_cache/
+
+# Agent scratch dir
+.scratch
