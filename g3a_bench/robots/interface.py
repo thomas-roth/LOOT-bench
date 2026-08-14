@@ -31,8 +31,6 @@ class ManipulatorInterface:
     """Short identifier used in task ids (e.g. "Dk1")."""
     entity_cfg_fn: Callable[[], EntityCfg]
     """Builds the robot's ``EntityCfg``; added to the scene as ``"robot"``."""
-    action_scale: dict[str, float] | float
-    """Per-actuator (or scalar) scale for the joint-position action."""
     grasp_site: str
     """Site between the fingertips; used for reach rewards/observations."""
     gripper_joints: tuple[str, ...]

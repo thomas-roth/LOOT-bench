@@ -43,11 +43,12 @@ def reset_joints_to_pose(
     of starting the episode in a limit violation.
 
     The clamp deliberately skips the soft limits (``soft_joint_pos_limit_factor``
-    shrinks each range toward its midpoint). The DK1's rest pose sits outside
-    the soft band on joint2 and joint3 -- soft-clamping it would silently move
-    the start pose ~0.07 and ~0.15 rad away from where the leader arm actually
-    rests, which is the exact recording/eval mismatch this event exists to
-    close.
+    shrinks each range toward its midpoint), because a soft clamp can move the
+    start pose without saying so, and the recording and the evaluation must
+    begin at the same place -- the mismatch this event exists to close. The
+    DK1's current start pose is comfortably inside the soft band, so nothing
+    is being worked around today; the hard clamp is what keeps a later start
+    pose near a joint limit from being quietly pulled inward.
 
     Args:
         pose: absolute target position per joint name, in the entity's own

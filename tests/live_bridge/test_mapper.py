@@ -3,8 +3,8 @@ import pytest
 
 from g3a_bench.robots.trlc_dk1.dk1_actuators import GRIPPER_COMMAND_RANGE
 from g3a_bench.scripts.live_bridge.mapper import (
-    ACTION_SCALE_ACTUATED,
-    HOME_JOINT_POS_ACTUATED,
+    action_scale_offset,
+    joint_pos_limits,
     lerobot_to_mjlab_ctrl,
     lerobot_to_mjlab_raw_action,
     mjlab_gripper_meters,
@@ -36,15 +36,42 @@ class TestAbsoluteCtrl:
 
 
 class TestRawAction:
-    def test_home_position_returns_near_zero(self):
-        joint_pos = HOME_JOINT_POS_ACTUATED.copy()
-        raw = lerobot_to_mjlab_raw_action(joint_pos)
-        np.testing.assert_array_almost_equal(raw, 0.0, decimal=5)
+    """The teleop half of the shared action convention.
+
+    ``tests/tasks/test_actions.py`` pins the other half -- what the simulator
+    does with the action. Together they say a recorded pose and a replayed
+    pose are the same pose.
+    """
 
     def test_roundtrip_with_ctrl(self):
+        """The action inverts the action term exactly, which is what makes a
+        recording replayable."""
         joint_pos = np.array([0.5, -0.3, 2.1, -0.8, 1.2, -1.5, 0.7], dtype=np.float32)
         raw = lerobot_to_mjlab_raw_action(joint_pos)
-        recovered = HOME_JOINT_POS_ACTUATED + raw * ACTION_SCALE_ACTUATED
+        scale, offset = action_scale_offset()
+        recovered = raw * scale + offset
         np.testing.assert_array_almost_equal(
             recovered, lerobot_to_mjlab_ctrl(joint_pos), decimal=5
         )
+
+    def test_a_reachable_pose_stays_inside_the_action_box(self):
+        """A bounded policy can only emit [-1, 1], so any pose the joints can
+        hold has to map inside it."""
+        lower, upper = joint_pos_limits()
+        middle = (lower + upper) / 2.0
+        joint_pos = middle.copy()
+        joint_pos[6] = 0.5  # The gripper arrives normalized, not in metres.
+        raw = lerobot_to_mjlab_raw_action(joint_pos)
+        assert np.all(np.abs(raw) <= 1.0), raw
+
+    def test_the_joint_limits_map_to_the_box_corners(self):
+        lower, upper = joint_pos_limits()
+        scale, offset = action_scale_offset()
+        np.testing.assert_array_almost_equal((lower - offset) / scale, -1.0, decimal=5)
+        np.testing.assert_array_almost_equal((upper - offset) / scale, 1.0, decimal=5)
+
+    def test_limits_are_read_from_the_model_not_hardcoded(self):
+        """The regression this guards: a copy of dk1.xml's ranges going stale."""
+        lower, upper = joint_pos_limits()
+        assert lower.shape == (7,) and upper.shape == (7,)
+        assert np.all(upper > lower)

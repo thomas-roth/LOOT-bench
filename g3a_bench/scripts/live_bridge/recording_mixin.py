@@ -30,11 +30,11 @@ class RecordingViewerMixin:
         robot_obs_list: list,
         hw_failed: list,
         mj_model: "_mujoco.MjModel | None",
-        live_rest_pose_rel: np.ndarray,
+        live_start_pose_rel: np.ndarray,
         task: str,
         num_episodes: int,
         debug_timing: bool,
-        sim_rest_pose: dict,
+        sim_start_pose: dict,
         home_joint_pos: dict,
     ) -> None:
         """Set up recording state; call from subclass __init__."""
@@ -42,7 +42,7 @@ class RecordingViewerMixin:
         self._robot_obs_list = robot_obs_list
         self._hw_failed = hw_failed
         self._debug_timing = debug_timing
-        self._live_rest_pose_rel = live_rest_pose_rel
+        self._live_start_pose_rel = live_start_pose_rel
         self._spike_ms = 35.0
         self._worst_step_ms = 0.0
         self._ghost_model: _mujoco.MjModel | None = None
@@ -51,7 +51,7 @@ class RecordingViewerMixin:
         self._ghost_model_cache: dict[tuple, _mujoco.MjModel] = {}
         if mj_model is not None:
             self._ghost_model, self._ghost_qpos = build_ghost_model_and_qpos(
-                mj_model, sim_rest_pose, home_joint_pos
+                mj_model, sim_start_pose, home_joint_pos
             )
         self._task = task
         self._num_episodes = num_episodes
@@ -320,7 +320,7 @@ class RecordingViewerMixin:
                     self._stats_steps += 1
                     joint_pos_rel = obs["actor"][0, :6].cpu().numpy()
                     if np.all(
-                        np.abs(joint_pos_rel - self._live_rest_pose_rel)
+                        np.abs(joint_pos_rel - self._live_start_pose_rel)
                         < RESET_THRESHOLD_RAD
                     ):
                         self._exit_reset_phase()
@@ -395,10 +395,10 @@ class RecordingViewerMixin:
 
 def build_ghost_model_and_qpos(
     mj_model: "_mujoco.MjModel",
-    sim_rest_pose: dict,
+    sim_start_pose: dict,
     home_joint_pos: dict,
 ) -> "tuple[_mujoco.MjModel, np.ndarray]":
-    """Build ghost model: robot visual geoms only, colored, at rest pose."""
+    """Build ghost model: robot visual geoms only, colored, at the start pose."""
     ghost_model = copy.deepcopy(mj_model)
     prefix = f"{GHOST_ROBOT_ENTITY}/"
     for gi in range(ghost_model.ngeom):
@@ -418,7 +418,7 @@ def build_ghost_model_and_qpos(
             ghost_model.geom_rgba[gi, 3] = 0
 
     qpos = ghost_model.qpos0.copy()
-    ghost_pose = {**home_joint_pos, **sim_rest_pose}
+    ghost_pose = {**home_joint_pos, **sim_start_pose}
     for joint_name, value in ghost_pose.items():
         jid = _mujoco.mj_name2id(
             ghost_model, _mujoco.mjtObj.mjOBJ_JOINT, f"{prefix}{joint_name}"

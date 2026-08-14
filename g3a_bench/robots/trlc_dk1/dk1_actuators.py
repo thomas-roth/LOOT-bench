@@ -1,10 +1,10 @@
 """TRLC-DK1 actuator configuration.
 
-Motor specs (DAMIAO DM4340 / DM4310), effective inertias, arm/gripper
-actuator builders, and action-scale computation. Motor specs and arm gains
-are taken from the official trlc_dk1_control config.py to match the
-real-world controller. The gripper uses a sim-specific soft tuning (see the
-gripper section below).
+Motor specs (DAMIAO DM4340 / DM4310), effective inertias, and the arm/gripper
+actuator builders. There is no action scale here any more -- see the note at
+the foot of the file. Motor specs and arm gains are taken from the official
+trlc_dk1_control config.py to match the real-world controller. The gripper
+uses a sim-specific soft tuning (see the gripper section below).
 """
 
 import math
@@ -143,32 +143,11 @@ def get_gripper_actuator(prefix: str = "") -> BuiltinPositionActuatorCfg:
 
 ##
 # Action scale.
+#
+# There is none here any more. The DK1 used to publish a per-joint residual
+# scale -- the position error producing a quarter of the motor's torque, about
+# 0.07 rad on the big joints. That number only makes sense for an unbounded
+# policy, which emits whatever magnitude it needs. Every task now uses
+# tasks/common/actions.NormalizedJointPositionAction instead, where one action
+# unit is half a joint's travel and the numbers come from the compiled model.
 ##
-
-
-def _dk1_action_scale(prefix: str = "") -> dict[str, float]:
-    """Arm: position error producing 25% of max torque. Gripper: the arm
-    heuristic is meaningless (its servo saturates torque by design after a
-    tiny error, which would shrink the command range to ~1 mm), so use the
-    natural command range instead: one unit of action = half the rack stroke,
-    so the policy sweeps open->closed within roughly [-2, 0].
-    """
-    # TODO: check whether 25% of max torque needed or if 100% ok
-
-    scale: dict[str, float] = {}
-    for a in get_arm_actuators(prefix):
-        assert a.effort_limit is not None
-        for n in a.target_names_expr:
-            scale[n] = 0.25 * a.effort_limit / a.stiffness
-
-    scale[f"{prefix}gripper_left"] = 0.5 * (
-        GRIPPER_MECHANICAL_RANGE["open"] - GRIPPER_MECHANICAL_RANGE["closed"]
-    )
-    return scale
-
-
-DK1_ACTION_SCALE_UNIMANUAL = _dk1_action_scale()
-DK1_ACTION_SCALE_BIMANUAL = {
-    **_dk1_action_scale("left_"),
-    **_dk1_action_scale("right_"),
-}

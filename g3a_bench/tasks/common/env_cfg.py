@@ -7,8 +7,8 @@ task observations/rewards/terminations). :func:`make_manipulation_env_cfg`
 builds the skeleton and takes the core as parameters; the per-category
 ``make_*_env_cfg`` are thin caps.
 
-Robot-specific knobs are left as placeholders (empty grasp site, action scale
-0.5, empty viewer body, no ``"robot"`` scene entity).
+Robot-specific knobs are left as placeholders (empty grasp site, empty viewer
+body, no ``"robot"`` scene entity).
 Fill them by calling :func:`~g3a_bench.tasks.common.manipulator_wiring.
 wire_manipulator_into_env` with a concrete ``ManipulatorInterface`` before
 registering the task.
@@ -16,7 +16,6 @@ registering the task.
 
 from mjlab.entity import EntityCfg
 from mjlab.envs import ManagerBasedRlEnvCfg, mdp
-from mjlab.envs.mdp.actions import JointPositionActionCfg
 from mjlab.managers.action_manager import ActionTermCfg
 from mjlab.managers.command_manager import CommandTermCfg
 from mjlab.managers.event_manager import EventTermCfg
@@ -31,6 +30,7 @@ from mjlab.terrains import TerrainEntityCfg
 from mjlab.utils.noise import UniformNoiseCfg as Unoise
 from mjlab.viewer import ViewerConfig
 
+from g3a_bench.tasks.common.actions import NormalizedJointPositionActionCfg
 from g3a_bench.tasks.common.observations import ee_pose_w
 
 
@@ -108,7 +108,15 @@ def make_manipulation_env_cfg(
             if command_obs
             else {}
         ),
-        "actions": ObservationTermCfg(func=mdp.last_action),
+        # Named, so this reads the action term's own buffer rather than the
+        # manager's. The manager stores the policy output before any term
+        # touches it, and the term clamps to the action box (see
+        # tasks/common/actions.py) -- so the unnamed form would report an
+        # action the simulator did not apply. Teleoperation is where the two
+        # differ: gravity compensation can leave the box near a joint limit.
+        "actions": ObservationTermCfg(
+            func=mdp.last_action, params={"action_name": "joint_pos"}
+        ),
     }
 
     observations = {
@@ -117,10 +125,13 @@ def make_manipulation_env_cfg(
     }
 
     actions: dict[str, ActionTermCfg] = {
-        "joint_pos": JointPositionActionCfg(
+        # Scale and offset are derived from the compiled model, not set here
+        # and not set per-robot: [-1, 1] spans each joint's own travel. See
+        # tasks/common/actions.py for why a residual scale cannot work with a
+        # bounded policy.
+        "joint_pos": NormalizedJointPositionActionCfg(
             entity_name="robot",
             actuator_names=(".*",),
-            scale=0.5,  # Set per-robot.
         )
     }
 

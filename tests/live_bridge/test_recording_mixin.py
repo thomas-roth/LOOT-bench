@@ -52,7 +52,7 @@ class FakeRecorder:
 
 
 class FakeEnv:
-    """Minimal env: obs at rest pose so the reset phase exits immediately."""
+    """Minimal env: obs at the start pose so the reset phase exits at once."""
 
     def __init__(self):
         self.steps = 0
@@ -94,11 +94,11 @@ class Harness(RecordingViewerMixin):
             robot_obs_list=[None],
             hw_failed=[False],
             mj_model=None,
-            live_rest_pose_rel=np.zeros(6, dtype=np.float32),
+            live_start_pose_rel=np.zeros(6, dtype=np.float32),
             task="test-task",
             num_episodes=num_episodes,
             debug_timing=False,
-            sim_rest_pose={},
+            sim_start_pose={},
             home_joint_pos={},
         )
 

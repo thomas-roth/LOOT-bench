@@ -5,7 +5,7 @@ benchmark uses exposes the same ``get_<robot>_interface()`` entry point and owns
 its own decisions (see ``g3a_bench.robots.interface.ManipulatorInterface``).
 """
 
-from mjlab.asset_zoo.robots import YAM_ACTION_SCALE, get_yam_robot_cfg
+from mjlab.asset_zoo.robots import get_yam_robot_cfg
 
 from g3a_bench.robots.interface import ManipulatorInterface
 from g3a_bench.robots.yam.yam_constants import (
@@ -23,7 +23,6 @@ def get_yam_interface() -> ManipulatorInterface:
     return ManipulatorInterface(
         name=YAM_NAME,
         entity_cfg_fn=get_yam_robot_cfg,
-        action_scale=YAM_ACTION_SCALE,
         grasp_site=YAM_GRASP_SITE,
         gripper_joints=YAM_GRIPPER_JOINTS,
         gripper_open_threshold=YAM_GRIPPER_OPEN_THRESHOLD,

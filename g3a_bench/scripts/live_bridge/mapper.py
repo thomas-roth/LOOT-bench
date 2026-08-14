@@ -1,56 +1,58 @@
+import functools
+
 import mujoco
 import numpy as np
 
-from g3a_bench.robots.trlc_dk1.dk1_actuators import (
-    ARM_JOINTS,
-    DK1_ACTION_SCALE_UNIMANUAL,
-    GRIPPER_COMMAND_RANGE,
-)
-from g3a_bench.robots.trlc_dk1.dk1_constants import (
-    HOME_JOINT_POS,
-    get_unimanual_dk1_robot_cfg,
-)
+from g3a_bench.robots.trlc_dk1.dk1_actuators import ARM_JOINTS, GRIPPER_COMMAND_RANGE
+from g3a_bench.robots.trlc_dk1.dk1_constants import get_unimanual_dk1_robot_cfg
+from g3a_bench.tasks.common.actions import normalized_scale_offset
 
 _ARM_JOINT_NAMES = list(ARM_JOINTS.keys())
 
-HOME_JOINT_POS_ACTUATED = np.array(
-    [HOME_JOINT_POS[n] for n in _ARM_JOINT_NAMES] + [HOME_JOINT_POS["gripper_left"]],
-    dtype=np.float32,
-)
-ACTION_SCALE_ACTUATED = np.array(
-    [DK1_ACTION_SCALE_UNIMANUAL[n] for n in _ARM_JOINT_NAMES]
-    + [DK1_ACTION_SCALE_UNIMANUAL["gripper_left"]],
-    dtype=np.float32,
-)
+ACTUATED_JOINT_NAMES: tuple[str, ...] = tuple(_ARM_JOINT_NAMES) + ("gripper_left",)
+"""The joints the action term drives, in the order it expects them.
 
-# This leader's joint1 was hand-calibrated (DM_CAN.set_zero_position — see
-# trlc-dk1/examples/calibration_follower.py) to a "zero" that doesn't match
-# the MJCF asset's own joint1=0 reference (arm reaching forward, see
-# CLAUDE.md's home-pose note). Sim-visualization-only correction — never
-# apply this to the real leader_action, which is sent to the real follower
+The gripper is a coupled pair, so only ``gripper_left`` is actuated;
+``gripper_right`` follows it through an equality constraint.
+"""
+
+# Note, carried from an earlier revision: this leader's joint1 was
+# hand-calibrated (DM_CAN.set_zero_position — see
+# trlc-dk1/examples/calibration_follower.py) to a "zero" that doesn't match the
+# MJCF asset's own joint1=0 reference (arm reaching forward, see CLAUDE.md's
+# home-pose note). Any correction for it would be sim-visualization-only —
+# never apply one to the real leader_action, which is sent to the real follower
 # (whose calibration already agrees with the leader) and recorded to disk.
-# Re-tune (or remove) if the leader is re-calibrated.
+# No such correction is applied today.
 
-# Physical joint limits from dk1.xml, in ctrl space (radians for joints, meters for gripper).
-# Order: joint1..joint6, gripper_left — matches HOME_JOINT_POS / ACTION_SCALE.
-JOINT_POS_LIMITS_LO = np.array(
-    [-2.0943951, -0.0872665, -0.0872665, -1.95, -1.5707963, -2.0943951, -0.045],
-    dtype=np.float32,
-)
-JOINT_POS_LIMITS_HI = np.array(
-    [2.0943951, 3.1415927, 4.7123890, 1.5707963, 1.5707963, 2.0943951, 0.001],
-    dtype=np.float32,
-)
 
-# Physical limits expressed in raw_action space: (ctrl_limit - HOME) / ACTION_SCALE.
-# Use these to normalize teleop sim-actions to [-1, 1] with a fixed, session-independent
-# transform that matches the full reachable joint range.
-PHYSICAL_RAW_ACTION_MIN: np.ndarray = (
-    JOINT_POS_LIMITS_LO - HOME_JOINT_POS_ACTUATED
-) / ACTION_SCALE_ACTUATED
-PHYSICAL_RAW_ACTION_MAX: np.ndarray = (
-    JOINT_POS_LIMITS_HI - HOME_JOINT_POS_ACTUATED
-) / ACTION_SCALE_ACTUATED
+def joint_pos_limits() -> tuple[np.ndarray, np.ndarray]:
+    """The hard ``(lower, upper)`` ctrl limit of each actuated joint.
+
+    Read from the compiled model rather than copied out of ``dk1.xml``, so
+    editing the MJCF cannot leave a stale number behind here. Radians for the
+    arm joints, metres for the gripper.
+    """
+    model, _, _ = _dk1_scratch()
+    limits = np.array(
+        [
+            model.jnt_range[mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, name)]
+            for name in ACTUATED_JOINT_NAMES
+        ],
+        dtype=np.float32,
+    )
+    return limits[:, 0], limits[:, 1]
+
+
+def action_scale_offset() -> tuple[np.ndarray, np.ndarray]:
+    """The ``(scale, offset)`` the joint action term applies.
+
+    The same numbers ``tasks.common.actions.NormalizedJointPositionAction``
+    derives on the task side, from the same model and the same helper. That is
+    what lets a teleop action and a policy action mean the same thing.
+    """
+    lower, upper = joint_pos_limits()
+    return normalized_scale_offset(lower, upper)
 
 
 def mjlab_gripper_meters(norm_val: float) -> float:
@@ -65,37 +67,6 @@ def mjlab_gripper_meters(norm_val: float) -> float:
             [GRIPPER_COMMAND_RANGE["open"], GRIPPER_COMMAND_RANGE["closed"]],
         )
     )
-
-
-class ActionNormalizer:
-    """Maps raw actions to the policy's [-1, 1] and back over a fixed range.
-
-    One home for the convention previously duplicated across lerobot_to_qc
-    (normalize), mjlab_env and play_qcfql (denormalize). Defaults to the
-    physical DK1 joint range; construct from a dataset's stored action_min/max
-    to honour a data-normalized dataset.
-    """
-
-    def __init__(self, action_min: np.ndarray, action_max: np.ndarray):
-        self.action_min = np.asarray(action_min, dtype=np.float32)
-        self.action_max = np.asarray(action_max, dtype=np.float32)
-
-    @classmethod
-    def physical(cls) -> "ActionNormalizer":
-        return cls(PHYSICAL_RAW_ACTION_MIN, PHYSICAL_RAW_ACTION_MAX)
-
-    def normalize(self, raw_action: np.ndarray) -> np.ndarray:
-        """raw action → [-1, 1]. Guards zero-range (constant) dims against /0."""
-        span = self.action_max - self.action_min
-        rng = np.where(span > 1e-6, span, 1.0)
-        return 2.0 * (raw_action - self.action_min) / rng - 1.0
-
-    def denormalize(self, action: np.ndarray) -> np.ndarray:
-        """[-1, 1] → raw action. Clips first: policy output must saturate at
-        the physical limit, not extrapolate past it."""
-        clipped = np.clip(action, -1.0, 1.0)
-        span = self.action_max - self.action_min
-        return (clipped + 1.0) / 2.0 * span + self.action_min
 
 
 def lerobot_to_mjlab_ctrl(joint_pos: np.ndarray) -> np.ndarray:
@@ -114,33 +85,28 @@ def lerobot_to_mjlab_ctrl(joint_pos: np.ndarray) -> np.ndarray:
 _GRAVITY_STIFFNESS = np.array(
     [ARM_JOINTS[n].kp for n in _ARM_JOINT_NAMES], dtype=np.float32
 )
-_gravity_model: mujoco.MjModel | None = None
-_gravity_data: mujoco.MjData | None = None
-_gravity_dofadr: np.ndarray | None = None
 
 
-def _gravity_scratch():
-    """Lazily build a standalone (non-rendering) DK1 model used only to
-    evaluate gravity torque at a candidate target pose. Built on first use so
-    importing this module stays cheap for callers that never enable
-    gravity compensation (e.g. record_replay.py, tests).
+@functools.cache
+def _dk1_scratch() -> tuple[mujoco.MjModel, mujoco.MjData, np.ndarray]:
+    """The compiled DK1, built once and shared.
+
+    Standalone and non-rendering. It answers two questions that both need the
+    model rather than the MJCF text: what each joint's hard limit is, and what
+    gravity torque holds a candidate pose. Built on first use, so importing
+    this module stays cheap for callers that need neither.
     """
-    global _gravity_model, _gravity_data, _gravity_dofadr
-    if _gravity_model is None:
-        from mjlab.entity import Entity
+    from mjlab.entity import Entity
 
-        entity = Entity(get_unimanual_dk1_robot_cfg())
-        _gravity_model = entity.compile()
-        _gravity_data = mujoco.MjData(_gravity_model)
-        _gravity_dofadr = np.array(
-            [
-                _gravity_model.jnt_dofadr[
-                    mujoco.mj_name2id(_gravity_model, mujoco.mjtObj.mjOBJ_JOINT, n)
-                ]
-                for n in _ARM_JOINT_NAMES
-            ]
-        )
-    return _gravity_model, _gravity_data, _gravity_dofadr
+    model = Entity(get_unimanual_dk1_robot_cfg()).compile()
+    data = mujoco.MjData(model)
+    dofadr = np.array(
+        [
+            model.jnt_dofadr[mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, n)]
+            for n in _ARM_JOINT_NAMES
+        ]
+    )
+    return model, data, dofadr
 
 
 def gravity_compensate_ctrl(ctrl: np.ndarray) -> np.ndarray:
@@ -156,7 +122,7 @@ def gravity_compensate_ctrl(ctrl: np.ndarray) -> np.ndarray:
     actuator's own PD stiffness, so this exactly cancels the steady-state
     error). Gripper (index 6) passes through unchanged.
     """
-    model, data, dofadr = _gravity_scratch()
+    model, data, dofadr = _dk1_scratch()
     data.qvel[:] = 0.0
     for name, value in zip(_ARM_JOINT_NAMES, ctrl[:6], strict=True):
         jid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, name)
@@ -173,18 +139,22 @@ def lerobot_to_mjlab_raw_action(
     joint_pos: np.ndarray,
     gravity_compensate: bool = False,
 ) -> np.ndarray:
-    """Convert to raw action for JointPositionActionCfg(use_default_offset=True).
+    """Convert a leader-arm pose to the action that commands it in the sim.
 
-    MJLab computes:  target = HOME_ACTUATED_JOINT_POS + raw_action * ACTION_SCALE
-    where the result recovers the original joint positions from lerobot_to_mjlab_ctrl.
+    "Raw" is mjlab's word for the action before the term applies its scale and
+    offset -- that is, exactly what ``env.step()`` takes. Under the shared
+    convention (``tasks.common.actions``) the term computes
+    ``target = action * scale + offset``, so this inverts it. The result is
+    inside ``[-1, 1]`` for any pose the joints can hold.
 
     Args:
         gravity_compensate: If True, push the target past gravity sag (see
-            gravity_compensate_ctrl) before computing raw_action. Opt-in and
+            gravity_compensate_ctrl) before computing the action. Opt-in and
             off by default — record_replay.py and tests rely on the exact
             uncompensated mapping.
     """
     ctrl = lerobot_to_mjlab_ctrl(joint_pos)
     if gravity_compensate:
         ctrl = gravity_compensate_ctrl(ctrl)
-    return (ctrl - HOME_JOINT_POS_ACTUATED) / ACTION_SCALE_ACTUATED
+    scale, offset = action_scale_offset()
+    return (ctrl - offset) / scale

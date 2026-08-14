@@ -77,7 +77,7 @@ from mjlab.viewer.native.keys import KEY_C, KEY_D, KEY_F, KEY_Q, KEY_U, KEY_V
 from mjlab.viewer.native.visualizer import MujocoNativeDebugVisualizer
 
 import g3a_bench  # noqa: F401
-from g3a_bench.robots.trlc_dk1.dk1_constants import HOME_JOINT_POS, REST_JOINT_POS
+from g3a_bench.robots.trlc_dk1.dk1_constants import HOME_JOINT_POS, START_JOINT_POS
 from g3a_bench.scripts.live_bridge.mapper import (
     lerobot_to_mjlab_raw_action,
 )
@@ -104,19 +104,19 @@ DEMOS_DIR = Path(__file__).resolve().parents[3] / "out" / "demos"
 USE_FOLLOWER_STATE_FOR_SIM = (
     False  # True → follower joint obs drives sim instead of leader action
 )
-# Ghost-arm colors, feedback timing, the rest-pose threshold and the recording
+# Ghost-arm colors, feedback timing, the start-pose threshold and the recording
 # state machine all live in recording_mixin (shared with the Viser viewer).
 
 # Sourced from the robot constant so the pose the operator aligns to and the
 # pose the env resets to cannot drift apart.
-LIVE_REST_POSE: dict[str, float] = dict(REST_JOINT_POS)
-# Same rest pose mapped into the sim frame — lives in the same frame as
+LIVE_START_POSE: dict[str, float] = dict(START_JOINT_POS)
+# Same start pose mapped into the sim frame — lives in the same frame as
 # the teleop'd arm and the action mapper.
-_SIM_REST_POSE: dict[str, float] = {
-    **LIVE_REST_POSE,
+_SIM_START_POSE: dict[str, float] = {
+    **LIVE_START_POSE,
 }
-_LIVE_REST_POSE_REL = np.array(
-    [_SIM_REST_POSE[f"joint{i}"] - HOME_JOINT_POS[f"joint{i}"] for i in range(1, 7)],
+_LIVE_START_POSE_REL = np.array(
+    [_SIM_START_POSE[f"joint{i}"] - HOME_JOINT_POS[f"joint{i}"] for i in range(1, 7)],
     dtype=np.float32,
 )
 
@@ -302,11 +302,11 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
             robot_obs_list=robot_obs_list,
             hw_failed=hw_failed,
             mj_model=mj_model,
-            live_rest_pose_rel=_LIVE_REST_POSE_REL,
+            live_start_pose_rel=_LIVE_START_POSE_REL,
             task=task,
             num_episodes=num_episodes,
             debug_timing=debug_timing,
-            sim_rest_pose=_SIM_REST_POSE,
+            sim_start_pose=_SIM_START_POSE,
             home_joint_pos=HOME_JOINT_POS,
         )
         # Wrist-cam toggle (C): resolved lazily once the viewer/model exist.

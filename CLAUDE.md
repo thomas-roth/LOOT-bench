@@ -9,7 +9,9 @@ KIT "G3A Praktikum" course, built on the **mjlab** framework (MuJoCo + PyTorch
 vectorized sim). It is an installable package (`g3a_bench`, hatchling,
 flat layout) whose job is to **register tasks into mjlab's global registry** and
 provide the robot assets and task definitions; the play loop is mjlab's, and
-training is QC-FQL (offline-to-online RL; see `g3a_bench/scripts/qc_fql/`).
+training is QC-FQL (offline-to-online RL), which lives in a **separate `qc`
+checkout** reached by `PYTHONPATH` — this repo holds only the seam to it, in
+`g3a_bench/qc/` (see `.scratch/qc-restart/`).
 
 Four task categories, 40 tasks total, currently registered for one robot
 (`-Dk1_uni`) → task ids look like `G3A-<Category>-<Task>[-<Variation>]-<Robot>`:
@@ -38,10 +40,9 @@ uv run pre-commit run --all-files
 # Play a task (wraps mjlab's player after importing g3a_bench to register tasks)
 uv run g3a-play G3A-Stack-Low-Dk1_uni
 
-# Offline-to-online RL training (QC-FQL; see g3a_bench/scripts/qc_fql/README.md)
-uv run g3a-train-qcfql --dataset-path demos.npz --offline-steps 1000000 \
-    --online-steps 50000 --task G3A-Stack-Low-Dk1_uni --checkpoint-path agent.pt
-uv run g3a-play-qcfql --checkpoint agent.pt --dataset-path demos.npz
+# Teleop recording -> the .npz QC-FQL trains on (several sessions at once)
+uv run g3a-convert-demos --success-dir out/demos/success/<task>/<stamp> \
+    --failure-dir out/demos/failure/<task>/<stamp> --output demos.npz
 
 # Verification scripts (see tests/tasks/README.md), not installed as console scripts
 uv run python tests/tasks/build_sim_registered_tasks.py
@@ -93,7 +94,7 @@ adding/editing a category means mirroring an existing one:
   with mjlab's registry using the shared RSL-RL PPO cfg
   (`tasks/common/rl_cfg.manipulation_ppo_runner_cfg`, per-category
   `max_iterations`) — mjlab's registry requires an `rl_cfg`, but the actual
-  training path is QC-FQL (`g3a_bench/scripts/qc_fql/`), not RSL-RL PPO.
+  training path is QC-FQL in the separate `qc` checkout, not RSL-RL PPO.
 - `__init__.py` — empty (discovery happens one level up, see below).
 - *(shape_sorter only)* `xmls/` — committed STL shape-sorter assets
   (`sorter.xml`, `piece_<shape>.xml`, STL meshes, `sorter_layout.json`),
@@ -120,9 +121,12 @@ single `import g3a_bench` registers everything.
 
 ### Robot-agnostic design
 Tasks never hardcode robot details. `robots/interface.py` defines
-`ManipulatorInterface` (name, entity-cfg factory, action scale, grasp site,
-gripper joints + open threshold for the success gate, end-effector subtree,
-finger-pad geom regex, viewer body). Each robot package
+`ManipulatorInterface` (name, entity-cfg factory, grasp site, gripper joints +
+open threshold for the success gate, end-effector subtree, finger-pad geom
+regex, viewer body, start pose). It carries no action scale: every task uses
+`tasks/common/actions.NormalizedJointPositionAction`, where `[-1, 1]` spans
+each joint's own travel and the numbers come from the compiled model. Each
+robot package
 exposes its own `get_<robot>_interface()` factory —
 `robots/trlc_dk1/__init__.py` has `get_unimanual_dk1_interface()` and
 `get_bimanual_dk1_interface()`, `robots/yam/__init__.py` has
@@ -137,8 +141,10 @@ The TRLC-DK1 has no public MJCF; it was converted from the official URDF
 (hand-written) plus per-color OBJ visual meshes split out of the source GLBs by
 `robots/trlc_dk1/utils/convert_glb_meshes_to_obj.py` (a one-time tool, not part
 of the runtime). `dk1_constants.py` exposes `get_unimanual_dk1_robot_cfg()` /
-`get_bimanual_dk1_robot_cfg()` and the action scales. Home pose q2=1.7, q3=1.7,
-q4=-1.5708 puts the downward gripper at ≈(0.30, 0, 0.20); the gripper is a
+`get_bimanual_dk1_robot_cfg()` and `START_JOINT_POS`, the pose every episode
+begins from and the pose the teleop operator aligns the leader arm to. It is
+the home pose: q2=1.7, q3=1.7, q4=-1.5708 puts the downward gripper at
+≈(0.30, 0, 0.20). The gripper is a
 rack-and-pinion pair coupled by an equality constraint (only `gripper_left`
 actuated).
 
@@ -159,6 +165,17 @@ actuated).
   `mjlab.utils.lab_api.math` (not `mjlab.utils.math`), `RslRlOnPolicyRunnerCfg`
   with separate actor/critic `RslRlModelCfg` (not `RslRlPpoRunnerCfg`), and
   `mjlab.viewer.debug_visualizer`.
+- **One action unit is half a joint's travel.** Every task uses
+  `tasks/common/actions.NormalizedJointPositionActionCfg`: `-1` commands a
+  joint's lower limit, `+1` its upper, and the term reads those limits off the
+  compiled model, so no file holds a copy. It also clamps the raw action to
+  `[-1, 1]`, which binds teleop too — gravity compensation can otherwise leave
+  the box near a joint limit and fly a trajectory no bounded policy can repeat.
+  The teleop bridge inverts the same mapping
+  (`live_bridge/mapper.action_scale_offset`), and `tests/tasks/test_actions.py`
+  asserts the two agree. mjlab's plain `JointPositionActionCfg` uses a residual
+  scale instead, which suits an unbounded PPO policy and makes the task
+  unreachable for a tanh-bounded one.
 - **Fixed props (boards, fields) are fixed-base entities** — a `MjSpec` body with
   *no* free joint, which mjlab auto-wraps as a mocap body. Position them with
   `EntityCfg(init_state=EntityCfg.InitialStateCfg(pos=...))`, **not** the spec

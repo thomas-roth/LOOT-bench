@@ -64,16 +64,36 @@ HOME_JOINT_POS: dict[str, float] = {
 }
 
 
-# Rest pose: where the leader arm hangs when the operator lets go, measured on
-# the physical DK1. Teleop sessions start here, so episodes must start here too
-# -- see ManipulatorInterface.reset_joint_pos. Far from HOME_JOINT_POS (q2 1.7
-# vs 0.0015, q4 -1.5708 vs -0.0153), so the two are not interchangeable.
+# Where every episode begins: the home pose, arm joints only.
+#
+# One constant for two jobs that must never drift apart -- the pose the env
+# resets to (ManipulatorInterface.reset_joint_pos) and the pose the teleop
+# operator aligns the leader arm to before recording resumes
+# (live_record.LIVE_START_POSE). A demo that starts somewhere the evaluation
+# never starts is a demo the policy cannot be scored on.
 #
 # Arm joints only, deliberately. The reset event samples its start-pose noise
 # over exactly the joints listed here, and the gripper must not be sampled: its
 # whole stroke is 0.046 m, so even a small joint-space range would start
 # episodes with a half-closed hand. Omitted joints keep the keyframe value,
 # which leaves the gripper open at every reset.
+START_JOINT_POS: dict[str, float] = {
+    f"joint{i}": HOME_JOINT_POS[f"joint{i}"] for i in range(1, 7)
+}
+
+
+# Rest pose: where the leader arm hangs when the operator lets go, measured on
+# the physical DK1.
+#
+# **Not the start pose.** Episodes used to begin here, because the operator
+# could release the arm between episodes and it aligned itself. Two costs
+# retired that: joint2 and joint3 rest 2.7% and 1.8% into their travel, so a
+# policy has to saturate its action to hold the pose, and the gripper points
+# forward rather than down at the table. The operator now moves the leader to
+# START_JOINT_POS instead.
+#
+# Kept because it is a measurement of the physical robot, and re-measuring
+# costs hardware time. Nothing reads it.
 REST_JOINT_POS: dict[str, float] = {
     "joint1": +0.1565,
     "joint2": +0.0015,

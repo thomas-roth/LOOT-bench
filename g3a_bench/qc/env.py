@@ -119,6 +119,15 @@ class G3aEnv(gymnasium.Env):
         """The mjlab env underneath, for tools that need the simulator."""
         return self._env
 
+    def action_term(self):
+        """The joint action term, which owns the scale and offset.
+
+        Published so a dataset can be checked against the convention this env
+        actually runs (``qc.convert.check_dataset_matches_env``) rather than
+        against a copy of it.
+        """
+        return self._env.action_manager.get_term("joint_pos")
+
     def _observation(self, obs: Mapping[str, Any]) -> np.ndarray:
         """The actor group, as a fresh float32 row.
 

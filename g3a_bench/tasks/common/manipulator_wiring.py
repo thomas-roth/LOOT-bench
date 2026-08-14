@@ -8,7 +8,6 @@ contact sensors, if any; everything else is identical across categories.
 """
 
 from mjlab.envs import ManagerBasedRlEnvCfg
-from mjlab.envs.mdp.actions import JointPositionActionCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.sensor import ContactSensorCfg
 
@@ -26,8 +25,10 @@ def wire_manipulator_into_env(
 ) -> None:
     """Fill the robot placeholders left by a ``make_<cat>_env_cfg`` in place.
 
-    Adds the robot as the ``"robot"`` scene entity and sets the action scale
-    and viewer body. The grasp site is written to the ``asset_cfg`` of the
+    Adds the robot as the ``"robot"`` scene entity and sets the viewer body.
+    The action term needs nothing from the robot: it reads each joint's travel
+    off the compiled model (see ``tasks.common.actions``). The grasp site is
+    written to the ``asset_cfg`` of the
     ``ee_pose`` observation term (present in every category via the shared
     env cfg) and to any command cfg carrying a ``grasp_cfg``. Command cfgs
     deriving from :class:`GripperGateCommandCfg` get the robot's gripper
@@ -52,10 +53,6 @@ def wire_manipulator_into_env(
             "velocity_range": event.params["velocity_range"],
             "asset_cfg": event.params["asset_cfg"],
         }
-
-    action = cfg.actions["joint_pos"]
-    assert isinstance(action, JointPositionActionCfg)
-    action.scale = manipulator.action_scale
 
     grasp = (manipulator.grasp_site,)
     for group in cfg.observations.values():

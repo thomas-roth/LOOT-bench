@@ -23,6 +23,7 @@ dependencies = [
 
 [project.scripts]
 g3a-play = "g3a_bench.scripts.play:main"
+g3a-convert-demos = "g3a_bench.qc.convert:main"
 
 [build-system]
 requires = ["hatchling"]
