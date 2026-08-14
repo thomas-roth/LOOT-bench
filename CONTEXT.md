@@ -2,7 +2,8 @@
 
 Long-horizon robot-manipulation benchmark tasks (block stacking, domino
 placement, shape insertion, ball-to-target) registered into mjlab. Training
-is QC-FQL (offline-to-online RL; see `g3a_bench/scripts/qc_fql/`); mjlab's
+is QC-FQL (offline-to-online RL), which runs from a separate upstream `qc`
+checkout; this repo holds only the seam to it, in `g3a_bench/qc/`. mjlab's
 registry also requires a PPO cfg per task, but that RSL-RL PPO cfg is only a
 registration requirement, not the training path used. See
 `docs/TaskCategories.md` and each category's `README.md` for the per-category
@@ -25,8 +26,8 @@ set + arrangement, socket set, target kind). Registered as
 
 **Workbench**:
 The shared tabletop-manipulation environment skeleton every task is built
-on: manipulator at a table, proprioceptive + task observations,
-regularization rewards with curriculum, success/time-out episode.
+on: manipulator at a table, proprioceptive + task observations, the one task
+reward, success/time-out episode.
 
 **Wiring**:
 Filling the robot placeholders of a robot-agnostic task cfg from a
@@ -37,10 +38,11 @@ A fixed-base scene entity (table, board, maze, decor) pinned to its
 env-origin pose on every reset; mjlab wraps it as a mocap body. Contrast:
 free bodies (pieces, pegs, ball) are placed by the command's resample.
 
-**Reward mode**:
-A named tier of active task reward terms (`progress` keeps discrete progress
-shaping; `success` keeps only the sparse outcome signal). Regularization
-terms stay active in every mode.
+**Task reward**:
+The one reward term a task has, weight 1.0. It stays in `[-1, 0]` and reads
+exactly `0` only at success. A category with a progress signal shapes the
+interval; ball has none and sits at `-1` until it scores. See ADR-006.
+_Avoid_: reward mode (the old name for a tier of `progress` + `success` terms)
 
 ### Success semantics
 
