@@ -43,6 +43,23 @@ class RecordingViewerMixin:
         self._hw_failed = hw_failed
         self._debug_timing = debug_timing
         self._live_start_pose_rel = live_start_pose_rel
+        # Leader-frame absolute pose the reset gate fires at. The sim arm
+        # reads the leader action verbatim (mapper pass-through), so a leader
+        # held at the start pose reads HOME + (START - HOME) = START in its
+        # own joint frame. The gate MUST read the leader, not the sim arm:
+        # the env reset inside _enter_reset_phase yanks the sim arm to the
+        # start pose, which a sim-based gate would accept before the operator
+        # has actually aligned the leader.
+        if live_start_pose_rel is not None and home_joint_pos:
+            home_arm = np.array(
+                [home_joint_pos[f"joint{i}"] for i in range(1, 7)],
+                dtype=np.float32,
+            )
+            self._leader_reset_pose = home_arm + np.asarray(
+                live_start_pose_rel, dtype=np.float32
+            )
+        else:
+            self._leader_reset_pose = None
         self._spike_ms = 35.0
         self._worst_step_ms = 0.0
         self._ghost_model: _mujoco.MjModel | None = None
@@ -126,7 +143,7 @@ class RecordingViewerMixin:
         # Suppress verbose per-tick spam during arm alignment
         self.verbosity = VerbosityLevel.INFO
         print(
-            f"[INFO] Reset phase — move the arm in the sim to the ghost position "
+            f"[INFO] Reset phase — move the leader arm to the ghost position "
             f"(within {RESET_THRESHOLD_RAD:.2f} rad per joint) to start next episode"
         )
 
@@ -318,10 +335,21 @@ class RecordingViewerMixin:
                     self.env.step(actions)
                     self._step_count += 1
                     self._stats_steps += 1
-                    joint_pos_rel = obs["actor"][0, :6].cpu().numpy()
-                    if np.all(
-                        np.abs(joint_pos_rel - self._live_start_pose_rel)
-                        < RESET_THRESHOLD_RAD
+                    # Gate on the leader's pose, not the sim arm's: the env
+                    # reset inside _enter_reset_phase yanked the arm to the
+                    # start pose, which would satisfy a sim-based gate before
+                    # the operator has aligned the leader. The leader must
+                    # reach the start pose itself before recording resumes.
+                    leader_action = getattr(self.policy, "latest_leader_action", None)
+                    if (
+                        leader_action is not None
+                        and self._leader_reset_pose is not None
+                        and np.all(
+                            np.abs(
+                                np.asarray(leader_action)[:6] - self._leader_reset_pose
+                            )
+                            < RESET_THRESHOLD_RAD
+                        )
                     ):
                         self._exit_reset_phase()
                         print(
