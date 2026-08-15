@@ -23,8 +23,8 @@ which is not stored in the dataset — replay starts from the reset pose
 instead. The robot DOFs therefore show an initial transient that the
 position-controlled arm converges out of; the verdict allows it a settle
 window (--settle-frames) while object DOFs must match from frame 0.
-Use --sync-start to instead teleport the sim to the first recorded qpos
-(velocities are not recorded and are zeroed — a documented approximation)
+Use --sync-start to instead teleport the sim to the first recorded state
+(``observation.qpos`` and, when the dataset has it, ``observation.qvel``)
 and require *every* compared frame to match.
 
 Usage:
@@ -372,15 +372,23 @@ def resimulate_and_compare(args, ep: Episode) -> bool:
 
     start = 0
     if args.sync_start:
-        # Teleport to the first recorded state. Velocities are not recorded —
-        # zeroing them is the documented approximation of this mode.
+        # Teleport to the first recorded state: position and velocity. Modern
+        # live_record.py captures qvel per frame; older recordings without it
+        # fall back to zeroing (the old documented approximation).
         env.env.sim.data.qpos[0] = torch.from_numpy(ep.qpos[0]).to(device)
-        env.env.sim.data.qvel[0] = 0.0
+        if ep.qvel is not None:
+            env.env.sim.data.qvel[0] = torch.from_numpy(ep.qvel[0]).to(device)
+        else:
+            print(
+                "[WARN] --sync-start: dataset has no observation.qvel — "
+                "zeroing velocities (approximation)"
+            )
+            env.env.sim.data.qvel[0] = 0.0
         env.env.sim.forward()
         start = 1
         print(
             "[INFO] --sync-start: sim state set to recorded frame-0 qpos "
-            "(qvel zeroed, not recorded); comparing from frame 1"
+            "(and qvel when recorded); comparing from frame 1"
         )
 
     stats: list[FrameStats] = []
@@ -564,9 +572,9 @@ def main() -> None:
     parser.add_argument(
         "--sync-start",
         action="store_true",
-        help="Teleport the sim to the first recorded qpos instead of only the "
-        "seeded reset (qvel is not recorded and is zeroed); every compared "
-        "frame must then be within --tol.",
+        help="Teleport the sim to the first recorded state (qpos and, when "
+        "the dataset has it, qvel) instead of only the seeded reset; every "
+        "compared frame must then be within --tol.",
     )
     parser.add_argument(
         "--sim-replay-dir",
