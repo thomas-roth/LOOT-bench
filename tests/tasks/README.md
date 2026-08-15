@@ -11,7 +11,8 @@ Pytest suites for the simulator-free task logic:
 - `test_success.py` — the per-category success criteria in each
   `tasks/<cat>/mdp/success.py` (`domino_upright_aligned`,
   `domino_fallen_along_row`, `chain_topple_success`, `stack_reached`,
-  `ball_in_target_zone`, `SorterLatch`) plus the shared gates: `SuccessGate`
+  `ball_in_target_zone`, `SorterLatch`, `place_reached`/`place_progress`)
+  plus the shared gates: `SuccessGate`
   from `common/success.py` and `GripperOpenGate`/`ContactReleaseGate` from
   `common/commands.py`.
 - `test_scatter.py` — the `ScatterGrid` spawn sampler in `common/scatter.py`

@@ -13,12 +13,15 @@ training is QC-FQL (offline-to-online RL), which lives in a **separate `qc`
 checkout** reached by `PYTHONPATH` — this repo holds only the seam to it, in
 `g3a_bench/qc/` (see `.scratch/qc-restart/`).
 
-Four task categories, 40 tasks total, currently registered for one robot
+Five task categories, 41 tasks total, currently registered for one robot
 (`-Dk1_uni`) → task ids look like `G3A-<Category>-<Task>[-<Variation>]-<Robot>`:
 `tasks/stack` (stack blocks to a target height, registered as `Stack`),
 `tasks/domino` (place and optionally knock over a row of dominoes),
 `tasks/shape_sorter` (insert shapes into a sorter board, registered as
-`Sorter`), `tasks/ball` (minigolf / throw a ball to a target).
+`Sorter`), `tasks/ball` (minigolf / throw a ball to a target), and
+`tasks/place` (carry one cube to a sampled target spot, registered as
+`Place`). Place is the one-cube sanity check the QC pipeline is brought up
+on — a single `Easy` variant, 500 steps, no difficulty axis.
 `tasks/peg_insertion` is an archived, unregistered category kept importable
 for reference (see its README).
 

@@ -1,4 +1,4 @@
-"""Teleport-based success-reward check for the four task categories.
+"""Teleport-based success-reward check for the five task categories.
 
 See tests/tasks/README.md.
 """
@@ -28,6 +28,7 @@ from g3a_bench.tasks.ball.variants import (
     TARGET_X,
 )
 from g3a_bench.tasks.domino.mdp.commands import DominoCommand
+from g3a_bench.tasks.place.mdp.commands import PlaceCommand
 from g3a_bench.tasks.shape_sorter.assets import BOARD_POS, load_sorter_layout
 from g3a_bench.tasks.shape_sorter.mdp.commands import ShapeSorterCommand
 from g3a_bench.tasks.stack.mdp.commands import StackCommand
@@ -203,6 +204,33 @@ def _check_stack_low_two_stacks(device: str, *, render: bool = False) -> str | N
     _render_goal(env, task_id, render)
     env.close()
     return f"progress={frac:.3f} (expected >0.9)" if frac <= 0.9 else reward_err
+
+
+# ---------------------------------------------------------------------------
+# Place
+# ---------------------------------------------------------------------------
+
+
+def _check_place_easy(device: str, *, render: bool = False) -> str | None:
+    task_id = "G3A-Place-Easy-Dk1_uni"
+    env = _make_env(task_id, device)
+    cmd = cast(PlaceCommand, env.command_manager.get_term("task"))
+    zeros = _zeros(env, device)
+    env.step(zeros)
+    # The target already sits at the cube's resting height, so teleporting the
+    # cube onto it needs no z correction.
+    quat = _upright_quat(_NUM_ENVS, device)
+    cmd.cube.write_root_link_pose_to_sim(
+        torch.cat([cmd.target_pos_w, quat], dim=-1),
+    )
+    cmd.cube.write_root_link_velocity_to_sim(torch.zeros(_NUM_ENVS, 6, device=device))
+    for _ in range(_STEPS):
+        env.step(zeros)
+    frac = cmd.reached.float().mean().item()
+    reward_err = _reward_convention_error(env, zeros)
+    _render_goal(env, task_id, render)
+    env.close()
+    return f"reached_fraction={frac:.3f} (expected >0.9)" if frac <= 0.9 else reward_err
 
 
 # ---------------------------------------------------------------------------
@@ -506,6 +534,7 @@ def _check_ball_minigolf_using_wall(device: str, *, render: bool = False) -> str
 # ---------------------------------------------------------------------------
 
 _CHECKS: list[tuple[str, str]] = [
+    ("Place     Easy         ", "place_easy"),
     ("Stack     Low          ", "stack_low"),
     ("Stack     Low-TwoStacks", "stack_low_two_stacks"),
     ("Domino    3Pieces       ", "domino_3pieces"),
@@ -518,6 +547,8 @@ _CHECKS: list[tuple[str, str]] = [
 
 
 def _dispatch(key: str, device: str, *, render: bool = False) -> str | None:
+    if key == "place_easy":
+        return _check_place_easy(device, render=render)
     if key == "stack_low":
         return _check_stack_low(device, render=render)
     if key == "stack_low_two_stacks":
