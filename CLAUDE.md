@@ -43,6 +43,11 @@ uv run pre-commit run --all-files
 # Play a task (wraps mjlab's player after importing g3a_bench to register tasks)
 uv run g3a-play G3A-Stack-Low-Dk1_uni
 
+# List all registered task IDs (mjlab's built-ins included; --filter/--count narrow it)
+uv run g3a-list-tasks
+uv run g3a-list-tasks --filter Domino
+uv run g3a-list-tasks --filter G3A --count
+
 # Teleop recording -> the .npz QC-FQL trains on (several sessions at once)
 uv run g3a-convert-demos --success-dir out/demos/success/<task>/<stamp> \
     --failure-dir out/demos/failure/<task>/<stamp> --output demos.npz

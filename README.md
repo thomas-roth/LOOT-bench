@@ -48,6 +48,15 @@ To manually run the pre-commit hooks on all files:
 uv run pre-commit run --all-files
 ```
 
+## Listing tasks
+The `g3a-list-tasks` command lists all task IDs registered into mjlab (the `G3A-*` benchmark tasks plus mjlab's built-ins).
+Narrow it with a substring using `--filter`, or count the tasks using `--count`:
+```shell
+uv run g3a-list-tasks
+uv run g3a-list-tasks --filter Domino
+uv run g3a-list-tasks --filter G3A --count
+```
+
 ## Example G3A-Stack-Low-Dk1_uni
 View:
 ```shell
