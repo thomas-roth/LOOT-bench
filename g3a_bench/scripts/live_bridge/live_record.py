@@ -789,6 +789,18 @@ def main():
         help="Stop after N saved episodes (0 = record until Q is pressed).",
     )
     parser.add_argument(
+        "--start-pose-noise",
+        type=float,
+        default=None,
+        help=(
+            "Override the task's start-pose sample half-width [rad]. Omit it: "
+            "the task's own value is used, which is what makes a demo start "
+            "where an evaluation episode starts. Pass 0.0 for a bit-identical "
+            "start every episode. Keep any value well under the 0.2 rad "
+            "alignment gate, which is measured against the nominal pose."
+        ),
+    )
+    parser.add_argument(
         "--debug-timing",
         action="store_true",
         help=(
@@ -808,6 +820,16 @@ def main():
     #    success termination stays active (auto-saves as success).
     cfg = load_env_cfg(args.task, play=True)
     cfg.terminations["time_out"].time_out = False
+    #    The start pose is sampled, so the sim arm and the leader differ a
+    #    little at frame 0 and the first action is a small step back toward the
+    #    nominal pose. That is a real transition and it belongs in the data.
+    if args.start_pose_noise is not None:
+        cfg.events["reset_robot_joints"].params["position_range"] = (
+            -args.start_pose_noise,
+            args.start_pose_noise,
+        )
+    noise_lo, noise_hi = cfg.events["reset_robot_joints"].params["position_range"]
+    print(f"[INFO] Start-pose noise: {noise_lo:+.3f} .. {noise_hi:+.3f} rad")
 
     # 2. Create environment.
     env = ManagerBasedRlEnv(cfg=cfg, device=device)
@@ -858,6 +880,7 @@ def main():
         qpos_dim=qpos_dim,
         qvel_dim=qvel_dim,
         device=device,
+        start_pose_noise=noise_hi,
     )
     print(
         f"[INFO] Recording to {base_dir}/{{success,failure}}/{args.task}/{stamp} "

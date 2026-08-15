@@ -28,6 +28,16 @@ from g3a_bench.tasks.place.variants import CUBE_COLOR, PlaceVariantCfg
 
 COMMAND_NAME = "task"
 
+# Half-width [rad] of the start-pose sample, applied to every arm joint at
+# reset. It lives on the task, not on a launcher flag, so the demo recorder and
+# the training run read the same number without either passing an override.
+# A constant start gives the policy exactly one state to generalize from, and
+# that is the best remaining explanation for the flat-zero curve of the first
+# run. Keep the value well under the recorder's 0.2 rad alignment gate
+# (live_bridge/recording_mixin.RESET_THRESHOLD_RAD), which is measured against
+# the nominal pose: a wider sample and the gate fight each other.
+START_POSE_NOISE = 0.05
+
 
 def make_place_env_cfg(
     variant: PlaceVariantCfg,
@@ -88,6 +98,7 @@ def make_place_env_cfg(
         sensors=sensors,
         env_spacing=1.5,
         episode_length_s=10.0,
+        start_pose_noise=START_POSE_NOISE,
         nconmax=120,
         njmax=700,
         play=play,

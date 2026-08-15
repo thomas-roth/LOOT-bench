@@ -17,6 +17,7 @@ class Recorder:
         qvel_dim: int | None = None,
         device: str | None = None,
         gravity_compensate: bool = True,
+        start_pose_noise: float | None = None,
     ):
         features = {
             "observation.state": {
@@ -76,6 +77,10 @@ class Recorder:
         self._qvel_dim = qvel_dim
         self._device = device
         self._gravity_compensate = gravity_compensate
+        # The start-pose sample half-width [rad] the episodes were recorded
+        # under. A run must evaluate under the same one, and a dataset that
+        # does not say which it used cannot be checked against a run.
+        self._start_pose_noise = start_pose_noise
         # Seeds and save-counts are tracked per dataset (success vs failure).
         # The success and failure datasets are indexed independently starting at
         # 0, and replay looks a seed up by that per-dataset --episode-index, so a
@@ -236,6 +241,8 @@ class Recorder:
         self._episodes_saved[success] += 1
         extra = self._extra_info[success]
         extra["gravity_compensate"] = self._gravity_compensate
+        if self._start_pose_noise is not None:
+            extra["start_pose_noise"] = self._start_pose_noise
         if seed is not None:
             seeds = self._episode_seeds[success]
             seeds[str(ep_index)] = int(seed)
