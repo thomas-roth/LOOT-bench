@@ -6,7 +6,6 @@ from mjlab.managers.observation_manager import ObservationTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.managers.termination_manager import TerminationTermCfg
-from mjlab.utils.noise import UniformNoiseCfg as Unoise
 
 from g3a_bench.tasks.ball import mdp as ball_mdp
 from g3a_bench.tasks.ball.assets import get_ball_spec, get_field_spec, get_wall_spec
@@ -49,24 +48,20 @@ def make_ball_env_cfg(
         "ball_pose": ObservationTermCfg(
             func=ball_mdp.ball_pose,
             params={"command_name": COMMAND_NAME},
-            noise=Unoise(n_min=-0.01, n_max=0.01),
         ),
         "field_pose": ObservationTermCfg(
             func=ball_mdp.field_pose,
             params={"command_name": COMMAND_NAME},
-            noise=Unoise(n_min=-0.01, n_max=0.01),
         ),
         "ball_velocity": ObservationTermCfg(
             func=ball_mdp.ball_velocity,
             params={"command_name": COMMAND_NAME},
-            noise=Unoise(n_min=-0.05, n_max=0.05),
         ),
     }
     if wall_name is not None:
         task_obs_terms["wall_pose"] = ObservationTermCfg(
             func=ball_mdp.wall_pose,
             params={"command_name": COMMAND_NAME},
-            noise=Unoise(n_min=-0.01, n_max=0.01),
         )
 
     task_rewards = {

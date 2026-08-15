@@ -18,9 +18,11 @@ Three things here are load-bearing rather than stylistic:
   transition pushed into the replay buffer and the info dict the success
   metric is read from.
 * **Observation corruption is off.** The offline and online observations have
-  to come from one distribution. The demos are recorded through a play cfg
-  with corruption off, so the adapter matches that. Turning it on in both
-  places would be equally valid; letting them differ would not.
+  to come from one distribution, and the demos are recorded through the
+  uncorrupted observation. No task declares observation noise any more (see
+  ``tasks/common/env_cfg``), so this now costs nothing; the adapter still sets
+  the flag, because a cfg that arrives with corruption on must not reach a
+  training run.
 * **Terminated and truncated are kept apart.** ``terminated`` means the task
   reached an absorbing state, and offline RL uses it to decide whether to
   bootstrap past the final transition. A timeout is not absorbing -- the
@@ -92,7 +94,8 @@ class G3aEnv(gymnasium.Env):
         cfg = load_env_cfg(task_id, play=False)
         cfg.scene.num_envs = 1
         cfg.auto_reset = False
-        # Must match how the demos were recorded -- see the module docstring.
+        # Redundant while no task declares observation noise, and kept as the
+        # seam's own guarantee -- see the module docstring.
         cfg.observations["actor"].enable_corruption = False
         if start_pose_noise is not None:
             cfg.events["reset_robot_joints"].params["position_range"] = (

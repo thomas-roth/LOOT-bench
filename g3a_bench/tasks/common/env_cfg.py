@@ -12,6 +12,16 @@ body, no ``"robot"`` scene entity).
 Fill them by calling :func:`~g3a_bench.tasks.common.manipulator_wiring.
 wire_manipulator_into_env` with a concrete ``ManipulatorInterface`` before
 registering the task.
+
+**No observation carries noise, and no group corrupts.** Observation noise is a
+robustness device for an on-policy run that collects its own data; this repo
+trains QC-FQL offline from recorded demonstrations, and there the noise only
+splits the two halves apart. The demonstrations were recorded through the
+uncorrupted observation, so a corrupted training observation would describe a
+state the operator never saw. Both paths already forced it off -- the adapter
+in ``g3a_bench/qc/env.py`` and the recorder's ``play`` cfg -- and the terms are
+now free of it, so the config says what it does instead of relying on two
+callers to undo it. See ``docs/adr/015-observations-carry-no-noise.md``.
 """
 
 from mjlab.entity import EntityCfg
@@ -27,7 +37,6 @@ from mjlab.scene import SceneCfg
 from mjlab.sensor import SensorCfg
 from mjlab.sim import MujocoCfg, SimulationCfg
 from mjlab.terrains import TerrainEntityCfg
-from mjlab.utils.noise import UniformNoiseCfg as Unoise
 from mjlab.viewer import ViewerConfig
 
 from g3a_bench.tasks.common.actions import NormalizedJointPositionActionCfg
@@ -80,23 +89,16 @@ def make_manipulation_env_cfg(
             generalize from. Raise it for training. Read back off
             ``cfg.events["reset_robot_joints"].params["position_range"]``,
             which is also where to override it on an already-built cfg.
-        play: strip observation corruption and make the episode endless, for
-            interactive play. Physics are unchanged, so demos and eval run
-            under the same dynamics as training. The ``success`` termination
-            is kept — live_bridge demo playback needs episodes to terminate
-            on success.
+        play: make the episode endless, for interactive play. Physics are
+            unchanged, so demos and eval run under the same dynamics as
+            training. The ``success`` termination is kept — live_bridge demo
+            playback needs episodes to terminate on success.
     """
     actor_terms: dict[str, ObservationTermCfg] = {
-        "joint_pos": ObservationTermCfg(
-            func=mdp.joint_pos_rel, noise=Unoise(n_min=-0.01, n_max=0.01)
-        ),
-        "joint_vel": ObservationTermCfg(
-            func=mdp.joint_vel_rel, noise=Unoise(n_min=-1.5, n_max=1.5)
-        ),
+        "joint_pos": ObservationTermCfg(func=mdp.joint_pos_rel),
+        "joint_vel": ObservationTermCfg(func=mdp.joint_vel_rel),
         "ee_pose": ObservationTermCfg(
-            func=ee_pose_w,
-            params={"asset_cfg": SceneEntityCfg("robot", site_names=())},
-            noise=Unoise(n_min=-0.01, n_max=0.01),
+            func=ee_pose_w, params={"asset_cfg": SceneEntityCfg("robot", site_names=())}
         ),
         **task_obs_terms,
         **(
@@ -120,8 +122,8 @@ def make_manipulation_env_cfg(
     }
 
     observations = {
-        "actor": ObservationGroupCfg(dict(actor_terms), enable_corruption=True),
-        "critic": ObservationGroupCfg(dict(actor_terms), enable_corruption=False),
+        "actor": ObservationGroupCfg(dict(actor_terms)),
+        "critic": ObservationGroupCfg(dict(actor_terms)),
     }
 
     actions: dict[str, ActionTermCfg] = {
@@ -227,6 +229,5 @@ def make_manipulation_env_cfg(
 
     if play:
         cfg.episode_length_s = int(1e9)
-        cfg.observations["actor"].enable_corruption = False
 
     return cfg

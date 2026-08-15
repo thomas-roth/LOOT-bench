@@ -25,9 +25,10 @@ Reading a dataset back lives in :mod:`g3a_bench.qc.dataset`, which imports no
 lerobot: the ``qc`` venv has to load a dataset and must not carry the recording
 stack.
 
-Observations are copied through untouched. They are the task's ``actor`` group
-with corruption off at record time, and the adapter turns corruption off too,
-so the offline and online observations come from one distribution.
+Observations are copied through untouched. They are the task's ``actor`` group,
+which carries no noise on either side -- no task declares any, and the adapter
+sets the flag as well -- so the offline and online observations come from one
+distribution.
 """
 
 from __future__ import annotations

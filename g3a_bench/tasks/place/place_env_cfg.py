@@ -17,7 +17,6 @@ from mjlab.managers.observation_manager import ObservationTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.termination_manager import TerminationTermCfg
 from mjlab.sensor import ContactMatch, ContactSensorCfg
-from mjlab.utils.noise import UniformNoiseCfg as Unoise
 
 from g3a_bench.tasks.common.commands import GRIP_CONTACT_SENSOR_NAME
 from g3a_bench.tasks.common.env_cfg import make_manipulation_env_cfg
@@ -54,7 +53,6 @@ def make_place_env_cfg(
         "cube_pose": ObservationTermCfg(
             func=place_mdp.cube_pose,
             params={"command_name": COMMAND_NAME},
-            noise=Unoise(n_min=-0.01, n_max=0.01),
         ),
     }
 

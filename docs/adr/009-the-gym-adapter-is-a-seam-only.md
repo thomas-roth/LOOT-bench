@@ -15,8 +15,10 @@ success metric is read from.
 
 Observation corruption is off, which matches how the demonstrations are
 recorded. The offline and the online observations must come from one
-distribution. Matching them the other way would be equally valid; letting them
-differ would not.
+distribution. No task declares observation noise any more, so the adapter's
+flag is redundant rather than load-bearing; it stays as the seam's own
+guarantee, because a cfg that arrives with corruption on must not reach a
+training run.
 
 `terminated` and `truncated` pass through as mjlab reports them. Its
 termination manager routes each term by its own `time_out` flag, so the buffers
