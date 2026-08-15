@@ -22,6 +22,7 @@ def wire_manipulator_into_env(
     *,
     ee_contact_sensors: tuple[str, ...] = (),
     grip_contact_sensor: str | None = None,
+    object_contact_sensor: str | None = None,
 ) -> None:
     """Fill the robot placeholders left by a ``make_<cat>_env_cfg`` in place.
 
@@ -33,9 +34,12 @@ def wire_manipulator_into_env(
     env cfg) and to any command cfg carrying a ``grasp_cfg``. Command cfgs
     deriving from :class:`GripperGateCommandCfg` get the robot's gripper
     joints/threshold. Sensors named in ``ee_contact_sensors`` get the
-    end-effector subtree as their primary match pattern. The sensor named
-    ``grip_contact_sensor``, if any, gets the finger-pad geom pattern as its
-    primary match pattern (see ``tasks.common.commands.ContactReleaseGate``).
+    end-effector subtree as their primary match pattern. The sensors named
+    ``grip_contact_sensor`` and ``object_contact_sensor``, if any, get the
+    finger-pad geom pattern as their primary match pattern (see
+    ``tasks.common.commands.ContactReleaseGate``). Only their *secondary*
+    match differs, and that is the task's business rather than the robot's:
+    the task declares which object it scores, the robot contributes the pads.
 
     A robot declaring ``reset_joint_pos`` gets the ``reset_robot_joints`` event
     swapped from mjlab's keyframe-relative offset reset to the absolute-pose
@@ -75,10 +79,15 @@ def wire_manipulator_into_env(
                 assert isinstance(sensor, ContactSensorCfg)
                 sensor.primary.pattern = manipulator.ee_subtree
 
-    if grip_contact_sensor is not None:
+    pad_sensors = {
+        name
+        for name in (grip_contact_sensor, object_contact_sensor)
+        if name is not None
+    }
+    if pad_sensors:
         assert cfg.scene.sensors is not None
         for sensor in cfg.scene.sensors:
-            if sensor.name == grip_contact_sensor:
+            if sensor.name in pad_sensors:
                 assert isinstance(sensor, ContactSensorCfg)
                 sensor.primary.pattern = manipulator.pad_geoms
 

@@ -18,7 +18,10 @@ from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.termination_manager import TerminationTermCfg
 from mjlab.sensor import ContactMatch, ContactSensorCfg
 
-from g3a_bench.tasks.common.commands import GRIP_CONTACT_SENSOR_NAME
+from g3a_bench.tasks.common.commands import (
+    GRIP_CONTACT_SENSOR_NAME,
+    OBJECT_CONTACT_SENSOR_NAME,
+)
 from g3a_bench.tasks.common.env_cfg import make_manipulation_env_cfg
 from g3a_bench.tasks.common.table import table_entity_cfg
 from g3a_bench.tasks.place import mdp as place_mdp
@@ -75,6 +78,20 @@ def make_place_env_cfg(
         ContactSensorCfg(
             name=GRIP_CONTACT_SENSOR_NAME,
             primary=ContactMatch(mode="geom", pattern="", entity="robot"),
+            fields=("force",),
+        ),
+        # Same pads, filtered to the cube. Telemetry only -- no gate reads it.
+        # The unfiltered sensor above cannot answer "did the policy touch the
+        # cube": a gripper closed on empty air reports its own two pads
+        # pressing together, which is what a failing policy does all episode.
+        # `secondary_policy="error"` rather than "first": the cube has exactly
+        # one geom today, and a future cube with two should fail at build time
+        # instead of silently measuring one of them.
+        ContactSensorCfg(
+            name=OBJECT_CONTACT_SENSOR_NAME,
+            primary=ContactMatch(mode="geom", pattern="", entity="robot"),
+            secondary=ContactMatch(mode="geom", pattern="cube_geom", entity="cube"),
+            secondary_policy="error",
             fields=("force",),
         ),
     )

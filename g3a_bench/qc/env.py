@@ -29,6 +29,16 @@ Three things here are load-bearing rather than stylistic:
   episode was cut short, and the value of the state it was cut at is not
   zero. Collapsing the two is the single easiest way to teach an agent that
   running out of time is as good as finishing.
+* **Contact forces are published flat.** ``qc``'s evaluation counts grips out
+  of ``info["gripper_contact"]``, and the contact sensors are the only way it
+  can see whether a policy ever touched anything. Two are published:
+  ``gripper_contact`` (unfiltered, what ``qc`` counts, and a closed gripper
+  reports its own pads) and ``object_contact`` (filtered to the scored
+  object), with the per-episode totals ``object_contact_steps`` and
+  ``object_touched`` beside it. All of it is telemetry, not part of the MDP:
+  the numbers go into ``eval.csv``, never into the observation. See
+  :meth:`EpisodeStats.info` for why the flat key is the only safe shape, and
+  :meth:`G3aEnv._pad_force` for what each one means.
 """
 
 from __future__ import annotations
@@ -41,9 +51,15 @@ import numpy as np
 import torch
 from gymnasium.spaces import Box
 from mjlab.envs import ManagerBasedRlEnv
+from mjlab.sensor import ContactSensor
 from mjlab.tasks.registry import load_env_cfg
 
 from g3a_bench.qc.episode import EpisodeStats
+from g3a_bench.tasks.common.commands import (
+    GRIP_CONTACT_SENSOR_NAME,
+    OBJECT_CONTACT_SENSOR_NAME,
+    pad_contact_force,
+)
 
 TASK_PREFIX = "G3A-"
 """Every task this adapter serves is registered under this prefix.
@@ -115,6 +131,12 @@ class G3aEnv(gymnasium.Env):
         self.observation_space = Box(-np.inf, np.inf, (obs_dim,), dtype=np.float32)
         self.action_space = Box(-1.0, 1.0, (action_dim,), dtype=np.float32)
 
+        # Resolved once: the categories that grasp declare these sensors, ball
+        # does not, and whether a key appears in ``info`` has to be a property
+        # of the task rather than of the step.
+        self._grip_sensor = self._contact_sensor(GRIP_CONTACT_SENSOR_NAME)
+        self._object_sensor = self._contact_sensor(OBJECT_CONTACT_SENSOR_NAME)
+
         self._stats = EpisodeStats()
 
     @property
@@ -143,12 +165,40 @@ class G3aEnv(gymnasium.Env):
         assert isinstance(actor, torch.Tensor)
         return actor[0].detach().cpu().numpy().astype(np.float32, copy=True)
 
+    def _contact_sensor(self, name: str) -> ContactSensor | None:
+        """The named contact sensor, or ``None`` if the task declares none."""
+        sensor = self._env.scene.sensors.get(name)
+        return sensor if isinstance(sensor, ContactSensor) else None
+
+    def _pad_force(self, sensor: ContactSensor | None) -> float | None:
+        """[N] the strongest finger-pad contact force this sensor sees.
+
+        ``None`` when the task declares no such sensor, which keeps the key
+        out of ``info`` entirely rather than reporting a 0.0 that was never
+        measured.
+
+        The two sensors differ only in their filter, and the difference
+        matters. ``grip_contact`` has no secondary match, so it counts contact
+        with **anything, the other pad included**: on the DK1 the pad faces
+        meet at gripper joint -0.038 m while the joint travels to -0.045 m, so
+        a gripper closed on empty air reads 1.6 to 2.5 N. ``object_contact``
+        is filtered to the scored object and answers the question that one
+        cannot. Measured by
+        ``.scratch/qcfql-bc-flat-diag/probes/check_self_contact.py``.
+        """
+        if sensor is None:
+            return None
+        return float(pad_contact_force(sensor)[0].item())
+
     def reset(
         self, *, seed: int | None = None, options: dict[str, Any] | None = None
     ) -> tuple[np.ndarray, dict[str, float]]:
         del options  # Unused.
-        self._stats = EpisodeStats()
         obs, _ = self._env.reset(seed=seed)
+        self._stats = EpisodeStats(
+            gripper_contact=self._pad_force(self._grip_sensor),
+            object_contact=self._pad_force(self._object_sensor),
+        )
         return self._observation(obs), self._stats.info()
 
     def step(
@@ -171,7 +221,11 @@ class G3aEnv(gymnasium.Env):
         terminated_f = bool(terminated[0].item())
         truncated_f = bool(truncated[0].item())
 
-        self._stats.record(reward_f)
+        self._stats.record(
+            reward_f,
+            self._pad_force(self._grip_sensor),
+            self._pad_force(self._object_sensor),
+        )
         return (
             self._observation(obs),
             reward_f,
