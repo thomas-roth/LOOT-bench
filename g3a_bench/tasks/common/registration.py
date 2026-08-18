@@ -26,7 +26,6 @@ def register_category(
     ee_contact_sensors: tuple[str, ...] = (),
     grip_contact_sensor: str | None = None,
     object_contact_sensor: str | None = None,
-    max_iterations: int = 15_000,
 ) -> None:
     """Register all robot x variant tasks of one category.
 
@@ -46,8 +45,6 @@ def register_category(
         task_id_parts: ``(task, variation)`` for a variant, e.g.
             ``("Low", "DifferentBlocks")`` or ``("Low", "")`` for the base
             case.
-        max_iterations: PPO iteration budget (kept so ``g3a-play`` and the
-            mjlab registry tooling work; QC has its own trainer).
     """
     seen_task_ids: dict[str, str] = {}
     for robot in robots:
@@ -88,8 +85,7 @@ def register_category(
                 env_cfg=env_cfg,
                 play_env_cfg=play_env_cfg,
                 rl_cfg=manipulation_ppo_runner_cfg(
-                    f"{category.lower()}_{variant.name.lower()}_{robot.name.lower()}",
-                    max_iterations=max_iterations,
+                    f"{category.lower()}_{variant.name.lower()}_{robot.name.lower()}"
                 ),
                 runner_cls=ManipulationOnPolicyRunner,
             )
