@@ -19,5 +19,5 @@ exec "$REPO/train_qc.sh" G3A-Place-Easy-Dk1_uni "$REPO/out/qc/place-easy.npz" \
   --offline_steps 100000 \
   --online_steps 0 \
   --eval_episodes 20 \
-  --video_episodes 3 \
+  --video_episodes 20 \
   "$@"
