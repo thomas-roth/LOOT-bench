@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Full-critic (best-of-32 + Q-steering) run of G3A-Place-Easy-Dk1_uni on QC-FQL.
+#
+# A/B goal: critic used for BOTH selection and steering.
+# agents/acfql_full_critic.py sets actor_type=distill-ddpg-select: the actor
+# loss is bc_flow + alpha*distill + q_loss (so the critic gradient-steers the
+# actor toward high-Q chunks), and at every decision point the agent samples
+# 32 action chunks and the critic (TD-trained each step, argmax over its Q
+# ensemble) selects which chunk to execute.
+#
+# This contrasts the two single-role arms:
+#   critic-steering_short.sh       (distill-ddpg:   steering only)
+#   critic-selection_short.sh (best-of-n, n=32: selection only)
+#
+# Any extra arguments are passed through to train_qc.sh.
+
+set -euo pipefail
+
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
+exec "$REPO/train_qc.sh" G3A-Place-Easy-Dk1_uni "$REPO/out/qc/place-easy.npz" \
+  --seed=42 \
+  --agent=agents/acfql_full_critic.py \
+  --offline_steps 100000 \
+  --online_steps 100000 \
+  --eval_episodes 20 \
+  --video_episodes 20 \
+  --run_group=place-critic-selection-steering \
+  "$@"
