@@ -38,11 +38,16 @@ next step overwrites, and `qc` holds the previous observation across the step to
 build its transition. Without the copy, every transition would record its own
 next state as its current state. `tests/qc/test_env.py` pins this.
 
-`info` omits `gripper_contact` on purpose. At `d8a428f`, `qc/evaluation.py`
-reads the nested `info["proprio"]["gripper_contact"]` to decide the key exists,
-then thresholds the flat `info["gripper_contact"]` unconditionally. Publishing
-only the nested form is a `KeyError` in the middle of an evaluation. The key is
-optional telemetry, so we do not emit it.
+`info` publishes contact telemetry in the **flat** form only. `qc`'s
+`evaluation.py` reads the nested `info["proprio"]["gripper_contact"]` to decide
+the key exists, then thresholds the flat `info["gripper_contact"]`
+unconditionally, so publishing only the nested form is a `KeyError` in the
+middle of an evaluation. The first version of this adapter therefore published
+neither, and the contact counter read exactly 0.0 for every policy in every
+run. It now emits the flat keys, which are the form the trainer handles safely
+in both branches. They are telemetry: no success rule reads them. Do not
+compare the contact columns of a run recorded before `dda5b2a` with those of a
+run recorded after it.
 
 ## Consequence
 
