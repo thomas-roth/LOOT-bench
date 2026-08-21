@@ -56,6 +56,9 @@ uv run g3a-convert-demos --success-dir out/demos/success/<task>/<stamp> \
 uv run python tests/tasks/build_sim_registered_tasks.py
 uv run python tests/tasks/check_success_reward.py
 
+# Before/after pictures of the three QC-rebuild faults (see tests/qc/faults-visual/README.md)
+uv run python tests/qc/faults-visual/run_all.py --cpu    # -> out/render/faults-visual/index.html
+
 # Native-viewer checks (see tests/viewer/README.md), need a display, not for CI
 uv run python tests/viewer/measure_viewer_fps.py
 uv run python tests/viewer/check_viewer_shutdown.py
@@ -66,7 +69,9 @@ The pytest suite (`uv run pytest tests/`) unit-tests the pure kernels in
 compiled model (`tests/trlc_dk1/`). See `tests/tasks/README.md` for
 what each verification script covers; all accept `--cpu` to force CPU-only
 execution. `tests/viewer/` holds the manual native-viewer checks (FPS cap,
-shutdown segfault).
+shutdown segfault). `tests/qc/faults-visual/` reconstructs the three faults the QC
+rebuild fixed and writes before/after pictures to `out/render/faults-visual/`; it
+reads the two recorded sessions and changes nothing.
 
 ## Architecture
 
