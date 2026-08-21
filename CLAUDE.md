@@ -11,7 +11,7 @@ flat layout) whose job is to **register tasks into mjlab's global registry** and
 provide the robot assets and task definitions; the play loop is mjlab's, and
 training is QC-FQL (offline-to-online RL), which lives in a **separate `qc`
 checkout** reached by `PYTHONPATH` — this repo holds only the seam to it, in
-`g3a_bench/qc/` (see `.scratch/qc-restart/`).
+`g3a_bench/qc/`.
 
 Five task categories, 41 tasks total, currently registered for one robot
 (`-Dk1_uni`) → task ids look like `G3A-<Category>-<Task>[-<Variation>]-<Robot>`:

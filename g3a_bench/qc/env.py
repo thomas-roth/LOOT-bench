@@ -183,8 +183,7 @@ class G3aEnv(gymnasium.Env):
         meet at gripper joint -0.038 m while the joint travels to -0.045 m, so
         a gripper closed on empty air reads 1.6 to 2.5 N. ``object_contact``
         is filtered to the scored object and answers the question that one
-        cannot. Measured by
-        ``.scratch/qcfql-bc-flat-diag/probes/check_self_contact.py``.
+        cannot.
         """
         if sensor is None:
             return None
