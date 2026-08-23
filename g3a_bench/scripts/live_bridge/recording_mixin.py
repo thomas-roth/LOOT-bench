@@ -11,6 +11,8 @@ import numpy as np
 import torch
 from mjlab.viewer.base import VerbosityLevel
 
+from g3a_bench.scripts.live_bridge.debug_panel import LiveDebugPanel
+
 GHOST_ROBOT_ENTITY = "robot"  # scene entity key whose geoms get ghosted
 GHOST_COLOR = (0.5, 0.6, 0.9, 0.5)  # translucent blue, the neutral/reset-target color
 GHOST_COLOR_SUCCESS = (0.3, 0.9, 0.3, 0.8)  # bright green for success feedback
@@ -36,12 +38,22 @@ class RecordingViewerMixin:
         debug_timing: bool,
         sim_start_pose: dict,
         home_joint_pos: dict,
+        env=None,
+        debug_obs_append: bool = False,
     ) -> None:
-        """Set up recording state; call from subclass __init__."""
+        """Set up recording state; call from subclass __init__.
+
+        The debug panel is always on (see debug_panel.py) — ``env`` is read
+        once here to build its obs-term layout (self.env isn't assigned yet
+        at this point in the subclass __init__, see live_record.py).
+        ``debug_obs_append`` (``--debug-obs``) switches it from the default
+        in-place-overwrite style to append-only (nothing ever overwritten).
+        """
         self._recorder = recorder
         self._robot_obs_list = robot_obs_list
         self._hw_failed = hw_failed
         self._debug_timing = debug_timing
+        self._debug_panel = LiveDebugPanel(env, append_only=debug_obs_append)
         self._live_start_pose_rel = live_start_pose_rel
         # Leader-frame absolute pose the reset gate fires at. The sim arm
         # reads the leader action verbatim (mapper pass-through), so a leader
@@ -151,6 +163,7 @@ class RecordingViewerMixin:
         self._in_reset_phase = False
         self._feedback_color = None
         self.verbosity = VerbosityLevel.DEBUG
+        self._debug_panel.reset_episode()
 
     # Custom actions (GUI buttons / keys)
 
@@ -168,6 +181,8 @@ class RecordingViewerMixin:
             frames = self._recorder.num_frames_in_episode
             self._recorder.discard_episode()
             print(f"[INFO] Episode discarded ({frames} frames dropped)")
+            if frames > 0:
+                self._debug_panel.finish_episode("DISCARDED")
             self._feedback_color = GHOST_COLOR_FAILURE
             self._enter_reset_phase()
         elif payload == "undo":
@@ -215,6 +230,7 @@ class RecordingViewerMixin:
         print(
             f"[INFO] Episode {self.episodes_saved} saved as {label} ({frames} frames)"
         )
+        self._debug_panel.finish_episode(label)
 
         self._feedback_color = GHOST_COLOR_SUCCESS if success else GHOST_COLOR_FAILURE
 
@@ -398,6 +414,23 @@ class RecordingViewerMixin:
                         robot_obs=robot_obs,
                         qpos=qpos_t,
                         qvel=qvel_t,
+                    )
+                    # Mirrors exactly what was just handed to add_frame above,
+                    # so the panel can never show something other than what
+                    # actually landed in the dataset. status is the viewer's
+                    # own already-computed FPS/step/speed/RTF (get_status()
+                    # just reads fields updated on its own 0.5s timer) — free
+                    # to pass along, no extra sync.
+                    get_status = getattr(self, "get_status", None)
+                    self._debug_panel.update(
+                        obs["actor"][0],
+                        leader_action,
+                        rew[0],
+                        dones[0],
+                        robot_state=robot_obs,
+                        qpos=qpos_t,
+                        qvel=qvel_t,
+                        status=get_status() if get_status is not None else None,
                     )
                 t4 = time.perf_counter()
 

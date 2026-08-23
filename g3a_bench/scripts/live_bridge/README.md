@@ -40,6 +40,17 @@ directory is created only once an episode of that kind exists.
 Set `USE_FOLLOWER_STATE_FOR_SIM = True` in the script to drive the sim from follower
 joint states instead of leader actions.
 
+A live sanity-check panel (`debug_panel.py`) is always on: a per-frame line —
+frame/step/fps/speed/rtf, EEF/goal/object position, reward, done — replaces
+mjlab's own status print, redrawing in place by default so it stays at one
+spot in the terminal instead of scrolling. When an episode ends, an
+aggregated min/mean/max breakdown of everything saved to the dataset
+(`observation.state`, action, robot_state, qpos, qvel) prints once, along
+with any non-finite-value anomalies seen that episode. Pass `--debug-obs` to
+switch the per-frame line to append-only instead — nothing is ever
+overwritten, so the full per-frame history for every demonstration stays in
+the scrollback or a piped log file (`--debug-obs > demo_debug.log`).
+
 ## record_replay.py
 
 Replays a LeRobot dataset through the sim and records sim observations plus

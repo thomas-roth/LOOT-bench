@@ -290,6 +290,7 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
         task: str = "",
         num_episodes: int = 0,
         debug_timing: bool = False,
+        debug_obs_append: bool = False,
         wrist_renderer: "_mujoco.Renderer | None" = None,
         wrist_cam_id_pip: int = -1,
         pip_app: "QApplication | None" = None,
@@ -308,6 +309,8 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
             debug_timing=debug_timing,
             sim_start_pose=_SIM_START_POSE,
             home_joint_pos=HOME_JOINT_POS,
+            env=env,
+            debug_obs_append=debug_obs_append,
         )
         # Wrist-cam toggle (C): resolved lazily once the viewer/model exist.
         self._wrist_cam_on = False
@@ -808,6 +811,23 @@ def main():
             "(prints [STEP-SPIKE] lines) to diagnose intermittent FPS drops."
         ),
     )
+    parser.add_argument(
+        "--debug-obs",
+        action="store_true",
+        help=(
+            "The per-frame sanity-check panel (frame/step/fps/speed/rtf, "
+            "EEF/goal/object position, reward, done — replacing the "
+            "viewer's own status line) is always on; an aggregated "
+            "min/mean/max breakdown of everything saved to the dataset "
+            "(observation.state, action, robot_state, qpos, qvel) plus any "
+            "non-finite-value anomalies prints once when each episode ends. "
+            "By default the per-frame panel redraws in place (one line "
+            "stays put instead of scrolling). Pass --debug-obs to switch it "
+            "to append-only instead: nothing is ever overwritten, so the "
+            "full per-frame history for every demonstration stays in the "
+            "scrollback or a piped log file (`--debug-obs > demo_debug.log`)."
+        ),
+    )
     args = parser.parse_args()
 
     # 0. Identify operator for session metadata.
@@ -886,6 +906,10 @@ def main():
         f"[INFO] Recording to {base_dir}/{{success,failure}}/{args.task}/{stamp} "
         f"(obs_dim={obs_dim}, qpos_dim={qpos_dim}, qvel_dim={qvel_dim})"
     )
+    print(
+        "[INFO] Debug panel: "
+        + ("append-only (--debug-obs)" if args.debug_obs else "in-place overwrite")
+    )
 
     # 6. Shared single-element lists (GIL-safe last-writer-wins).
     action_list: list = [None]
@@ -953,6 +977,7 @@ def main():
             task=args.task,
             num_episodes=args.num_episodes,
             debug_timing=args.debug_timing,
+            debug_obs_append=args.debug_obs,
             wrist_renderer=wrist_renderer,
             wrist_cam_id_pip=wrist_cam_id_pip,
             pip_app=pip_app,
