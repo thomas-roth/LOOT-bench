@@ -44,42 +44,42 @@ class TestEpisodeStats:
         stats.record(-1.0)
         assert all(isinstance(v, float) for v in stats.info().values())
 
-    def test_publishes_gripper_contact_flat_and_scalar(self):
+    def test_publishes_pad_contact_force_flat_and_scalar(self):
         """qc tests the flat key and then indexes it. Nested alone is a KeyError."""
         stats = EpisodeStats()
         stats.record(-1.0, 0.42)
         info = stats.info()
-        assert info["gripper_contact"] == 0.42
-        assert isinstance(info["gripper_contact"], float)
+        assert info["pad_contact_force"] == 0.42
+        assert isinstance(info["pad_contact_force"], float)
 
-    def test_gripper_contact_carries_the_latest_step(self):
+    def test_pad_contact_force_carries_the_latest_step(self):
         """qc thresholds it per step to count grips, so it must not accumulate."""
         stats = EpisodeStats()
         stats.record(-1.0, 3.0)
         stats.record(-1.0, 0.0)
-        assert stats.info()["gripper_contact"] == 0.0
+        assert stats.info()["pad_contact_force"] == 0.0
 
-    def test_omits_gripper_contact_without_a_sensor(self):
+    def test_omits_pad_contact_force_without_a_sensor(self):
         """A task that cannot measure contact reports nothing, not 0.0."""
         stats = EpisodeStats()
         stats.record(-1.0)
-        assert "gripper_contact" not in stats.info()
+        assert "pad_contact_force" not in stats.info()
 
     def test_object_contact_steps_accumulate(self):
         """The per-episode total, which is what survives qc's averaging."""
         stats = EpisodeStats()
-        stats.record(-1.0, object_contact=2.0)
-        stats.record(-1.0, object_contact=0.0)
-        stats.record(-1.0, object_contact=2.0)
+        stats.record(-1.0, object_contact_force=2.0)
+        stats.record(-1.0, object_contact_force=0.0)
+        stats.record(-1.0, object_contact_force=2.0)
         info = stats.info()
-        assert info["object_contact"] == 2.0
+        assert info["object_contact_force"] == 2.0
         assert info["object_contact_steps"] == 2.0
         assert info["object_touched"] == 1.0
 
     def test_object_contact_below_threshold_does_not_count(self):
         """A brush is not a touch: the threshold matches qc's own."""
         stats = EpisodeStats()
-        stats.record(-1.0, object_contact=CONTACT_THRESHOLD)
+        stats.record(-1.0, object_contact_force=CONTACT_THRESHOLD)
         info = stats.info()
         assert info["object_contact_steps"] == 0.0
         assert info["object_touched"] == 0.0
@@ -88,21 +88,21 @@ class TestEpisodeStats:
         """The whole point: a gripper closed on air loads the pads, not the cube.
 
         `grip_contact` has no secondary filter and reports the pads pressing
-        on each other. `object_contact` is filtered to the cube, so the same
+        on each other. `object_contact_force` is filtered to the cube, so the same
         step reads a hard zero there.
         """
         stats = EpisodeStats()
-        stats.record(-1.0, gripper_contact=2.5, object_contact=0.0)
+        stats.record(-1.0, pad_contact_force=2.5, object_contact_force=0.0)
         info = stats.info()
-        assert info["gripper_contact"] == 2.5
+        assert info["pad_contact_force"] == 2.5
         assert info["object_touched"] == 0.0
 
     def test_omits_object_contact_without_a_sensor(self):
         """A category with no single scored object publishes none of the three."""
         stats = EpisodeStats()
-        stats.record(-1.0, gripper_contact=1.0)
+        stats.record(-1.0, pad_contact_force=1.0)
         info = stats.info()
-        assert "object_contact" not in info
+        assert "object_contact_force" not in info
         assert "object_contact_steps" not in info
         assert "object_touched" not in info
 

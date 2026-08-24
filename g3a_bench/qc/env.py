@@ -30,10 +30,10 @@ Three things here are load-bearing rather than stylistic:
   zero. Collapsing the two is the single easiest way to teach an agent that
   running out of time is as good as finishing.
 * **Contact forces are published flat.** ``qc``'s evaluation counts grips out
-  of ``info["gripper_contact"]``, and the contact sensors are the only way it
+  of ``info["pad_contact_force"]``, and the contact sensors are the only way it
   can see whether a policy ever touched anything. Two are published:
-  ``gripper_contact`` (unfiltered, what ``qc`` counts, and a closed gripper
-  reports its own pads) and ``object_contact`` (filtered to the scored
+  ``pad_contact_force`` (unfiltered, what ``qc`` counts, and a closed gripper
+  reports its own pads) and ``object_contact_force`` (filtered to the scored
   object), with the per-episode totals ``object_contact_steps`` and
   ``object_touched`` beside it. All of it is telemetry, not part of the MDP:
   the numbers go into ``eval.csv``, never into the observation. See
@@ -184,6 +184,12 @@ class G3aEnv(gymnasium.Env):
         a gripper closed on empty air reads 1.6 to 2.5 N. ``object_contact``
         is filtered to the scored object and answers the question that one
         cannot.
+
+        The sensor names and the published key names differ on purpose: sensor
+        ``grip_contact`` is published as ``pad_contact_force``, sensor
+        ``object_contact`` as ``object_contact_force``. The keys say what was
+        measured (a force, reduced over the pads); the sensors keep the names
+        the task cfgs register them under.
         """
         if sensor is None:
             return None
@@ -195,8 +201,8 @@ class G3aEnv(gymnasium.Env):
         del options  # Unused.
         obs, _ = self._env.reset(seed=seed)
         self._stats = EpisodeStats(
-            gripper_contact=self._pad_force(self._grip_sensor),
-            object_contact=self._pad_force(self._object_sensor),
+            pad_contact_force=self._pad_force(self._grip_sensor),
+            object_contact_force=self._pad_force(self._object_sensor),
         )
         return self._observation(obs), self._stats.info()
 

@@ -39,15 +39,31 @@ build its transition. Without the copy, every transition would record its own
 next state as its current state. `tests/qc/test_env.py` pins this.
 
 `info` publishes contact telemetry in the **flat** form only. `qc`'s
-`evaluation.py` reads the nested `info["proprio"]["gripper_contact"]` to decide
-the key exists, then thresholds the flat `info["gripper_contact"]`
-unconditionally, so publishing only the nested form is a `KeyError` in the
-middle of an evaluation. The first version of this adapter therefore published
-neither, and the contact counter read exactly 0.0 for every policy in every
-run. It now emits the flat keys, which are the form the trainer handles safely
-in both branches. They are telemetry: no success rule reads them. Do not
-compare the contact columns of a run recorded before `dda5b2a` with those of a
-run recorded after it.
+`evaluation.py` reads the flat key and falls back to the nested
+`info["proprio"]` form, so publishing only the nested form would leave the
+counter blind. The first version of this adapter published neither, and the
+contact counter read exactly 0.0 for every policy in every run. It now emits
+the flat keys, which are the form the trainer handles safely in both branches.
+They are telemetry: no success rule reads them. Do not compare the contact
+columns of a run recorded before `dda5b2a` with those of a run recorded after
+it.
+
+The key names are a **cross-repo contract**: the adapter produces them in
+`g3a_bench/qc/episode.py` and `qc/evaluation.py` consumes them by name. The two
+live in separate repositories with no version pin between them, and a drift is
+silent -- the consumer falls through to `None` and the counters read 0.0
+rather than raising. After changing either side, run a short eval and check
+`eval/pad_contact_runs` is non-zero; the DK1 pads always self-contact, so a
+zero there means the contract broke.
+
+**Amended.** The keys were renamed to say what they measure: `gripper_contact`
+became `pad_contact_force`, `object_contact` became `object_contact_force`,
+and on the `qc` side `num_gripper_contacts`/`avg_gripper_contact_length` became
+`pad_contact_runs`/`pad_contact_run_steps`. The sensor names `grip_contact` and
+`object_contact` are unchanged, so a key name and its sensor name now differ on
+purpose. The same amendment fixed the flat-key read described above, which
+previously ignored the nested branch it had just taken. Contact columns are
+therefore not comparable across this change either.
 
 ## Consequence
 

@@ -150,7 +150,7 @@ class TestStepContract:
         assert isinstance(info["success"], float)
         assert info["success"] in (0.0, 1.0)
 
-    def test_info_carries_a_flat_gripper_contact(self, env):
+    def test_info_carries_a_flat_pad_contact_force(self, env):
         """qc counts grips out of this key; nested-only would be a KeyError.
 
         It is the only contact evidence an evaluation gets, so a policy that
@@ -159,13 +159,13 @@ class TestStepContract:
         """
         env.reset()
         _, _, _, _, info = env.step(np.zeros(7, np.float32))
-        assert isinstance(info["gripper_contact"], float)
-        assert info["gripper_contact"] >= 0.0
+        assert isinstance(info["pad_contact_force"], float)
+        assert info["pad_contact_force"] >= 0.0
 
-    def test_reset_info_carries_gripper_contact_too(self, env):
+    def test_reset_info_carries_pad_contact_force_too(self, env):
         """A key that appears only on some steps is harder to trust."""
         _, info = env.reset()
-        assert "gripper_contact" in info
+        assert "pad_contact_force" in info
 
     def test_a_task_without_the_sensor_omits_the_object_keys(self, env):
         """The negative control for :class:`TestObjectContact`.
@@ -175,7 +175,7 @@ class TestStepContract:
         """
         env.reset()
         _, _, _, _, info = env.step(np.zeros(7, np.float32))
-        assert "object_contact" not in info
+        assert "object_contact_force" not in info
         assert "object_touched" not in info
 
     def test_observation_changes_as_the_arm_moves(self, env):
@@ -197,7 +197,7 @@ class TestStepContract:
 class TestObjectContact:
     """The cube-filtered sensor: the only key that answers "touched the cube".
 
-    ``gripper_contact`` cannot answer it. That sensor has no secondary match,
+    ``pad_contact_force`` cannot answer it. That sensor has no secondary match,
     and the DK1 pads can reach each other -- so the number ``qc`` counts grips
     out of also counts a gripper closing on empty air, which is exactly what a
     failing policy does all episode.
@@ -205,7 +205,7 @@ class TestObjectContact:
 
     def test_reset_info_carries_the_object_keys(self, place_env):
         _, info = place_env.reset()
-        assert isinstance(info["object_contact"], float)
+        assert isinstance(info["object_contact_force"], float)
         assert info["object_contact_steps"] == 0.0
         assert info["object_touched"] == 0.0
 
@@ -224,12 +224,12 @@ class TestObjectContact:
         info: dict[str, float] = {}
         for _ in range(60):
             _, _, _, _, info = place_env.step(action)
-        assert info["gripper_contact"] > CONTACT_THRESHOLD, (
+        assert info["pad_contact_force"] > CONTACT_THRESHOLD, (
             "the pads are expected to meet; if they no longer do, the "
-            "gripper_contact key stopped being a self-contact hazard and this "
-            "test is the place that says so"
+            "pad_contact_force key stopped being a self-contact hazard and "
+            "this test is the place that says so"
         )
-        assert info["object_contact"] == 0.0
+        assert info["object_contact_force"] == 0.0
         assert info["object_contact_steps"] == 0.0
         assert info["object_touched"] == 0.0
 
