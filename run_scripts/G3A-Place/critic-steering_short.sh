@@ -11,12 +11,12 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
-exec "$REPO/train_qc.sh" G3A-Place-Easy-Dk1_uni "$REPO/out/qc/place-easy.npz" \
+exec "$REPO/train_qc.sh" G3A-Place-Easy-Dk1_uni "$REPO/out/qc/place-easy_2026-08-23_17-08-12.npz" \
   --seed=42 \
   --agent=agents/acfql.py \
   --offline_steps 100000 \
   --online_steps 100000 \
   --eval_episodes 20 \
   --video_episodes 20 \
-  --run_group=place-critic-steering \
+  --run_group=place_critic-steering \
   "$@"
