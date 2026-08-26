@@ -22,7 +22,8 @@ exec "$REPO/train_qc.sh" G3A-Place-Easy-Dk1_uni "$REPO/out/qc/place-easy_2026-08
   --agent.actor_num_samples=1 \
   --offline_steps 100000 \
   --online_steps 100000 \
+  --eval_interval 20000 \
   --eval_episodes 20 \
-  --video_episodes 20 \
+  --video_episodes 5 \
   --run_group=place_critic-off \
   "$@"
