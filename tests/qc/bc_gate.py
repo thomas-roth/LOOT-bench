@@ -23,9 +23,12 @@ Read the two numbers together:
   observation layout or at how the demonstrations were recorded.
 
 **The bar is 0.0766**, and it is measured, not inherited. It is what this gate
-reads on the old 100-demonstration set
-(``dataset/demos/G3A-Place-Easy-Dk1_uni``, ten episodes held out), which fitted
-to 0.0075 on the episodes it saw.
+reads on the old 100-demonstration set -- the pre-rebuild pipeline's export,
+``G3A-Place-Easy-Dk1_uni_qc_physical.npz``, ten episodes held out -- which
+fitted to 0.0075 on the episodes it saw. That is a single legacy file, *not*
+the committed sessions under ``dataset/demos/G3A-Place-RandS-RandT-Dk1_uni``:
+that directory has since grown past the set the number was read on, so
+pointing this gate at it will not reproduce 0.0766.
 
 Two numbers survive from the old pipeline for that same file -- 0.166 from the
 lost repository tool, 0.118 from ``probes/probe17_regressor.py``, which skipped
@@ -72,9 +75,11 @@ from numpy.typing import NDArray
 TARGET = 0.0766
 """Held-out interior error of the old 100-demonstration set, read by this gate.
 
-Measured on ``dataset/demos/G3A-Place-Easy-Dk1_uni`` with ``--holdout 10`` and
-every other setting left at its default. The old pipeline's recorded 0.166 came
-from a different read of the same file; see this module's docstring.
+Measured on the legacy ``G3A-Place-Easy-Dk1_uni_qc_physical.npz`` with
+``--holdout 10`` and every other setting left at its default -- see this
+module's docstring for why that file, and not today's demo directory, is the
+one the number belongs to. The old pipeline's recorded 0.166 came from a
+different read of the same file.
 """
 
 INTERIOR_SKIP = 5

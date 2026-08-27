@@ -211,8 +211,14 @@ def _check_stack_low_two_stacks(device: str, *, render: bool = False) -> str | N
 # ---------------------------------------------------------------------------
 
 
-def _check_place_easy(device: str, *, render: bool = False) -> str | None:
-    task_id = "G3A-Place-Easy-Dk1_uni"
+def _check_place(task_id: str, device: str, *, render: bool = False) -> str | None:
+    """Teleport the cube onto the target.
+
+    Parameterized by task id because the place category's four variants only
+    differ in which of the two draws (cube spawn, target) is pinned -- the
+    success criterion is the same for all of them, and each is checked so a
+    pinned pose that lands somewhere unscorable cannot slip through.
+    """
     env = _make_env(task_id, device)
     cmd = cast(PlaceCommand, env.command_manager.get_term("task"))
     zeros = _zeros(env, device)
@@ -533,8 +539,18 @@ def _check_ball_minigolf_using_wall(device: str, *, render: bool = False) -> str
 # Test table
 # ---------------------------------------------------------------------------
 
+_PLACE_TASK_IDS: dict[str, str] = {
+    "place_rands_randt": "G3A-Place-RandS-RandT-Dk1_uni",
+    "place_rands_fixedt": "G3A-Place-RandS-FixedT-Dk1_uni",
+    "place_fixeds_randt": "G3A-Place-FixedS-RandT-Dk1_uni",
+    "place_fixeds_fixedt": "G3A-Place-FixedS-FixedT-Dk1_uni",
+}
+
 _CHECKS: list[tuple[str, str]] = [
-    ("Place     Easy         ", "place_easy"),
+    ("Place     RandS-RandT  ", "place_rands_randt"),
+    ("Place     RandS-FixedT ", "place_rands_fixedt"),
+    ("Place     FixedS-RandT ", "place_fixeds_randt"),
+    ("Place     FixedS-FixedT", "place_fixeds_fixedt"),
     ("Stack     Low          ", "stack_low"),
     ("Stack     Low-TwoStacks", "stack_low_two_stacks"),
     ("Domino    3Pieces       ", "domino_3pieces"),
@@ -547,8 +563,8 @@ _CHECKS: list[tuple[str, str]] = [
 
 
 def _dispatch(key: str, device: str, *, render: bool = False) -> str | None:
-    if key == "place_easy":
-        return _check_place_easy(device, render=render)
+    if key.startswith("place_"):
+        return _check_place(_PLACE_TASK_IDS[key], device, render=render)
     if key == "stack_low":
         return _check_stack_low(device, render=render)
     if key == "stack_low_two_stacks":

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Best-of-32 run of G3A-Place-Easy-Dk1_uni on QC-FQL.
+# Best-of-32 run of G3A-Place-RandS-RandT-Dk1_uni on QC-FQL.
 #
 # A/B goal: the closed-loop critic arm — the critic picks the action.
 # Stock agents/acfql.py, with actor_type=best-of-n and actor_num_samples=32:
@@ -19,7 +19,7 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
-exec "$REPO/train_qc.sh" G3A-Place-Easy-Dk1_uni "$REPO/out/qc/place-easy_2026-08-23_17-08-12.npz" \
+exec "$REPO/train_qc.sh" G3A-Place-RandS-RandT-Dk1_uni "$REPO/out/qc/place-rands-randt_2026-08-23_17-08-12.npz" \
   --seed=42 \
   --agent=agents/acfql.py \
   --agent.actor_type=best-of-n \

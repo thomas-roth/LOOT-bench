@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Real (non-BC) run of G3A-Place-Easy-Dk1_uni on the QC-FQL A/B config.
+# Real (non-BC) run of G3A-Place-RandS-RandT-Dk1_uni on the QC-FQL A/B config.
 #
 # A/B goal: baseline against the pure-BC runs (critic-off*.sh).
 # The stock agents/acfql.py config trains the actor with distill-ddpg
@@ -11,7 +11,7 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
-exec "$REPO/train_qc.sh" G3A-Place-Easy-Dk1_uni "$REPO/out/qc/place-easy_2026-08-23_17-08-12.npz" \
+exec "$REPO/train_qc.sh" G3A-Place-RandS-RandT-Dk1_uni "$REPO/out/qc/place-rands-randt_2026-08-23_17-08-12.npz" \
   --seed=42 \
   --agent=agents/acfql.py \
   --offline_steps 1000000 \

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Full-critic (best-of-32 + Q-steering) run of G3A-Place-Easy-Dk1_uni on QC-FQL.
+# Full-critic (best-of-32 + Q-steering) run of G3A-Place-RandS-RandT-Dk1_uni on QC-FQL.
 #
 # A/B goal: critic used for BOTH selection and steering.
 # agents/acfql_full_critic.py sets actor_type=distill-ddpg-select: the actor
@@ -18,7 +18,7 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
-exec "$REPO/train_qc.sh" G3A-Place-Easy-Dk1_uni "$REPO/out/qc/place-easy_2026-08-23_17-08-12.npz" \
+exec "$REPO/train_qc.sh" G3A-Place-RandS-RandT-Dk1_uni "$REPO/out/qc/place-rands-randt_2026-08-23_17-08-12.npz" \
   --seed=42 \
   --agent=agents/acfql_full_critic.py \
   --offline_steps 100000 \

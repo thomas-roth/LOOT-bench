@@ -37,15 +37,15 @@ from g3a_bench.robots.trlc_dk1.dk1_actuators import (  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tasks"))
 save_env_render = importlib.import_module("_render").save_env_render
 
-TASK_ID = "G3A-Place-Easy-Dk1_uni"
+TASK_ID = "G3A-Place-RandS-RandT-Dk1_uni"
 OUT_DIR = Path("out/render/faults-visual")
 
 # The two recorded sessions that bracket the rebuild. The first was recorded
 # before the fixes and is kept exactly as it was; the second after them.
 DATASET_BEFORE = Path(
-    "dataset/demos/G3A-Place-Easy-Dk1_uni/G3A-Place-Easy-Dk1_uni_qc_physical.npz"
+    "dataset/demos/G3A-Place-RandS-RandT-Dk1_uni/G3A-Place-RandS-RandT-Dk1_uni_qc_physical.npz"
 )
-DATASET_AFTER = Path("out/qc/place-easy.npz")
+DATASET_AFTER = Path("out/qc/place-rands-randt.npz")
 
 BEFORE_COLOR = "#a53a24"
 AFTER_COLOR = "#3f6b34"

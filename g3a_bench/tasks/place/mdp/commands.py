@@ -10,6 +10,11 @@ At every resample the command:
    in x from the spawn region (``spawn_x_range`` vs ``target_x_range``) so
    the cube can never spawn already at the target.
 
+Each of the two draws is independently switched off by the variant
+(``random_spawn`` / ``random_target``, see ``variants.py``); a switched-off
+axis writes the region's midpoint (``FIXED_SPAWN_XY`` / ``FIXED_TARGET_XY``)
+every reset instead.
+
 Every step it recomputes the cube-to-target 3D distance and turns it into a
 continuous ``progress`` (``mdp/success.py::place_progress``) and a pure-
 position ``success`` test (``place_reached``), gated by the shared at-rest +
@@ -48,6 +53,20 @@ _TARGET_RGBA = (0.95, 0.95, 0.2, 1.0)
 SPAWN_X_RANGE = (0.20, 0.28)
 TARGET_X_RANGE = (0.36, 0.44)
 WORKSPACE_Y = (-0.18, 0.18)
+
+
+def _midpoint(r: tuple[float, float]) -> float:
+    return 0.5 * (r[0] + r[1])
+
+
+FIXED_SPAWN_XY = (_midpoint(SPAWN_X_RANGE), _midpoint(WORKSPACE_Y))
+FIXED_TARGET_XY = (_midpoint(TARGET_X_RANGE), _midpoint(WORKSPACE_Y))
+"""Poses the ``Fixed*`` variants pin to. Derived from the ranges above rather
+than written out, so the fixed pose can never drift out of the region its
+random counterpart samples."""
+
+FIXED_SPAWN_YAW = 0.0
+"""A pinned spawn is fully deterministic -- position *and* orientation."""
 
 MAX_TRAVEL_DIST = math.hypot(
     TARGET_X_RANGE[1] - SPAWN_X_RANGE[0], WORKSPACE_Y[1] - WORKSPACE_Y[0]
@@ -173,8 +192,14 @@ class PlaceCommand(CommandTerm):
         self._gate.reset(env_ids)
 
         # Cube spawn: single-object scatter draw (same API every other
-        # category uses; count=1 here, no collision to avoid).
-        xy, spawn_yaw = self._scatter.sample_poses(n, 1)
+        # category uses; count=1 here, no collision to avoid), or the pinned
+        # pose. The fixed branch consumes no RNG -- the seed-prefix rule the
+        # scatter upholds only concerns the sampled variants.
+        if self.variant.random_spawn:
+            xy, spawn_yaw = self._scatter.sample_poses(n, 1)
+        else:
+            xy = torch.tensor(FIXED_SPAWN_XY, device=dev).expand(n, 1, 2)
+            spawn_yaw = torch.full((n, 1), FIXED_SPAWN_YAW, device=dev)
         write_upright_spawn(
             [self.cube],
             xy,
@@ -184,12 +209,17 @@ class PlaceCommand(CommandTerm):
             env_ids,
         )
 
-        # Target: independent uniform draw in its own disjoint region.
-        x0, x1 = self.cfg.target_x_range
-        y0, y1 = self.cfg.target_y_range
-        u = torch.rand(n, 2, device=dev)
-        tx = x0 + u[:, 0] * (x1 - x0)
-        ty = y0 + u[:, 1] * (y1 - y0)
+        # Target: independent uniform draw in its own disjoint region, or the
+        # pinned point.
+        if self.variant.random_target:
+            x0, x1 = self.cfg.target_x_range
+            y0, y1 = self.cfg.target_y_range
+            u = torch.rand(n, 2, device=dev)
+            tx = x0 + u[:, 0] * (x1 - x0)
+            ty = y0 + u[:, 1] * (y1 - y0)
+        else:
+            tx = torch.full((n,), FIXED_TARGET_XY[0], device=dev)
+            ty = torch.full((n,), FIXED_TARGET_XY[1], device=dev)
         tz = torch.full((n,), self._half_h, device=dev)
         self.target_pos_w[env_ids] = torch.stack([tx, ty, tz], dim=-1) + origins
 

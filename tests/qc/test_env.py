@@ -14,7 +14,7 @@ from g3a_bench.qc.episode import CONTACT_THRESHOLD
 
 TASK_ID = "G3A-Stack-Low-Dk1_uni"
 
-PLACE_TASK_ID = "G3A-Place-Easy-Dk1_uni"
+PLACE_TASK_ID = "G3A-Place-RandS-RandT-Dk1_uni"
 """The one category that declares the object-filtered contact sensor.
 
 Place scores exactly one free object, so "contact with the object" is a

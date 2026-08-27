@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pure-BC-flow run of G3A-Place-Easy-Dk1_uni on the QC-FQL A/B config.
+# Pure-BC-flow run of G3A-Place-RandS-RandT-Dk1_uni on the QC-FQL A/B config.
 #
 # A/B goal: isolate the effect of the critic/distill losses on the actor.
 # Stock agents/acfql.py with actor_type=best-of-n and actor_num_samples=1:
@@ -15,7 +15,7 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
-exec "$REPO/train_qc.sh" G3A-Place-Easy-Dk1_uni "$REPO/out/qc/place-easy_2026-08-23_17-08-12.npz" \
+exec "$REPO/train_qc.sh" G3A-Place-RandS-RandT-Dk1_uni "$REPO/out/qc/place-rands-randt_2026-08-23_17-08-12.npz" \
   --seed=42 \
   --agent=agents/acfql.py \
   --agent.actor_type=best-of-n \

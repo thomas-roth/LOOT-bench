@@ -11,8 +11,10 @@ from g3a_bench.tasks.place.variants import PLACE_VARIANTS, PlaceVariantCfg
 
 
 def _task_id_parts(variant: PlaceVariantCfg) -> tuple[str, str]:
-    # One variant, no variation axis: G3A-Place-Easy-Dk1_uni.
-    return variant.name, ""
+    # The two randomness axes fill the <task>-<variation> slots:
+    # G3A-Place-RandS-FixedT-Dk1_uni.
+    spawn, target = variant.name.split("-")
+    return spawn, target
 
 
 register_category(

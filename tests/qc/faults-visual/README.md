@@ -83,8 +83,8 @@ Faults 2 and 3 are confirmed defects of unmeasured size.
 
 | Path | Recorded |
 |---|---|
-| `dataset/demos/G3A-Place-Easy-Dk1_uni/G3A-Place-Easy-Dk1_uni_qc_physical.npz` | Before the rebuild, kept as it was |
-| `out/qc/place-easy.npz` | After, the 2026-08-15 session |
+| `dataset/demos/G3A-Place-RandS-RandT-Dk1_uni/G3A-Place-RandS-RandT-Dk1_uni_qc_physical.npz` | Before the rebuild, kept as it was |
+| `out/qc/place-rands-randt.npz` | After, the 2026-08-15 session |
 
 Point a script at other data with `--dataset` / `--legacy-dataset`. A missing
 file is reported and skipped, not raised.
