@@ -9,7 +9,7 @@
 
 set -euo pipefail
 
-REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 
 exec "$REPO/train_qc.sh" G3A-Place-RandS-RandT-Dk1_uni "$REPO/out/qc/place-rands-randt_2026-08-23_17-08-12.npz" \
   --seed=42 \
