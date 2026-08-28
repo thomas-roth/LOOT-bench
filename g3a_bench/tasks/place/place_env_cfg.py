@@ -33,12 +33,13 @@ COMMAND_NAME = "task"
 # Half-width [rad] of the start-pose sample, applied to every arm joint at
 # reset. It lives on the task, not on a launcher flag, so the demo recorder and
 # the training run read the same number without either passing an override.
-# A constant start gives the policy exactly one state to generalize from, and
-# that is the best remaining explanation for the flat-zero curve of the first
-# run. Keep the value well under the recorder's 0.2 rad alignment gate
+# 0.0 gives a bit-identical start every episode: the arm begins at the home
+# pose alone, which is the state the demonstrations were aligned to. Raise it
+# to give a policy more than one start state to generalize from, but keep any
+# value well under the recorder's 0.2 rad alignment gate
 # (live_bridge/recording_mixin.RESET_THRESHOLD_RAD), which is measured against
 # the nominal pose: a wider sample and the gate fight each other.
-START_POSE_NOISE = 0.05
+START_POSE_NOISE = 0.0
 
 
 def make_place_env_cfg(

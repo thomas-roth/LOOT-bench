@@ -37,13 +37,15 @@ which pose it asks for, not whether it asks.
   check needs. It also offers a policy exactly one start state, which is the
   data-shape problem ADR-013 attacks. The constant start is inherited from
   `09e5dfa`, not introduced by the QC work; variety is new work, not a revert.
-- `place` is the first task to take that new work: it sets `0.05`
-  (`place_env_cfg.START_POSE_NOISE`). The value lives on the task because the
-  demo recorder and the QC run must use one number and neither passes an
-  override. `live_record.py --start-pose-noise` overrides it per session and
-  writes the value it used into the dataset sidecar, so a dataset says which
-  start distribution it came from. Keep any value well under the recorder's
-  0.2 rad alignment gate, which is measured against the nominal pose.
+- `place` carries the seam for that work but is back at `0.0`
+  (`place_env_cfg.START_POSE_NOISE`): it ran at `0.05` for the first demo
+  sessions and now starts every episode at the home pose alone. The value
+  lives on the task because the demo recorder and the QC run must use one
+  number and neither passes an override. `live_record.py --start-pose-noise`
+  overrides it per session and writes the value it used into the dataset
+  sidecar, so a dataset says which start distribution it came from. Keep any
+  value well under the recorder's 0.2 rad alignment gate, which is measured
+  against the nominal pose.
 
 ## Measuring start-state variety
 
