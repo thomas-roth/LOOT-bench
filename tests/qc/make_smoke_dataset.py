@@ -25,6 +25,8 @@ Then, with the qc checkout in place:
 
 from __future__ import annotations
 
+from typing import Any
+
 import argparse
 from pathlib import Path
 
@@ -33,7 +35,6 @@ from gymnasium.spaces import Space
 
 from g3a_bench.qc import make_g3a_env
 from g3a_bench.qc.transitions import MIN_REWARD, assemble_transitions
-from g3a_bench.scripts.live_bridge.mapper import action_scale_offset
 from g3a_bench.tasks.common.rewards import MIN_SHORTFALL
 
 
@@ -46,8 +47,13 @@ def _width(space: Space) -> int:
 
 
 def build(
-    obs_dim: int, action_dim: int, episodes: int, length: int, seed: int
-) -> dict[str, np.ndarray]:
+    obs_dim: int,
+    action_dim: int,
+    episodes: int,
+    length: int,
+    seed: int,
+    convention: dict[str, Any],
+) -> dict[str, Any]:
     """Synthetic rows, shaped like a recording of ``episodes`` attempts.
 
     The first episode succeeds, so the dataset carries one absorbing row; the
@@ -75,9 +81,7 @@ def build(
             actions=actions,
             rewards=rewards,
         ),
-        **dict(
-            zip(("action_scale", "action_offset"), action_scale_offset(), strict=True)
-        ),
+        **convention,
     }
 
 
@@ -98,10 +102,11 @@ def main() -> None:
     try:
         obs_dim = _width(env.observation_space)
         action_dim = _width(env.action_space)
+        convention = env.action_convention()
     finally:
         env.close()
 
-    data = build(obs_dim, action_dim, args.episodes, args.length, args.seed)
+    data = build(obs_dim, action_dim, args.episodes, args.length, args.seed, convention)
 
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)

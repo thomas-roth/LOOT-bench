@@ -1,5 +1,9 @@
 # One action unit is half a joint's travel
 
+status: to be superseded by ADR-016, which replaces joint-position actions
+with a 5 cm end-effector delta at 20 Hz. The reasoning below on why a
+*residual* scale cannot work with a bounded policy still stands.
+
 Every task uses `tasks/common/actions.NormalizedJointPositionAction`: `-1`
 commands a joint's lower limit, `+1` its upper limit, `0` the midpoint. The
 term reads the limits off the compiled model, so no file holds a copy of the

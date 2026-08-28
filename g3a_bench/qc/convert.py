@@ -1,25 +1,28 @@
 """A teleop recording -> the arrays ``qc`` trains on.
 
 ``live_record.py`` writes a LeRobot dataset: one row per timestep, holding the
-observation the operator acted from, the leader arm's pose, and the reward that
-step returned. ``qc`` wants transition arrays. :func:`convert` bridges the two.
+observation the operator acted from, the action the simulator was stepped
+with, and the reward that step returned. ``qc`` wants transition arrays. :func:`convert` bridges the two.
 
 The episode-structure rules -- what is absorbing, which rows survive, where an
 episode ends -- all live in :mod:`g3a_bench.qc.transitions` and are tested
 without a simulator. This module adds the three things around them:
 
-* **The action.** The recording stores the *leader arm's* joint positions, not
-  the action the simulator was stepped with. ``_LivePolicy`` converted one to
-  the other at record time, and this repeats that conversion exactly -- same
-  function, same gravity compensation. Anything else records one trajectory and
-  trains on another.
+* **The action.** The recording stores the raw action ``env.step()`` was given,
+  so this module copies it through rather than re-deriving it. It has to: under
+  delta control an action means "move this far from where you are", and the
+  pose it was measured against is not in the file. The old converter re-ran the
+  leader-pose conversion here, which only worked because the action was
+  absolute (ADR-016 licenses the change: "both terms exist at record time, so
+  the stored action is still exactly what the simulator stepped with").
 * **The order.** Episode structure is read off row order, so rows are sorted by
   ``(episode, frame)`` before anything looks at them.
-* **The stamp.** The action scale and offset that were in force, written into
-  the file. ``dataset.check_dataset_matches_env`` compares them against the
-  environment a training run actually builds. A dataset recorded under a
-  different convention is the failure mode this exists for: nothing raises, the
-  loss falls, and evaluation scores zero.
+* **The stamp.** The convention record in force at record time
+  (:data:`~g3a_bench.qc.dataset.STAMP_KEYS`), written into the file.
+  ``dataset.check_dataset_matches_env`` compares it against the environment a
+  training run actually builds. A dataset recorded under a different MDP is the
+  failure mode this exists for: nothing raises, the loss falls, and evaluation
+  scores zero.
 
 Reading a dataset back lives in :mod:`g3a_bench.qc.dataset`, which imports no
 lerobot: the ``qc`` venv has to load a dataset and must not carry the recording
@@ -36,6 +39,7 @@ from __future__ import annotations
 import argparse
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 # Imported here because the module needs lerobot, and for no stronger reason.
 #
@@ -55,14 +59,34 @@ import lerobot.datasets.lerobot_dataset  # noqa: F401
 import numpy as np
 from numpy.typing import NDArray
 
+from g3a_bench.qc.dataset import CONVENTION_NAME
 from g3a_bench.qc.dataset import STAMP_KEYS as STAMP_KEYS
 from g3a_bench.qc.dataset import check_dataset_matches_env as check_dataset_matches_env
 from g3a_bench.qc.dataset import load_dataset as load_dataset
 from g3a_bench.qc.transitions import QC_KEYS, assemble_transitions
-from g3a_bench.scripts.live_bridge.mapper import (
-    action_scale_offset,
-    lerobot_to_mjlab_raw_action,
-)
+from g3a_bench.scripts.live_bridge.mapper import gripper_scale_offset
+from g3a_bench.tasks.common.actions import DELTA_ORI_SCALE, DELTA_POS_SCALE
+from g3a_bench.tasks.common.env_cfg import CONTROL_STEP_S
+
+
+def action_convention(task_id: str) -> dict[str, object]:
+    """The convention record a recording made right now is stamped with.
+
+    Read from the same constants the environment builds its action terms from,
+    so this is the recording's claim about the MDP rather than a copy of one.
+    ``check_dataset_matches_env`` compares it against what an env actually
+    reports.
+    """
+    gripper_scale, gripper_offset = gripper_scale_offset()
+    return {
+        "convention": CONVENTION_NAME,
+        "delta_pos_scale": DELTA_POS_SCALE,
+        "delta_ori_scale": DELTA_ORI_SCALE,
+        "gripper_scale": gripper_scale,
+        "gripper_offset": gripper_offset,
+        "control_step_s": CONTROL_STEP_S,
+        "task_id": task_id,
+    }
 
 
 def build_dataset(
@@ -70,10 +94,10 @@ def build_dataset(
     episode_index: NDArray[np.integer],
     frame_index: NDArray[np.integer],
     observations: NDArray[np.floating],
-    leader_actions: NDArray[np.floating],
+    actions: NDArray[np.floating],
     rewards: NDArray[np.floating],
-    gravity_compensate: bool = True,
-) -> dict[str, NDArray]:
+    task_id: str,
+) -> dict[str, Any]:
     """Assemble one recording's columns into the training arrays.
 
     Kept apart from the file handling so the conversion can be tested without
@@ -83,42 +107,39 @@ def build_dataset(
         episode_index: which episode each row belongs to.
         frame_index: position of each row inside its episode.
         observations: the task's ``actor`` observation, one row per step.
-        leader_actions: the leader arm's joint pose, as recorded -- radians for
-            the arm, normalized ``[0, 1]`` for the gripper.
+        actions: the raw action ``env.step()`` was given, as recorded. Copied
+            through, not re-derived -- see the module docstring.
         rewards: the reward that step returned.
-        gravity_compensate: repeat the record-time gravity compensation.
-            Leave it on: ``_LivePolicy`` applied it, so switching it off here
-            would train on actions the simulator never saw.
+        task_id: the registered task the episodes were flown on. Stamped, so a
+            ``RandS-RandT`` recording cannot silently train against a
+            ``FixedS-FixedT`` env whose widths happen to agree.
 
     Returns:
         :data:`QC_KEYS`, :data:`STAMP_KEYS`, and ``episode_index``.
     """
     order = np.lexsort((np.asarray(frame_index), np.asarray(episode_index)))
-    leader_sorted = np.asarray(leader_actions, dtype=np.float32)[order]
+    sorted_actions = np.asarray(actions, dtype=np.float32)[order]
 
-    actions = np.array(
-        [
-            lerobot_to_mjlab_raw_action(pose, gravity_compensate=gravity_compensate)
-            for pose in leader_sorted
-        ],
-        dtype=np.float32,
-    )
-    # The same clamp the action term applies, so the stored action is the one
-    # the simulator acted on. Gravity compensation can push a pose near a joint
-    # limit a little outside the box; storing that unclamped would put actions
-    # in the dataset that a bounded policy can never emit.
-    np.clip(actions, -1.0, 1.0, out=actions)
+    # A recorded action came from a mapping that clamps and was applied by a
+    # term that clamps, so an out-of-box row means the two disagreed -- which
+    # is the one thing the seam exists to prevent. Loud, not silently clipped.
+    outside = np.abs(sorted_actions) > 1.0 + 1e-5
+    if outside.any():
+        worst = float(np.abs(sorted_actions).max())
+        raise ValueError(
+            f"{int(outside.any(axis=1).sum())} recorded actions lie outside the "
+            f"action box (worst |a| = {worst:.4f}); the recorder's mapping and "
+            "the action term disagree, and no bounded policy can reproduce them"
+        )
 
-    scale, offset = action_scale_offset()
     return {
         **assemble_transitions(
             episode_index=np.asarray(episode_index)[order],
             observations=np.asarray(observations, dtype=np.float32)[order],
-            actions=actions,
+            actions=sorted_actions,
             rewards=np.asarray(rewards, dtype=np.float32).reshape(-1)[order],
         ),
-        "action_scale": scale,
-        "action_offset": offset,
+        **action_convention(task_id),
     }
 
 
@@ -148,12 +169,24 @@ def load_columns(
 
     dataset = LeRobotDataset("live_record", root=str(root))
     frames = dataset.hf_dataset
+    # lerobot stores a per-frame ``task_index`` into ``meta.tasks``, a frame
+    # indexed *by the task string*, so the id comes back through a reverse map
+    # rather than through positional lookup.
+    task_by_index = {
+        int(index): str(task)
+        for task, index in dataset.meta.tasks["task_index"].items()
+    }
     return {
         "episode_index": np.array(frames["episode_index"]) + episode_offset,
         "frame_index": np.array(frames["frame_index"]),
         "observations": np.array(frames["observation.state"], dtype=np.float32),
-        "leader_actions": np.array(frames["action"], dtype=np.float32),
+        "actions": np.array(frames["action"], dtype=np.float32),
         "rewards": np.array(frames["next.reward"], dtype=np.float32).reshape(-1),
+        # The task each frame was flown on. The stamp needs one value, so
+        # load_many insists every row of every session agrees.
+        "task_ids": np.array(
+            [task_by_index[int(index)] for index in frames["task_index"]], dtype=object
+        ),
     }
 
 
@@ -182,7 +215,7 @@ def convert(
     success_dirs: Sequence[str | Path],
     output_path: str | Path,
     failure_dirs: Sequence[str | Path] = (),
-) -> dict[str, NDArray]:
+) -> dict[str, Any]:
     """Convert one or more recording sessions to a ``.npz``.
 
     Several sessions go in one call rather than through a separate merge step.
@@ -200,7 +233,17 @@ def convert(
             last row is dropped rather than bootstrapped through.
     """
     columns = load_many([*success_dirs, *failure_dirs])
-    data = build_dataset(**columns)  # type: ignore[arg-type]
+    task_ids = set(columns.pop("task_ids").tolist())
+    # One dataset, one task. Every `place` variant shares its observation and
+    # action widths, so a mixed file would load against any of them without a
+    # word -- which is how fourteen runs of the alpha ladder trained a
+    # RandS-RandT recording against a FixedS-FixedT env.
+    if len(task_ids) != 1:
+        raise ValueError(
+            f"recordings span {len(task_ids)} tasks ({sorted(task_ids)}); a "
+            "dataset stamps one task id, so convert them separately"
+        )
+    data = build_dataset(task_id=task_ids.pop(), **columns)  # type: ignore[arg-type]
 
     # The splat hides savez's own keyword arguments from the type checker,
     # which then reads an array as a candidate for allow_pickle.
@@ -209,11 +252,15 @@ def convert(
     return data
 
 
-def _report(data: dict[str, NDArray], output_path: str | Path) -> None:
+def _report(data: dict[str, Any], output_path: str | Path) -> None:
     rewards = data["rewards"]
     episodes = np.unique(data["episode_index"])
     successes = int((data["masks"] == 0.0).sum())
     print(f"[INFO] wrote {output_path}")
+    print(f"       task:        {data['task_id']}")
+    print(
+        f"       convention:  {data['convention']} ({data['control_step_s']:g} s/step)"
+    )
     print(f"       transitions: {len(rewards)} over {len(episodes)} episodes")
     print(f"       successes:   {successes} of {len(episodes)}")
     print(f"       observations {data['observations'].shape}")

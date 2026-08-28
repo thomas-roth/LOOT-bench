@@ -1,14 +1,9 @@
 """Environment configuration for the place task category.
 
-The actor observation carries the last action, as every category's does. This
-category once dropped it: diagnostics on a QC-FQL policy trained under the old
-pipeline showed it keyed on the previous action about twice as strongly as on
-the cube position, and reached on momentum with an empty gripper. That policy
-was trained in the action space step 5 retired, where no action could carry the
-gripper to the cube and momentum was the only signal left, so the finding does
-not carry over unexamined. Re-read it on a fresh dataset instead of assuming
-either way -- fit ``tests/qc/bc_gate.py`` twice, once on the full observation
-and once with the last-action columns dropped.
+The one-cube sanity check the QC pipeline is brought up on: 35 observation
+values, a 7-wide end-effector delta action, and a 15 s episode. The budget is
+this category's only departure from the shared workbench's defaults, and
+ADR-016 holds the demo durations behind the number.
 """
 
 from mjlab.entity import EntityCfg
@@ -113,7 +108,13 @@ def make_place_env_cfg(
         task_terminations=task_terminations,
         sensors=sensors,
         env_spacing=1.5,
-        episode_length_s=10.0,
+        # 15 s is 300 steps at 20 Hz -- exactly robomimic `can`, whose
+        # gamma-horizon fraction it also matches. The old 10 s truncated 20 of
+        # the 99 recorded demos, severing each one's successful ending; 15 s
+        # keeps 98 % of episodes whole. 18 s would keep the last two and is
+        # rejected for leaving the reference envelope to buy 100 % over 98 %.
+        # See ADR-016's durations table.
+        episode_length_s=15.0,
         start_pose_noise=START_POSE_NOISE,
         nconmax=120,
         njmax=700,

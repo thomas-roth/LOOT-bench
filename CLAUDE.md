@@ -191,6 +191,9 @@ actuated).
   asserts the two agree. mjlab's plain `JointPositionActionCfg` uses a residual
   scale instead, which suits an unbounded PPO policy and makes the task
   unreachable for a tanh-bounded one.
+  **Being replaced:** ADR-016 moves every task to 20 Hz control and a ±5 cm
+  end-effector delta (DiffIK on the grasp site) instead. Read it before
+  touching the action term, the control rate, or the teleop mapper.
 - **Fixed props (boards, fields) are fixed-base entities** — a `MjSpec` body with
   *no* free joint, which mjlab auto-wraps as a mocap body. Position them with
   `EntityCfg(init_state=EntityCfg.InitialStateCfg(pos=...))`, **not** the spec

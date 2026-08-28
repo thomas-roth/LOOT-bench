@@ -64,7 +64,7 @@ import numpy as np
 # category; see the category env_cfg.py files for the ordering guarantee.
 _EE_TERM_NAME = "ee_pose"
 _GOAL_TERM_NAME = "command"
-_COMMON_TERMS = {"joint_pos", "joint_vel", _EE_TERM_NAME, _GOAL_TERM_NAME, "actions"}
+_COMMON_TERMS = {"joint_pos", "joint_vel", _EE_TERM_NAME, _GOAL_TERM_NAME}
 
 _PANEL_WIDTH = 92
 

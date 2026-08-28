@@ -7,13 +7,15 @@ lerobot; reading one happens in the ``qc`` venv, which does not and must not
 JAX then aborts at import). A training run therefore reaches
 :func:`load_dataset` without paying for the recording stack.
 
-The check itself is the point. A dataset recorded under a different action
-convention is a silent failure: nothing raises, the loss falls, and every
-evaluation episode scores zero.
+The check itself is the point. A dataset recorded under a different MDP is a
+silent failure: nothing raises, the loss falls, and every evaluation episode
+scores zero. Every field in :data:`STAMP_KEYS` is one way that has already
+happened or could happen — see the per-field notes there.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -22,18 +24,52 @@ from numpy.typing import NDArray
 
 from g3a_bench.qc.transitions import QC_KEYS as QC_KEYS
 
-STAMP_KEYS = frozenset({"action_scale", "action_offset"})
-"""Keys recording the action convention the dataset was built under.
+CONVENTION_NAME = "ee-delta-20hz"
+"""The action convention this repo currently records and trains under.
 
-Metadata, like ``episode_index`` -- strip everything outside :data:`QC_KEYS`
+Bump it whenever the meaning of an action changes in a way the other stamped
+numbers would not catch. It is checked first, so a dataset from an older
+convention says *that* rather than reporting whichever number happens to
+differ.
+"""
+
+STAMP_KEYS = frozenset(
+    {
+        "convention",
+        "delta_pos_scale",
+        "delta_ori_scale",
+        "gripper_scale",
+        "gripper_offset",
+        "control_step_s",
+        "task_id",
+    }
+)
+"""Keys recording the MDP the dataset was built under.
+
+* ``convention`` — the name above. Catches every change at once.
+* ``delta_pos_scale`` / ``delta_ori_scale`` — [m] and [rad] one action unit
+  asks for. A recording made under a different box describes different motion.
+* ``gripper_scale`` / ``gripper_offset`` — the normalized stroke mapping. This
+  is the old ADR-011 stamp, narrowed to the one term that still has a scale.
+* ``control_step_s`` — [s] per action. Never stamped before, so changing the
+  rate used to be silent, which is exactly the failure ADR-011 exists for.
+* ``task_id`` — closes an already-realised hole: every ``place`` variant shares
+  its observation and action widths, so a ``RandS-RandT`` dataset trained
+  silently against a ``FixedS-FixedT`` env for all fourteen runs of the alpha
+  ladder.
+
+Metadata, like ``episode_index`` — strip everything outside :data:`QC_KEYS`
 before ``Dataset.create``, or qc's replay buffer will demand these keys from
 every online transition too.
 """
 
-
-class _ActionTerm(Protocol):
-    scale: Any
-    offset: Any
+_NUMERIC_FIELDS = (
+    "delta_pos_scale",
+    "delta_ori_scale",
+    "gripper_scale",
+    "gripper_offset",
+    "control_step_s",
+)
 
 
 class _Env(Protocol):
@@ -42,20 +78,21 @@ class _Env(Protocol):
     observation_space: Any
     action_space: Any
 
-    def action_term(self) -> _ActionTerm: ...
+    def action_convention(self) -> Mapping[str, Any]: ...
 
 
-def _as_row(value: Any) -> NDArray[np.float32]:
-    """A float32 1-D copy of a stamp value or an action-term buffer.
+def _as_scalar(value: Any) -> Any:
+    """One stamp value, out of whatever container it arrived in.
 
-    The term's buffers are torch tensors on the simulation device, and
-    ``np.asarray`` refuses a CUDA tensor outright -- so the check that exists
-    to catch a stale dataset would otherwise raise ``TypeError`` on every GPU
-    run, which is every real run.
+    ``np.load`` hands back 0-d arrays, an action term hands back torch tensors
+    on the simulation device, and ``np.asarray`` refuses a CUDA tensor outright
+    -- so the check that exists to catch a stale dataset would otherwise raise
+    ``TypeError`` on every GPU run, which is every real run.
     """
     if hasattr(value, "detach"):
         value = value.detach().cpu().numpy()
-    return np.asarray(value, dtype=np.float32).reshape(-1)
+    array = np.asarray(value)
+    return array.reshape(()).item() if array.size == 1 else array
 
 
 def check_dataset_matches_env(data: dict[str, NDArray], env: _Env) -> None:
@@ -64,25 +101,15 @@ def check_dataset_matches_env(data: dict[str, NDArray], env: _Env) -> None:
     Every check here guards a failure that is otherwise silent: training runs
     to completion, the loss falls, and every evaluation episode scores zero.
 
-    It does **not** check task identity. Two tasks whose observation and action
-    widths agree would pass -- across categories the widths differ, so this
-    only leaves variants of one category unguarded. Stamping the recording's
-    task name (``LeRobotDatasetMetadata.tasks``) would close it; that is left
-    until there is a real recording to read it from.
-
     Args:
         data: a dataset from ``convert.build_dataset``, or one loaded back from
             the ``.npz`` it was saved to.
         env: the environment a training run would use.
 
     Raises:
-        ValueError: on any disagreement, naming the two values.
+        ValueError: on any disagreement, naming the field that differs.
     """
-    term = env.action_term()
-    stamped_scale = _as_row(data["action_scale"])
-    stamped_offset = _as_row(data["action_offset"])
-    env_scale = _as_row(term.scale)
-    env_offset = _as_row(term.offset)
+    convention = env.action_convention()
 
     obs_width = int(np.asarray(data["observations"]).shape[1])
     env_obs_width = int(env.observation_space.shape[0])
@@ -101,16 +128,27 @@ def check_dataset_matches_env(data: dict[str, NDArray], env: _Env) -> None:
             f"{env_action_width}"
         )
 
-    if not np.allclose(stamped_scale, env_scale, atol=1e-5):
-        raise ValueError(
-            f"dataset action scale {stamped_scale} but the environment's is "
-            f"{env_scale}; the recording predates the current action convention"
+    # Name first: a dataset from an older convention should say so, rather
+    # than reporting whichever of the numbers below happens to differ.
+    for field in ("convention", *_NUMERIC_FIELDS, "task_id"):
+        if field not in data:
+            raise ValueError(
+                f"dataset carries no {field!r}; it predates the current action "
+                f"convention {convention['convention']!r} and has to be "
+                "re-recorded"
+            )
+        stamped = _as_scalar(data[field])
+        expected = _as_scalar(convention[field])
+        same = (
+            bool(np.isclose(stamped, expected, atol=1e-6))
+            if field in _NUMERIC_FIELDS
+            else stamped == expected
         )
-    if not np.allclose(stamped_offset, env_offset, atol=1e-5):
-        raise ValueError(
-            f"dataset action offset {stamped_offset} but the environment's is "
-            f"{env_offset}; the recording predates the current action convention"
-        )
+        if not same:
+            raise ValueError(
+                f"dataset {field} {stamped!r} but the environment's is "
+                f"{expected!r}; the recording describes a different MDP"
+            )
 
 
 def load_dataset(path: str | Path, env: _Env | None = None) -> dict[str, NDArray]:

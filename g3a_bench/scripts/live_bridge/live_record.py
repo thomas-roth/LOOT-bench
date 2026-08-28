@@ -79,11 +79,12 @@ from mjlab.viewer.native.visualizer import MujocoNativeDebugVisualizer
 import g3a_bench  # noqa: F401
 from g3a_bench.robots.trlc_dk1.dk1_constants import HOME_JOINT_POS, START_JOINT_POS
 from g3a_bench.scripts.live_bridge.mapper import (
-    lerobot_to_mjlab_raw_action,
+    leader_to_delta_action,
 )
 from g3a_bench.scripts.live_bridge.recorder import Recorder
 from g3a_bench.scripts.live_bridge.recording_mixin import RecordingViewerMixin
 from g3a_bench.scripts.utils.viewer_wrapper import NativeViewerWrapper
+from g3a_bench.tasks.common.actions import EE_DELTA_ACTION_NAME
 
 
 def _get_pip_app() -> "QApplication":
@@ -104,8 +105,10 @@ DEMOS_DIR = Path(__file__).resolve().parents[3] / "out" / "demos"
 USE_FOLLOWER_STATE_FOR_SIM = (
     False  # True → follower joint obs drives sim instead of leader action
 )
-# Ghost-arm colors, feedback timing, the start-pose threshold and the recording
-# state machine all live in recording_mixin (shared with the Viser viewer).
+# Ghost-arm colors, feedback timing and the recording state machine all live
+# in recording_mixin. The episode-start gate lives in mapper.leader_is_aligned:
+# it asks whether one unclamped action reaches the leader from the reset pose,
+# which is a question about the action box, not about joint angles.
 
 # Sourced from the robot constant so the pose the operator aligns to and the
 # pose the env resets to cannot drift apart.
@@ -115,10 +118,6 @@ LIVE_START_POSE: dict[str, float] = dict(START_JOINT_POS)
 _SIM_START_POSE: dict[str, float] = {
     **LIVE_START_POSE,
 }
-_LIVE_START_POSE_REL = np.array(
-    [_SIM_START_POSE[f"joint{i}"] - HOME_JOINT_POS[f"joint{i}"] for i in range(1, 7)],
-    dtype=np.float32,
-)
 
 
 KEY_SAVE_SUCCESS = KEY_V
@@ -238,26 +237,50 @@ def _hw_loop(
 
 
 class _LivePolicy:
-    """Viewer policy: returns the latest leader action from the shared list.
+    """Viewer policy: the action that chases the latest leader pose.
 
-    Each time the viewer calls ``__call__(obs)``, the policy reads the
-    most recent action that the HW thread pushed into ``action_list``.
+    Each time the viewer calls ``__call__(obs)``, the policy reads the most
+    recent leader pose the HW thread pushed into ``action_list`` and maps it
+    to a delta action from *where the sim arm is right now* — so it emits
+    exactly what a bounded policy could emit, and the recorded action is the
+    one ``env.step()`` takes.
+
+    The current pose comes off the action term itself
+    (``EndEffectorDeltaAction.frame_pose``), which is the same buffer the IK
+    solver reads a moment later. Reading it from the ``ee_pose`` observation
+    instead would mean a different frame and a lossy 6-D rotation.
     """
 
-    def __init__(self, action_list: list, device: str):
+    def __init__(self, env, action_list: list, device: str):
+        self._env = env
         self.action_list = action_list
         self._device = device
         self._last_raw_action = torch.zeros(1, 7, device=device)
         self.latest_leader_action: np.ndarray | None = None
+        self.latest_raw_action: np.ndarray | None = None
+        """The action last returned, as the recorder stores it. Published so
+        the dataset holds exactly what ``env.step()`` was given rather than a
+        second, re-derived copy of it (ADR-011)."""
+
+    def _current_grasp_pose(self) -> tuple[np.ndarray, np.ndarray]:
+        """The sim grasp site's pose in the robot base frame."""
+        inner = self._env.env
+        term = inner.action_manager.get_term(EE_DELTA_ACTION_NAME)
+        pos_w, quat_w = term.frame_pose
+        # frame_pose is world-frame; the leader's FK is base-frame. One
+        # env_origin apart, and silently wrong if not subtracted.
+        pos = (pos_w - inner.scene.env_origins)[0].detach().cpu().numpy()
+        return pos, quat_w[0].detach().cpu().numpy()
 
     def __call__(self, obs):
         leader_action = self.action_list[0]
         if leader_action is not None:
             self.latest_leader_action = leader_action
-            raw_action = lerobot_to_mjlab_raw_action(
-                leader_action,
-                gravity_compensate=True,
+            current_pos, current_quat = self._current_grasp_pose()
+            raw_action = leader_to_delta_action(
+                leader_action, current_pos, current_quat
             )
+            self.latest_raw_action = raw_action
             self._last_raw_action = (
                 torch.from_numpy(raw_action).unsqueeze(0).to(self._device)
             )
@@ -303,7 +326,6 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
             robot_obs_list=robot_obs_list,
             hw_failed=hw_failed,
             mj_model=mj_model,
-            live_start_pose_rel=_LIVE_START_POSE_REL,
             task=task,
             num_episodes=num_episodes,
             debug_timing=debug_timing,
@@ -836,9 +858,15 @@ def main():
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
     print(f"[INFO] Using device: {device}")
 
-    # 1. Load task config (play mode: infinite, no noise).
-    #    success termination stays active (auto-saves as success).
-    cfg = load_env_cfg(args.task, play=True)
+    # 1. Load task config under the *training* episode length, not play's
+    #    endless one. The recorder used to build with play=True, so it was the
+    #    one place with no timeout while training and eval always capped —
+    #    which is how 20 of the 99 place demos came to run past the budget and
+    #    lose their successful endings at conversion. An over-long episode is
+    #    now visibly truncated while the operator flies it (ADR-016).
+    #    `time_out=False` keeps the truncation out of `terminated`, so the
+    #    success termination still auto-saves as success.
+    cfg = load_env_cfg(args.task, play=False)
     cfg.terminations["time_out"].time_out = False
     #    The start pose is sampled, so the sim arm and the leader differ a
     #    little at frame 0 and the first action is a small step back toward the
@@ -949,7 +977,7 @@ def main():
         )
 
     # 8. Create live policy and viewer.
-    live_policy = _LivePolicy(action_list, device)
+    live_policy = _LivePolicy(env, action_list, device)
 
     print("[INFO] Starting native MuJoCo viewer")
     print("[INFO] Move the leader arm to control the sim and follower")

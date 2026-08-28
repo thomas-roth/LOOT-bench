@@ -11,6 +11,10 @@ import pytest
 
 from g3a_bench.qc import G3aEnv, is_g3a_task
 from g3a_bench.qc.episode import CONTACT_THRESHOLD
+from g3a_bench.tasks.common.actions import (
+    EE_DELTA_ACTION_NAME,
+    GRIPPER_ACTION_NAME,
+)
 
 TASK_ID = "G3A-Stack-Low-Dk1_uni"
 
@@ -68,24 +72,31 @@ def _split(env: G3aEnv, rows: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 
 
 def _hold_action(env: G3aEnv) -> np.ndarray:
-    """The action that commands the robot's *current* joint pose.
+    """The action that parks the arm where it is and holds the gripper open.
 
-    Inverted from the action term's own scale and offset rather than from a
-    second copy of the mapping, so it stays correct for any robot whose limits
-    differ (see ``tasks/common/actions.py``). Stepping this repeatedly parks
-    the arm where the reset left it, which is what lets a test move the gripper
-    alone.
+    A zero delta is "stay where you are" by construction now (ADR-016), so the
+    arm half needs nothing computed. The gripper is still an absolute
+    normalized stroke, and it is inverted from the term's own scale and offset
+    rather than from a second copy of the mapping, so it stays correct for any
+    robot whose limits differ (see ``tasks/common/actions.py``).
     """
-    term = env.action_term()
+    term = env.unwrapped_env.action_manager.get_term(GRIPPER_ACTION_NAME)
     pos = term._entity.data.joint_pos[:, term._target_ids]
-    action = (pos - term._offset) / term._scale
-    return action[0].detach().cpu().numpy().astype(np.float32)
+    gripper = float(((pos - term._offset) / term._scale)[0, 0])
+    shape = env.action_space.shape
+    assert shape is not None
+    action = np.zeros(shape[0], dtype=np.float32)
+    action[_gripper_index(env)] = gripper
+    return action
 
 
 def _gripper_index(env: G3aEnv) -> int:
-    """Which action column drives the gripper, read off the term's joint names."""
-    names = list(env.action_term()._target_names)
-    return next(i for i, name in enumerate(names) if "gripper" in name)
+    """Which action column drives the gripper: the last one, after the 6-D
+    delta. Asserted rather than assumed, so a reordering fails here."""
+    manager = env.unwrapped_env.action_manager
+    assert manager.get_term(EE_DELTA_ACTION_NAME).action_dim == 6
+    assert manager.get_term(GRIPPER_ACTION_NAME).action_dim == 1
+    return 6
 
 
 def _peak_to_peak(block: np.ndarray) -> float:

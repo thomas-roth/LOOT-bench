@@ -94,7 +94,6 @@ class Harness(RecordingViewerMixin):
             robot_obs_list=[None],
             hw_failed=[False],
             mj_model=None,
-            live_start_pose_rel=np.zeros(6, dtype=np.float32),
             task="test-task",
             num_episodes=num_episodes,
             debug_timing=False,

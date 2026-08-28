@@ -1,20 +1,57 @@
+"""The teleop half of the shared action convention.
+
+A leader-arm pose is a set of joint angles; an action is an end-effector delta
+(``tasks/common/actions.py``). :func:`leader_to_delta_action` is the bridge:
+forward-kinematics the leader pose to the grasp-site pose it is asking for,
+then ask :func:`~g3a_bench.tasks.common.actions.delta_action_from_poses` for
+the action that reaches it from where the simulated arm currently is.
+
+**The mapping and the action term cannot disagree**, because neither owns the
+arithmetic. Both call into ``tasks/common/actions.py``: the term applies
+mjlab's ``apply_delta_pose``, this module inverts it through mjlab's
+``compute_pose_error``, and the two scales are read from one pair of
+constants. That is the seam where a demonstration and an evaluation otherwise
+stop describing the same task, silently.
+
+Gravity compensation is gone. It pushed the commanded joint target past an
+open-loop PD sag, which near a joint limit landed outside the action box
+(measured 1.014 on joint5). Differential IK closes the loop on the *measured*
+grasp-site pose and corrects the sag itself, so the compensation has nothing
+left to invert -- and the out-of-box case it caused goes with it.
+"""
+
 import functools
 
 import mujoco
 import numpy as np
+import torch
+from mjlab.utils.lab_api.math import quat_from_matrix
 
 from g3a_bench.robots.trlc_dk1.dk1_actuators import ARM_JOINTS, GRIPPER_COMMAND_RANGE
-from g3a_bench.robots.trlc_dk1.dk1_constants import get_unimanual_dk1_robot_cfg
-from g3a_bench.tasks.common.actions import normalized_scale_offset
+from g3a_bench.robots.trlc_dk1.dk1_constants import (
+    DK1_GRASP_SITE,
+    START_JOINT_POS,
+    get_unimanual_dk1_robot_cfg,
+)
+from g3a_bench.tasks.common.actions import (
+    delta_action_from_poses,
+    normalized_scale_offset,
+    pose_within_one_delta,
+)
 
 _ARM_JOINT_NAMES = list(ARM_JOINTS.keys())
 
 ACTUATED_JOINT_NAMES: tuple[str, ...] = tuple(_ARM_JOINT_NAMES) + ("gripper_left",)
-"""The joints the action term drives, in the order it expects them.
+"""The joints a leader pose names, in the order it arrives in.
 
 The gripper is a coupled pair, so only ``gripper_left`` is actuated;
-``gripper_right`` follows it through an equality constraint.
+``gripper_right`` follows it through an equality constraint. Note this is no
+longer the shape of an action: an action is six delta channels plus the
+gripper, not seven joints.
 """
+
+GRIPPER_ACTION_INDEX = 6
+"""Where the gripper sits in the 7-wide action, after the 6-D delta."""
 
 # Note, carried from an earlier revision: this leader's joint1 was
 # hand-calibrated (DM_CAN.set_zero_position — see
@@ -44,15 +81,17 @@ def joint_pos_limits() -> tuple[np.ndarray, np.ndarray]:
     return limits[:, 0], limits[:, 1]
 
 
-def action_scale_offset() -> tuple[np.ndarray, np.ndarray]:
-    """The ``(scale, offset)`` the joint action term applies.
+def gripper_scale_offset() -> tuple[float, float]:
+    """The ``(scale, offset)`` the gripper action term applies.
 
     The same numbers ``tasks.common.actions.NormalizedJointPositionAction``
-    derives on the task side, from the same model and the same helper. That is
-    what lets a teleop action and a policy action mean the same thing.
+    derives on the task side, from the same model and the same helper -- which
+    is what lets a teleop gripper command and a policy's mean the same thing.
+    Scalars: one gripper joint is actuated.
     """
     lower, upper = joint_pos_limits()
-    return normalized_scale_offset(lower, upper)
+    scale, offset = normalized_scale_offset(lower, upper)
+    return float(scale[GRIPPER_ACTION_INDEX]), float(offset[GRIPPER_ACTION_INDEX])
 
 
 def mjlab_gripper_meters(norm_val: float) -> float:
@@ -82,79 +121,124 @@ def lerobot_to_mjlab_ctrl(joint_pos: np.ndarray) -> np.ndarray:
     return ctrl
 
 
-_GRAVITY_STIFFNESS = np.array(
-    [ARM_JOINTS[n].kp for n in _ARM_JOINT_NAMES], dtype=np.float32
-)
-
-
 @functools.cache
-def _dk1_scratch() -> tuple[mujoco.MjModel, mujoco.MjData, np.ndarray]:
+def _dk1_scratch() -> tuple[mujoco.MjModel, mujoco.MjData, int]:
     """The compiled DK1, built once and shared.
 
     Standalone and non-rendering. It answers two questions that both need the
-    model rather than the MJCF text: what each joint's hard limit is, and what
-    gravity torque holds a candidate pose. Built on first use, so importing
-    this module stays cheap for callers that need neither.
+    model rather than the MJCF text: what each joint's hard limit is, and
+    where the grasp site ends up for a candidate joint pose. Built on first
+    use, so importing this module stays cheap for callers that need neither.
     """
     from mjlab.entity import Entity
 
     model = Entity(get_unimanual_dk1_robot_cfg()).compile()
     data = mujoco.MjData(model)
-    dofadr = np.array(
-        [
-            model.jnt_dofadr[mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, n)]
-            for n in _ARM_JOINT_NAMES
-        ]
-    )
-    return model, data, dofadr
+    site_id = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, DK1_GRASP_SITE)
+    assert site_id >= 0, f"no site named {DK1_GRASP_SITE!r} in the compiled DK1"
+    return model, data, site_id
 
 
-def gravity_compensate_ctrl(ctrl: np.ndarray) -> np.ndarray:
-    """Push the commanded arm target past gravity sag so the PD actuator
-    actually settles at ``ctrl`` instead of short of it.
+def leader_grasp_pose(joint_pos: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """The grasp-site pose (position, ``wxyz`` quaternion) a leader pose asks for.
 
-    The actuators are soft PD position controllers (~2 Hz, tuned for RL
-    residual steps) with no gravity feedforward, so a large one-shot teleop
-    target — e.g. lifting the arm well above home — sags under gravity and
-    never reaches the commanded angle. Standard fix: command
-    ``target + g(target) / kp`` instead of ``target``, where ``g(target)`` is
-    the gravity torque needed to hold that pose statically (kp is the
-    actuator's own PD stiffness, so this exactly cancels the steady-state
-    error). Gripper (index 6) passes through unchanged.
+    Forward kinematics on a scratch DK1 whose base sits at the origin, so the
+    result is in the **robot base frame** -- the frame ``ee_pose_w`` publishes
+    and the frame :func:`leader_to_delta_action` expects its ``current`` pose
+    in. The orientation goes through mjlab's ``quat_from_matrix``, the same
+    conversion differential IK applies to the same site.
+
+    Args:
+        joint_pos: (7,) leader pose -- radians for the arm, normalized
+            ``[0, 1]`` for the gripper, as the hardware reports it.
     """
-    model, data, dofadr = _dk1_scratch()
+    model, data, site_id = _dk1_scratch()
+    ctrl = lerobot_to_mjlab_ctrl(joint_pos)
+    data.qpos[:] = 0.0
     data.qvel[:] = 0.0
-    for name, value in zip(_ARM_JOINT_NAMES, ctrl[:6], strict=True):
+    for name, value in zip(ACTUATED_JOINT_NAMES, ctrl, strict=True):
         jid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, name)
         data.qpos[model.jnt_qposadr[jid]] = value
     mujoco.mj_forward(model, data)
-    gravity_torque = data.qfrc_bias[dofadr]
 
-    compensated = ctrl.copy()
-    compensated[:6] = ctrl[:6] + gravity_torque / _GRAVITY_STIFFNESS
-    return compensated
+    pos = np.array(data.site_xpos[site_id], dtype=np.float32)
+    xmat = torch.as_tensor(
+        np.array(data.site_xmat[site_id], dtype=np.float32).reshape(1, 3, 3)
+    )
+    quat = quat_from_matrix(xmat)[0].numpy().astype(np.float32)
+    return pos, quat
 
 
-def lerobot_to_mjlab_raw_action(
-    joint_pos: np.ndarray,
-    gravity_compensate: bool = False,
+def leader_to_delta_action(
+    joint_pos: np.ndarray, current_pos: np.ndarray, current_quat: np.ndarray
 ) -> np.ndarray:
-    """Convert a leader-arm pose to the action that commands it in the sim.
+    """The 7-wide action that drives the sim arm toward a leader pose.
 
-    "Raw" is mjlab's word for the action before the term applies its scale and
-    offset -- that is, exactly what ``env.step()`` takes. Under the shared
-    convention (``tasks.common.actions``) the term computes
-    ``target = action * scale + offset``, so this inverts it. The result is
-    inside ``[-1, 1]`` for any pose the joints can hold.
+    Six delta channels for the arm, then the gripper as an absolute normalized
+    stroke. The result is inside ``[-1, 1]`` by construction, so it is an
+    action a bounded policy could have emitted.
 
     Args:
-        gravity_compensate: If True, push the target past gravity sag (see
-            gravity_compensate_ctrl) before computing the action. Opt-in and
-            off by default — record_replay.py and tests rely on the exact
-            uncompensated mapping.
+        joint_pos: (7,) leader pose, as the hardware reports it.
+        current_pos: (3,) the simulated grasp site's current position, **in
+            the robot base frame** — subtract ``env_origins`` from the sim's
+            world-frame site position. Mixing frames is wrong by one env
+            origin, and silently so.
+        current_quat: (4,) the simulated grasp site's current orientation,
+            ``wxyz``.
+
+    Returns:
+        (7,) float32 raw action, exactly what ``env.step()`` takes.
     """
-    ctrl = lerobot_to_mjlab_ctrl(joint_pos)
-    if gravity_compensate:
-        ctrl = gravity_compensate_ctrl(ctrl)
-    scale, offset = action_scale_offset()
-    return (ctrl - offset) / scale
+    target_pos, target_quat = leader_grasp_pose(joint_pos)
+    delta = delta_action_from_poses(
+        torch.as_tensor(np.asarray(current_pos, dtype=np.float32)).reshape(1, 3),
+        torch.as_tensor(np.asarray(current_quat, dtype=np.float32)).reshape(1, 4),
+        torch.as_tensor(target_pos).reshape(1, 3),
+        torch.as_tensor(target_quat).reshape(1, 4),
+    )
+
+    action = np.empty(7, dtype=np.float32)
+    action[:6] = delta[0].numpy()
+    scale, offset = gripper_scale_offset()
+    gripper_m = mjlab_gripper_meters(float(joint_pos[GRIPPER_ACTION_INDEX]))
+    action[GRIPPER_ACTION_INDEX] = np.clip((gripper_m - offset) / scale, -1.0, 1.0)
+    return action
+
+
+@functools.cache
+def reset_grasp_pose() -> tuple[np.ndarray, np.ndarray]:
+    """The grasp-site pose every episode starts from, in the base frame.
+
+    ``START_JOINT_POS`` seen through the same forward kinematics the leader is
+    measured with, so :func:`leader_is_aligned` compares like with like.
+    """
+    pose = np.zeros(7, dtype=np.float32)
+    pose[:6] = [START_JOINT_POS[name] for name in _ARM_JOINT_NAMES]
+    return leader_grasp_pose(pose)
+
+
+def leader_is_aligned(joint_pos: np.ndarray) -> bool:
+    """Whether an episode may start with the leader held at this pose.
+
+    True when one unclamped action carries the arm from the reset pose to
+    where the leader is asking. ADR-016 measured the alternative: 66 of 99
+    recorded demos opened with the arm snapping toward an already-parked
+    leader, a jump no bounded policy can reproduce. Gating here rather than
+    clamping the opening action keeps every stored action equal to the one
+    ``env.step()`` took.
+
+    The gate reads the *leader*, never the sim arm — the env reset yanks the
+    sim arm to the start pose, which would satisfy a sim-based gate before the
+    operator has aligned anything.
+    """
+    target_pos, target_quat = leader_grasp_pose(joint_pos)
+    reset_pos, reset_quat = reset_grasp_pose()
+    return bool(
+        pose_within_one_delta(
+            torch.as_tensor(reset_pos).reshape(1, 3),
+            torch.as_tensor(reset_quat).reshape(1, 4),
+            torch.as_tensor(target_pos).reshape(1, 3),
+            torch.as_tensor(target_quat).reshape(1, 4),
+        )[0].item()
+    )

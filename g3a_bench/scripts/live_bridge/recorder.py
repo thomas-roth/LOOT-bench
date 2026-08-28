@@ -16,7 +16,6 @@ class Recorder:
         qpos_dim: int | None = None,
         qvel_dim: int | None = None,
         device: str | None = None,
-        gravity_compensate: bool = True,
         start_pose_noise: float | None = None,
     ):
         features = {
@@ -76,7 +75,6 @@ class Recorder:
         self._qpos_dim = qpos_dim
         self._qvel_dim = qvel_dim
         self._device = device
-        self._gravity_compensate = gravity_compensate
         # The start-pose sample half-width [rad] the episodes were recorded
         # under. A run must evaluate under the same one, and a dataset that
         # does not say which it used cannot be checked against a run.
@@ -87,8 +85,8 @@ class Recorder:
         # single shared counter mis-mapped seeds whenever the two were interleaved.
         self._episode_seeds: dict[bool, dict[str, int]] = {True: {}, False: {}}
         self._episodes_saved: dict[bool, int] = {True: 0, False: 0}
-        # g3a-bench's own recording metadata (seeds, operator, gravity
-        # compensation) doesn't fit lerobot's closed DatasetInfo schema — it's
+        # g3a-bench's own recording metadata (seeds, operator, start-pose
+        # noise) doesn't fit lerobot's closed DatasetInfo schema — it's
         # accumulated here and persisted to a sidecar file, one dict per
         # dataset so a later write (e.g. close()'s operator_id) never clobbers
         # an earlier one (e.g. _commit_staged()'s episode_seeds).
@@ -240,7 +238,6 @@ class Recorder:
         ep_index = self._episodes_saved[success]
         self._episodes_saved[success] += 1
         extra = self._extra_info[success]
-        extra["gravity_compensate"] = self._gravity_compensate
         if self._start_pose_noise is not None:
             extra["start_pose_noise"] = self._start_pose_noise
         if seed is not None:

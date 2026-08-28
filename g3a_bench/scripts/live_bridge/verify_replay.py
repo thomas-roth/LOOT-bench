@@ -69,14 +69,13 @@ from mjlab.tasks.registry import load_env_cfg
 
 import g3a_bench  # noqa: F401
 from g3a_bench.scripts.live_bridge.dataset_extra_info import load_extra_info
-from g3a_bench.scripts.live_bridge.mapper import lerobot_to_mjlab_raw_action
 
 
 @dataclass
 class Episode:
     """One recorded episode, fully materialized as numpy arrays."""
 
-    actions: np.ndarray  # (N, 7) raw leader actions as recorded
+    actions: np.ndarray  # (N, 7) raw actions as recorded (ADR-016: deltas)
     state: np.ndarray  # (N, obs_dim) pre-step actor obs
     qpos: np.ndarray | None  # (N, nq) post-step sim qpos (ground truth)
     qvel: np.ndarray | None  # (N, nv) post-step sim qvel (ground truth)
@@ -154,7 +153,7 @@ def build_env_like_live_record(task: str, device: str) -> RslRlVecEnvWrapper:
     Any difference here changes the physics being compared, so this must stay
     in lockstep with live_record.py.
     """
-    cfg = load_env_cfg(task, play=True)
+    cfg = load_env_cfg(task, play=False)
     cfg.terminations["time_out"].time_out = False
 
     # Unlike live_record, drop done-producing terminations: a done mid-replay
@@ -403,7 +402,12 @@ def resimulate_and_compare(args, ep: Episode) -> bool:
             else:
                 obs_dev = float("nan")
 
-            raw = lerobot_to_mjlab_raw_action(ep.actions[i], gravity_compensate=True)
+            # The stored column is the raw action itself (ADR-016), so there
+            # is nothing to map. Replaying deltas open-loop integrates its own
+            # error rather than converging back, so expect the qpos deviation
+            # below to grow along an episode in a way it did not under
+            # absolute joint targets.
+            raw = np.asarray(ep.actions[i], dtype=np.float32)
             _, rew, _dones, _ = env.step(torch.from_numpy(raw).unsqueeze(0).to(device))
 
             qpos_sim = env.env.sim.data.qpos[0].cpu().numpy()

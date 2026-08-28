@@ -20,3 +20,17 @@ YAM_PAD_GEOMS_PATTERN = r"[lr]f_down(6|7|8|9|10|11)_collision"
 _GRIPPER_MECHANICAL_RANGE = {"closed": -0.00205, "open": 0.037524}
 YAM_GRIPPER_JOINTS = ("left_finger",)
 YAM_GRIPPER_OPEN_THRESHOLD = gripper_open_threshold(_GRIPPER_MECHANICAL_RANGE)
+# The actuator split the two action terms are built from, mirroring mjlab's
+# own ARM_ACTUATORS / ACTUATOR_DM_4310_LINEAR_CRANK. Enough to keep YAM
+# building; no task is registered against it (ADR-016 scopes it out).
+YAM_ARM_ACTUATORS = ("joint1", "joint2", "joint3", "joint4", "joint5", "joint6")
+YAM_GRIPPER_ACTUATORS = ("left_finger",)
+YAM_IK_MAX_DQ = 0.28
+"""[rad] differential IK's max_dq: the arm's PD saturation error.
+
+A placeholder equal to the DK1's. mjlab tunes YAM's stiffness per joint from
+effective inertias, so the honest derivation (min effort_limit / stiffness
+over ARM_ACTUATORS) needs numbers this file would have to reach into mjlab's
+asset zoo for. No task is registered against YAM, so it is enough to keep the
+interface building -- derive it properly before wiring YAM to a task. See
+``ManipulatorInterface.ik_max_dq``."""

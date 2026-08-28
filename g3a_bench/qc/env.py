@@ -54,7 +54,12 @@ from mjlab.envs import ManagerBasedRlEnv
 from mjlab.sensor import ContactSensor
 from mjlab.tasks.registry import load_env_cfg
 
+from g3a_bench.qc.dataset import CONVENTION_NAME
 from g3a_bench.qc.episode import EpisodeStats
+from g3a_bench.tasks.common.actions import (
+    EE_DELTA_ACTION_NAME,
+    GRIPPER_ACTION_NAME,
+)
 from g3a_bench.tasks.common.commands import (
     GRIP_CONTACT_SENSOR_NAME,
     OBJECT_CONTACT_SENSOR_NAME,
@@ -144,14 +149,27 @@ class G3aEnv(gymnasium.Env):
         """The mjlab env underneath, for tools that need the simulator."""
         return self._env
 
-    def action_term(self):
-        """The joint action term, which owns the scale and offset.
+    def action_convention(self) -> dict[str, Any]:
+        """What an action means in this env, as the stamped record.
 
-        Published so a dataset can be checked against the convention this env
-        actually runs (``qc.convert.check_dataset_matches_env``) rather than
-        against a copy of it.
+        Published so a dataset can be checked against the MDP this env
+        actually runs (``qc.dataset.check_dataset_matches_env``) rather than
+        against a copy of it. No single term owns the record: the delta scales
+        come from the end-effector term, the stroke mapping from the gripper
+        term, the rate from the env, and the task id from the caller — which
+        is why this is a method here and not a property on a term.
         """
-        return self._env.action_manager.get_term("joint_pos")
+        ee_delta = self._env.action_manager.get_term(EE_DELTA_ACTION_NAME)
+        gripper = self._env.action_manager.get_term(GRIPPER_ACTION_NAME)
+        return {
+            "convention": CONVENTION_NAME,
+            "delta_pos_scale": ee_delta.cfg.delta_pos_scale,
+            "delta_ori_scale": ee_delta.cfg.delta_ori_scale,
+            "gripper_scale": float(gripper.scale.reshape(-1)[0].item()),
+            "gripper_offset": float(gripper.offset.reshape(-1)[0].item()),
+            "control_step_s": float(self._env.step_dt),
+            "task_id": self.task_id,
+        }
 
     def _observation(self, obs: Mapping[str, Any]) -> np.ndarray:
         """The actor group, as a fresh float32 row.
