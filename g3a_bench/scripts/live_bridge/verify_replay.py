@@ -30,7 +30,7 @@ and require *every* compared frame to match.
 Usage:
     # verify episode 0 of a recorded session
     uv run python g3a_bench/scripts/live_bridge/verify_replay.py \\
-        --dataset-dir out/demos/success/G3A-Stack-Low-Dk1_uni/2026-07-11_18-23-00
+        --dataset-dir dataset/demos/G3A-Stack-Low-Dk1_uni/2026-07-18_16-59-03
 
     # verify a specific episode, stricter tolerance, per-frame CSV
     uv run python g3a_bench/scripts/live_bridge/verify_replay.py \\
@@ -38,8 +38,8 @@ Usage:
 
     # offline: diff an existing record_replay.py output against the original
     uv run python g3a_bench/scripts/live_bridge/verify_replay.py \\
-        --dataset-dir out/demos/success/<task>/<stamp> --episode-index 0 \\
-        --sim-replay-dir out/demos/success/<task>/<stamp>/sim_replay/episode_0
+        --dataset-dir dataset/demos/<task>/<stamp> --episode-index 0 \\
+        --sim-replay-dir dataset/demos/<task>/<stamp>/sim_replay/episode_0
 """
 
 import os
@@ -545,7 +545,7 @@ def main() -> None:
         "--dataset-dir",
         type=str,
         required=True,
-        help="live_record session/dataset dir (e.g. out/demos/success/<task>/<stamp>)",
+        help="live_record session/dataset dir (e.g. dataset/demos/<task>/<stamp>)",
     )
     parser.add_argument("--episode-index", type=int, default=0)
     parser.add_argument(

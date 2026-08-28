@@ -51,8 +51,8 @@ uv run g3a-list-tasks --filter Domino
 uv run g3a-list-tasks --filter G3A --count
 
 # Teleop recording -> the .npz QC-FQL trains on (several sessions at once)
-uv run g3a-convert-demos --success-dir out/demos/success/<task>/<stamp> \
-    --failure-dir out/demos/failure/<task>/<stamp> --output demos.npz
+uv run g3a-convert-demos --success-dir dataset/demos/<task>/<stamp> \
+    --failure-dir dataset/demos/<task>/<stamp>_failure --output out/qc/demos.npz
 
 # Verification scripts (see tests/tasks/README.md), not installed as console scripts
 uv run python tests/tasks/build_sim_registered_tasks.py
@@ -215,6 +215,13 @@ actuated).
   pre-commit hooks on commit.
 - Test renders are written to `out/render/<domain>/`; training logs to `logs/` and
   `wandb/`. The `examples/` dir holds reference mjlab code, not part of the package.
+- **`out/` is scratch, `dataset/` is kept.** `out/` is gitignored: the teleop
+  recorder writes its sessions to `out/demos/success|failure/<task>/<stamp>/`, and
+  `g3a-convert-demos` writes its `.npz` to `out/qc/`. A demo session that is worth
+  keeping is moved into `dataset/demos/<task>/<stamp>/`, which is committed, with
+  the failure half of the same session as the sibling
+  `dataset/demos/<task>/<stamp>_failure/` (the `success/`+`failure/` split becomes a
+  suffix there). Read demos from `dataset/demos/`; record new ones into `out/demos/`.
 
 ## Agent skills
 

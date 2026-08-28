@@ -48,7 +48,7 @@ Runs from the qc venv (it needs JAX), with both checkouts on the path::
 
     PYTHONPATH=/disk/users/id310/code/g3a-bench:/disk/users/id310/code/qc \\
     /disk/users/id310/code/qc/.venv/bin/python tests/qc/bc_gate.py \\
-        out/demos/stack.npz
+        out/qc/stack.npz
 
 Exit status is the verdict: 0 when the held-out interior error beats
 ``--target``, 1 when it does not.

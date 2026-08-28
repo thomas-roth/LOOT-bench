@@ -33,9 +33,15 @@ after 2s unless `F` (save now), `D` (discard) or `V` (override to success) is
 pressed first. After each save the arm ghosts back to rest, then recording
 resumes.
 
-Episodes go to `out/demos/success/<timestamp>/` and `out/demos/failure/<timestamp>/`
-at the repo root (override with `--dataset-dir`). Nothing is ever overwritten, and a
-directory is created only once an episode of that kind exists.
+Episodes go to `out/demos/success/<task>/<timestamp>/` and
+`out/demos/failure/<task>/<timestamp>/` at the repo root (override with
+`--dataset-dir`). Nothing is ever overwritten, and a directory is created only once
+an episode of that kind exists.
+
+`out/` is scratch and is not committed. A session that is worth keeping is moved
+into `dataset/demos/<task>/<stamp>/`, which *is* committed, with the failure half
+of the same session as the sibling `dataset/demos/<task>/<stamp>_failure/`. Read
+demos from there; write new ones to `out/demos/`.
 
 Set `USE_FOLLOWER_STATE_FOR_SIM = True` in the script to drive the sim from follower
 joint states instead of leader actions.
@@ -74,7 +80,7 @@ stats, the first diverging frame, the worst DOFs, and a PASS/FAIL verdict
 
 ```bash
 uv run python g3a_bench/scripts/live_bridge/verify_replay.py \
-    --dataset-dir out/demos/success/<timestamp> [--episode-index N] \
+    --dataset-dir dataset/demos/<task>/<stamp> [--episode-index N] \
     [--tol 1e-5] [--sync-start] [--csv drift.csv]
 ```
 

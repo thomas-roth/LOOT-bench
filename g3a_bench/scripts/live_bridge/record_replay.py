@@ -4,7 +4,7 @@ and save a recorded LeRobot dataset to logs/.
 Usage:
     # replay a locally recorded session (from live_record.py)
     uv run python g3a_bench/scripts/live_bridge/record_replay.py \\
-        --dataset-dir out/demos/success/G3A-Stack-Low-Dk1_uni/2026-06-29_10-00-00
+        --dataset-dir dataset/demos/G3A-Stack-Low-Dk1_uni/2026-07-18_16-59-03
 
     # replay a specific episode
     uv run python g3a_bench/scripts/live_bridge/record_replay.py \\
@@ -55,7 +55,7 @@ def main():
         default=None,
         help=(
             "Path to a local live_record dataset directory "
-            "(e.g. out/demos/success/G3A-Stack-Low-Dk1_uni/2026-06-29_10-00-00). "
+            "(e.g. dataset/demos/G3A-Stack-Low-Dk1_uni/2026-07-18_16-59-03). "
             "When omitted, replays the default HuggingFace dataset."
         ),
     )
