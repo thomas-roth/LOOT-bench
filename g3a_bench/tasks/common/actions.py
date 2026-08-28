@@ -138,6 +138,10 @@ def unclamped_delta_from_poses(
         target_pos: (N, 3) requested position, in the same frame.
         target_quat: (N, 4) requested orientation, ``wxyz``.
 
+    The quaternion sign instability ``observations.py`` warns about does not
+    reach the result: ``compute_pose_error``'s axis-angle conversion
+    canonicalises to ``w >= 0``, so ``q`` and ``-q`` give the same delta.
+
     Returns:
         (N, 6): position, then axis-angle rotation.
     """

@@ -44,6 +44,40 @@ exactly `0` only at success. A category with a progress signal shapes the
 interval; ball has none and sits at `-1` until it scores. See ADR-006.
 _Avoid_: reward mode (the old name for a tier of `progress` + `success` terms)
 
+### Control
+
+**Control step**:
+0.05 s — one action, 10 physics steps of 0.005 s (`decimation`). Every task
+runs at this 20 Hz rate; it is `tasks/common/env_cfg.CONTROL_STEP_S` and
+mjlab's `step_dt`. Both QC-validated reference domains use it, and the
+recorded demos set a floor: at 10 Hz 3 % of demo steps stop fitting in one
+action. See ADR-016.
+_Avoid_: frame rate (the viewer's, unrelated), fps (the recorder's file
+metadata, which follows this)
+
+**Action box**:
+The `[-1, 1]` cube every action lives in, per channel. `±1` is
+`DELTA_POS_SCALE` (0.05 m) per position axis, `DELTA_ORI_SCALE` (0.5 rad) per
+rotation axis, and the gripper's own stroke. Per-channel, not a norm: all
+three position channels at `±1` is 0.087 m of travel. Quote it as "±5 cm per
+axis", never "≤5 cm per step". The clamp to it is the convention itself, not
+a safety net — without it the scale would be a unit rather than a bound.
+
+**End-effector delta**:
+What an action's first six channels mean: a pose delta on the robot's grasp
+site, relative to where it currently is, solved into joint targets by
+differential IK. A zero action holds still. The seventh channel is the
+gripper, which is absolute.
+_Avoid_: joint action, action scale (ADR-005's superseded rule, where an
+action named an absolute joint position)
+
+**Convention record**:
+The stamp a dataset carries describing the MDP it was recorded under —
+convention name, delta scales, gripper mapping, control step, task id
+(`qc/dataset.STAMP_KEYS`). Compared against the environment a training run
+builds, and raises on a mismatch. The failure it exists for is silent: the
+loss falls and evaluation scores zero. See ADR-011.
+
 ### Success semantics
 
 **Success criterion**:

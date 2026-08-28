@@ -21,7 +21,8 @@ Five task categories, 44 tasks total, currently registered for one robot
 `Sorter`), `tasks/ball` (minigolf / throw a ball to a target), and
 `tasks/place` (carry one cube to a sampled target spot, registered as
 `Place`). Place is the one-cube sanity check the QC pipeline is brought up
-on — 500 steps, no difficulty axis; its four variants instead switch the two
+on — 15 s, i.e. 300 steps at 20 Hz, no difficulty axis; its four variants
+instead switch the two
 randomness axes independently (`RandS`/`FixedS` for the cube spawn,
 `RandT`/`FixedT` for the target), e.g. `G3A-Place-FixedS-RandT-Dk1_uni`.
 `tasks/peg_insertion` is an archived, unregistered category kept importable
@@ -138,10 +139,15 @@ single `import g3a_bench` registers everything.
 Tasks never hardcode robot details. `robots/interface.py` defines
 `ManipulatorInterface` (name, entity-cfg factory, grasp site, gripper joints +
 open threshold for the success gate, end-effector subtree, finger-pad geom
-regex, viewer body, start pose). It carries no action scale: every task uses
-`tasks/common/actions.NormalizedJointPositionAction`, where `[-1, 1]` spans
-each joint's own travel and the numbers come from the compiled model. Each
-robot package
+regex, viewer body, start pose). It carries no action scale — those are one
+pair of constants in `tasks/common/actions.py`, shared by every robot — but it
+does declare the **actuator split** the two action terms are built from:
+`arm_actuators` (the IK chain), `gripper_actuators` (the normalized stroke),
+and `ik_max_dq`. All three are required. Deriving the arm as "every actuator
+that is not the gripper" was rejected: it makes the residue load-bearing, so a
+later robot's torso or wrist-camera joint silently joins the IK chain.
+`ik_max_dq` is a *torque* cap (`kp · max_dq`), not a rate limit — see its
+docstring before copying mjlab's default. Each robot package
 exposes its own `get_<robot>_interface()` factory —
 `robots/trlc_dk1/__init__.py` has `get_unimanual_dk1_interface()` and
 `get_bimanual_dk1_interface()`, `robots/yam/__init__.py` has
@@ -180,20 +186,30 @@ actuated).
   `mjlab.utils.lab_api.math` (not `mjlab.utils.math`), `RslRlOnPolicyRunnerCfg`
   with separate actor/critic `RslRlModelCfg` (not `RslRlPpoRunnerCfg`), and
   `mjlab.viewer.debug_visualizer`.
-- **One action unit is half a joint's travel.** Every task uses
-  `tasks/common/actions.NormalizedJointPositionActionCfg`: `-1` commands a
-  joint's lower limit, `+1` its upper, and the term reads those limits off the
-  compiled model, so no file holds a copy. It also clamps the raw action to
-  `[-1, 1]`, which binds teleop too — gravity compensation can otherwise leave
-  the box near a joint limit and fly a trajectory no bounded policy can repeat.
-  The teleop bridge inverts the same mapping
-  (`live_bridge/mapper.action_scale_offset`), and `tests/tasks/test_actions.py`
-  asserts the two agree. mjlab's plain `JointPositionActionCfg` uses a residual
-  scale instead, which suits an unbounded PPO policy and makes the task
-  unreachable for a tanh-bounded one.
-  **Being replaced:** ADR-016 moves every task to 20 Hz control and a ±5 cm
-  end-effector delta (DiffIK on the grasp site) instead. Read it before
-  touching the action term, the control rate, or the teleop mapper.
+- **An action is a ±5 cm end-effector delta at 20 Hz.** Every task, one
+  convention, all of it in `tasks/common/actions.py` (ADR-016 — read it before
+  touching the action term, the control rate, or the teleop mapper). Two terms,
+  7 wide: `EndEffectorDeltaActionCfg` (mjlab's differential IK in relative mode
+  on the grasp site, `±1` = 0.05 m per position axis / 0.5 rad per rotation
+  axis) plus `NormalizedJointPositionActionCfg` for the gripper alone, where
+  `-1` is its closed limit and `+1` its open one, read off the compiled model.
+  Control step 0.05 s (`timestep` 0.005 × `decimation` 10). A zero action holds
+  the end-effector still.
+  - The clamp to `[-1, 1]` **is** the convention, not a safety net: DiffIK
+    scales whatever it is handed, so without it `delta_pos_scale` would be a
+    unit rather than a bound.
+  - The box is per-channel, not a norm. Say "±5 cm per axis", never "≤5 cm per
+    step" — all three position channels at once is 0.087 m.
+  - `delta_action_from_poses` is the *only* place a delta action is built. The
+    teleop bridge calls it through `live_bridge/mapper.leader_to_delta_action`,
+    so a recorded action and a policy action cannot mean different things;
+    `tests/tasks/test_actions.py` and `tests/live_bridge/test_mapper.py` pin
+    the two halves.
+  - The arm's gravity is compensated in the simulator (per-body `gravcomp`,
+    `dk1_constants._compensate_arm_gravity`). DiffIK re-anchors its setpoint to
+    the measured pose every substep, so PD sag compounds rather than being
+    corrected — uncompensated, a held zero action walks the arm 0.168 m into
+    the table over 100 steps.
 - **Fixed props (boards, fields) are fixed-base entities** — a `MjSpec` body with
   *no* free joint, which mjlab auto-wraps as a mocap body. Position them with
   `EntityCfg(init_state=EntityCfg.InitialStateCfg(pos=...))`, **not** the spec

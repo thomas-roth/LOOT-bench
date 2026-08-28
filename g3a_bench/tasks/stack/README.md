@@ -34,7 +34,7 @@ hardest task's recordings (see `docs/TaskCategories.md`).
 
 ## Observations (state-based)
 
-- joint positions/velocities, EE pose, last action
+- joint positions/velocities, EE pose
 - all block poses (env-local position + quaternion, object-major)
 
 ## Rewards

@@ -13,11 +13,19 @@ mjlab's ``apply_delta_pose``, this module inverts it through mjlab's
 constants. That is the seam where a demonstration and an evaluation otherwise
 stop describing the same task, silently.
 
-Gravity compensation is gone. It pushed the commanded joint target past an
-open-loop PD sag, which near a joint limit landed outside the action box
-(measured 1.014 on joint5). Differential IK closes the loop on the *measured*
-grasp-site pose and corrects the sag itself, so the compensation has nothing
-left to invert -- and the out-of-box case it caused goes with it.
+Gravity compensation is gone **from here**. It pushed the commanded joint
+target past an open-loop PD sag, and there is no longer an open-loop joint
+target to push: an action names a pose delta, so the compensation has nothing
+left to invert -- and the out-of-box case it caused near a joint limit
+(measured 1.014 on joint5) goes with it.
+
+It did not stop being necessary. Differential IK does *not* correct the sag:
+mjlab's term re-anchors ``q_target = q_current + dq`` to the measured position
+every substep, so the sag compounds instead (0.168 m of drift over 100 zero
+actions). The correction lives in the simulator now, as per-body ``gravcomp``
+-- once, for every caller, rather than only along the operator's trajectory.
+See ``robots/trlc_dk1/dk1_constants._compensate_arm_gravity`` and ADR-016's
+amended consequence.
 """
 
 import functools

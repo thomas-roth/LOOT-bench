@@ -19,7 +19,7 @@ toppling doesn't count.
 
 ## Observations (state-based)
 
-- joint positions/velocities, EE pose, last action
+- joint positions/velocities, EE pose
 - all domino poses (env-local position + quaternion, object-major)
 - per-slot placed indicator
 - the command: per-slot target pose (env-local position + upright/row-aligned

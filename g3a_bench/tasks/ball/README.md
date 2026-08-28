@@ -42,7 +42,7 @@ it), or hits the wall instead of clearing it (throw).
 
 ## Observations (state-based)
 
-- joint positions/velocities, EE pose, last action
+- joint positions/velocities, EE pose
 - ball position (env-local; no orientation — a sphere's quaternion carries no
   task-relevant signal)
 - field pose (env-local position + quaternion), and wall pose (only for

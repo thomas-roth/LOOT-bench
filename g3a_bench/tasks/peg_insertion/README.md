@@ -47,7 +47,7 @@ condition.
 
 ## Observations (state-based)
 
-- joint positions/velocities, EE pose, last action
+- joint positions/velocities, EE pose
 - the board's own pose (env-local position + quaternion) — a single pose for
   the whole rigid board/socket assembly (fixed and constant per task, but
   included for completeness/parity with shape_sorter's cube pose)

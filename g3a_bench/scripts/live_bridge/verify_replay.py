@@ -568,10 +568,10 @@ def main() -> None:
     parser.add_argument(
         "--settle-frames",
         type=int,
-        default=50,
+        default=20,
         help="Default mode only: frames the robot DOFs get to converge from the "
         "reset pose to the (unrecorded) live start pose before they must "
-        "be within --tol (50 = 1 s at 50 fps).",
+        "be within --tol (20 = 1 s at the 20 Hz control rate).",
     )
     parser.add_argument(
         "--sync-start",

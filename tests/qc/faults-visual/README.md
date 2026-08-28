@@ -1,5 +1,14 @@
 # Before-and-after pictures of the three faults
 
+> **Pinned to the pre-ADR-016 convention; not run today.** These scripts read
+> `action_scale`/`action_offset` off a dataset and ask the action manager for a
+> `joint_pos` term, all of which ADR-016 replaced with a 20 Hz end-effector
+> delta. They are a record of three *historical* faults, and fault 01 is
+> specifically about the joint-position action space that record replaced — so
+> porting them would restate the argument in the vocabulary of the thing it
+> was arguing for. Read them as history; to re-run them, check out the commit
+> before `eef-delta-control`. Nothing in the pytest suite imports them.
+
 Three scripts, one question each. Every one rebuilds the old behaviour from
 constants that still live in the tree, measures it and the current behaviour
 on the same machine, and writes pictures you can put side by side.

@@ -50,6 +50,12 @@ uv run python tests/tasks/build_sim_registered_tasks.py --no-render
 
 ## Sim-settings comparison (`compare_sim_settings.py`)
 
+> **Stale — read its module docstring before trusting a number.** Its profile
+> table predates the current sim settings, and its scripted commands were
+> written for absolute joint-position actions rather than the end-effector
+> delta of ADR-016. The comparison between profiles is still internally
+> consistent; what it measures is no longer the settings the benchmark runs.
+
 Benchmarks the sim-setting profiles (current training settings, current play/demo
 settings, MuJoCo solver defaults, and the train timestep with default solver caps)
 against each other for speed and accuracy on one registered task.

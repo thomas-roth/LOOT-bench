@@ -25,10 +25,9 @@ Then, with the qc checkout in place:
 
 from __future__ import annotations
 
-from typing import Any
-
 import argparse
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 from gymnasium.spaces import Space
