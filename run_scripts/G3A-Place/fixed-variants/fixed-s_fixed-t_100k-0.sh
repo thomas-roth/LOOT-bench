@@ -31,6 +31,7 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 NAME="$(basename "${BASH_SOURCE[0]}" .sh)"
+export G3A_RUN_SCRIPT="$NAME"
 TASK=G3A-Place-FixedS-FixedT-Dk1_uni
 
 NUM_SEEDS="${NUM_SEEDS:-3}"

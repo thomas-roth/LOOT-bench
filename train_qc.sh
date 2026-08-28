@@ -16,6 +16,7 @@
 #   QC_PYTHON           its interpreter          (default: $QC_DIR/.venv/bin/python)
 #   RUN_DIR             where runs are written   (default: /var/tmp/$USER/qc-runs)
 #   WANDB_MODE          online | offline | disabled  (default: online)
+#   G3A_RUN_SCRIPT      wandb tag naming the launching script (default: train_qc.sh)
 #   G3A_ALLOW_NO_TMUX   set to 1 to run outside tmux
 #   CUDA_VISIBLE_DEVICES, and any other variable the run should inherit
 
@@ -27,13 +28,16 @@ QC_PYTHON="${QC_PYTHON:-$QC_DIR/.venv/bin/python}"
 RUN_DIR="${RUN_DIR:-/var/tmp/${USER:-$(id -un)}/qc-runs}"
 WANDB_MODE="${WANDB_MODE:-online}"
 
+G3A_RUN_SCRIPT="${G3A_RUN_SCRIPT:-$(basename "${BASH_SOURCE[0]}" .sh)}"
+export G3A_RUN_SCRIPT
+
 die() {
   echo "train_qc.sh: $1" >&2
   exit 1
 }
 
 usage() {
-  sed -n '2,20p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'
+  sed -n '2,21p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'
   exit 1
 }
 
@@ -45,15 +49,15 @@ DATASET="$2"
 shift 2
 
 case "$TASK_ID" in
-  G3A-*) ;;
-  *) die "'$TASK_ID' is not a G3A task id; qc dispatches on the G3A- prefix" ;;
+G3A-*) ;;
+*) die "'$TASK_ID' is not a G3A task id; qc dispatches on the G3A- prefix" ;;
 esac
 
 [ -f "$DATASET" ] || die "no dataset at $DATASET (write one with g3a-convert-demos)"
 DATASET="$(cd "$(dirname "$DATASET")" && pwd)/$(basename "$DATASET")"
 case "$DATASET" in
-  *.npz) ;;
-  *) die "$DATASET is not an .npz" ;;
+*.npz) ;;
+*) die "$DATASET is not an .npz" ;;
 esac
 
 [ -f "$QC_DIR/main.py" ] || die "no qc checkout at $QC_DIR (set QC_DIR)"
@@ -114,8 +118,8 @@ PY
 mkdir -p "$RUN_DIR"
 RUN_FS="$(stat -f -c %T "$RUN_DIR" 2>/dev/null || echo unknown)"
 case "$RUN_FS" in
-  nfs*) die "$RUN_DIR is on $RUN_FS, which can EACCES mid-run. Set RUN_DIR to local disk." ;;
-  unknown) echo "[warn] cannot read the filesystem type of $RUN_DIR" >&2 ;;
+nfs*) die "$RUN_DIR is on $RUN_FS, which can EACCES mid-run. Set RUN_DIR to local disk." ;;
+unknown) echo "[warn] cannot read the filesystem type of $RUN_DIR" >&2 ;;
 esac
 
 if [ -n "${UV_CACHE_DIR:-}" ] && [ "$(stat -f -c %T "$UV_CACHE_DIR" 2>/dev/null || echo unknown)" = "tmpfs" ]; then
@@ -155,6 +159,7 @@ echo "[launch] task     $TASK_ID"
 echo "[launch] dataset  $DATASET"
 echo "[launch] runs     $RUN_DIR  ($RUN_FS)"
 echo "[launch] wandb    $WANDB_MODE"
+echo "[launch] script   $G3A_RUN_SCRIPT"
 
 cd "$QC_DIR"
 set -x
