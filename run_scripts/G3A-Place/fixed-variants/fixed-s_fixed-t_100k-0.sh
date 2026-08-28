@@ -59,7 +59,7 @@ for seed in $SEEDS; do
   log_dir="$RUN_DIR/$TASK/$RUN_GROUP/seed-$seed"
   mkdir -p "$log_dir"
 
-  "$REPO/train_qc.sh" "$TASK" "$REPO/out/qc/place_fixed-s_fixed-t_149-demos_2026-08-27_01-11-30.npz" \
+  "$REPO/train_qc.sh" "$TASK" "$REPO/out/qc/place_fixed-s_fixed-t_100-demos_2026-08-28_19-12-42.npz" \
     --seed="$seed" \
     --agent=agents/acfql.py \
     --offline_steps 100000 \
