@@ -22,7 +22,10 @@
 # Environment overrides:
 #   NUM_SEEDS   how many random seeds  (default: 3)
 #   SEEDS       exact seeds to run     (default: NUM_SEEDS random ones)
-#   RUN_GROUP   the wandb group        (default: <script name>_<start time>)
+#   DATASET     the .npz to train on   (default: the 99-demo fixed-s/fixed-t
+#               recording; a relative path is read from the repo root)
+#   RUN_GROUP   what follows the start time in the wandb group name
+#               (default: the script name, giving <start time>_<script name>)
 #   RUN_DIR     where runs are written (default: /var/tmp/$USER/qc-runs)
 #
 # Any extra arguments are passed through to train_qc.sh, for every seed.
@@ -35,9 +38,23 @@ export G3A_RUN_SCRIPT="$NAME"
 TASK=G3A-Place-FixedS-FixedT-Dk1_uni
 
 NUM_SEEDS="${NUM_SEEDS:-3}"
-RUN_GROUP="${RUN_GROUP:-$(date +%Y-%m-%d_%H-%M-%S)_place_${NAME}}"
+# The group always opens with the launch time, so two sweeps of the same
+# configuration never land in one wandb group. RUN_GROUP names only what
+# follows it.
+RUN_GROUP="$(date +%Y-%m-%d_%H-%M-%S)_${RUN_GROUP:-$NAME}"
 RUN_DIR="${RUN_DIR:-/var/tmp/${USER:-$(id -un)}/qc-runs}"
 export RUN_DIR
+
+DATASET="${DATASET:-dataset/qc/place_eef_fixed-s_fixed-t_99-demos_2026-08-30_10-46-36.npz}"
+case "$DATASET" in /*) ;; *) DATASET="$REPO/$DATASET" ;; esac
+
+# Checked here rather than one run per seed later: train_qc.sh builds a
+# simulator before it ever opens the dataset, so a wrong path costs the whole
+# start-up before it says so.
+if [ ! -f "$DATASET" ]; then
+  echo "[sweep] dataset not found: $DATASET" >&2
+  exit 1
+fi
 
 if [ -z "${SEEDS:-}" ]; then
   seeds=()
@@ -50,6 +67,7 @@ if [ -z "${SEEDS:-}" ]; then
 fi
 
 echo "[sweep] group  $RUN_GROUP"
+echo "[sweep] data   $DATASET"
 echo "[sweep] seeds  $SEEDS"
 echo "[sweep] runs   $RUN_DIR/$TASK/$RUN_GROUP"
 
@@ -59,7 +77,7 @@ for seed in $SEEDS; do
   log_dir="$RUN_DIR/$TASK/$RUN_GROUP/seed-$seed"
   mkdir -p "$log_dir"
 
-  "$REPO/train_qc.sh" "$TASK" "$REPO/out/qc/place_fixed-s_fixed-t_100-demos_2026-08-28_19-12-42.npz" \
+  "$REPO/train_qc.sh" "$TASK" "$DATASET" \
     --seed="$seed" \
     --agent=agents/acfql.py \
     --offline_steps 100000 \
