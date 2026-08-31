@@ -16,7 +16,8 @@
 #   QC_PYTHON           its interpreter          (default: $QC_DIR/.venv/bin/python)
 #   RUN_DIR             where runs are written   (default: /var/tmp/$USER/qc-runs)
 #   WANDB_MODE          online | offline | disabled  (default: online)
-#   G3A_RUN_SCRIPT      wandb tag naming the launching script (default: train_qc.sh)
+#   G3A_RUN_SCRIPT      names the launching script; becomes the script-<name>
+#                       wandb tag                (default: train_qc)
 #   G3A_ALLOW_NO_TMUX   set to 1 to run outside tmux
 #   CUDA_VISIBLE_DEVICES, and any other variable the run should inherit
 
@@ -37,7 +38,7 @@ die() {
 }
 
 usage() {
-  sed -n '2,21p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'
+  sed -n '2,22p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'
   exit 1
 }
 
@@ -62,6 +63,25 @@ esac
 
 [ -f "$QC_DIR/main.py" ] || die "no qc checkout at $QC_DIR (set QC_DIR)"
 [ -x "$QC_PYTHON" ] || die "no interpreter at $QC_PYTHON (set QC_PYTHON)"
+
+# --- wandb tags --------------------------------------------------------------
+#
+# main.py's --wandb_tags is what puts anything but the run group in the wandb
+# tag list: wandb.init receives tags explicitly, and an explicit tags= beats
+# the WANDB_TAGS environment variable, so the tags have to travel as a flag.
+# A single run gets the three that identify it. A caller that passes its own
+# --wandb_tags (run_scripts/sweep.sh does) owns the whole list instead --
+# these would otherwise be repeated by it anyway.
+
+TAGS=(--wandb_tags "script-$G3A_RUN_SCRIPT,task-$TASK_ID,data-$(basename "$DATASET" .npz)")
+for arg in "$@"; do
+  case "$arg" in
+  --wandb_tags | --wandb_tags=*)
+    TAGS=()
+    break
+    ;;
+  esac
+done
 
 # --- the venv ----------------------------------------------------------------
 #
@@ -167,4 +187,5 @@ exec "$QC_PYTHON" main.py \
   --env_name "$TASK_ID" \
   --g3a_dataset "$DATASET" \
   --save_dir "$RUN_DIR" \
+  ${TAGS[@]+"${TAGS[@]}"} \
   "$@"
