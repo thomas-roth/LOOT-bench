@@ -66,14 +66,15 @@ esac
 
 # --- wandb tags --------------------------------------------------------------
 #
-# main.py's --wandb_tags is what puts anything but the run group in the wandb
-# tag list: wandb.init receives tags explicitly, and an explicit tags= beats
-# the WANDB_TAGS environment variable, so the tags have to travel as a flag.
-# A single run gets the three that identify it. A caller that passes its own
-# --wandb_tags (run_scripts/sweep.sh does) owns the whole list instead --
-# these would otherwise be repeated by it anyway.
+# A tag has to travel as a flag: wandb.init receives tags= explicitly, which
+# beats the WANDB_TAGS environment variable.
+#
+# Only the dataset is tagged here, because only the shell knows it. main.py
+# tags what its own flags say (`task-`, `script-`), so sending those too would
+# tag the run twice with one fact. A caller with its own --wandb_tags
+# (run_scripts/sweep.sh) owns the list.
 
-TAGS=(--wandb_tags "script-$G3A_RUN_SCRIPT,task-$TASK_ID,data-$(basename "$DATASET" .npz)")
+TAGS=(--wandb_tags "data-$(basename "$DATASET" .npz)")
 for arg in "$@"; do
   case "$arg" in
   --wandb_tags | --wandb_tags=*)

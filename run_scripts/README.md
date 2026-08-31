@@ -64,21 +64,32 @@ One sweep is one wandb group, named after the wrapper plus the flags you typed:
 ```
 ./fixed-s_fixed-t_200k-0.sh --horizon_length 10
   ->  group  place_fixed-s_fixed-t_200k-0_horizon_length-10
-  ->  tags   script-…, task-…, data-…, horizon_length-10, alpha-<a>, seed-<s>
-  ->  logs   $RUN_DIR/<task>/<group>/alpha-<a>/seed-<s>/train.log
+  ->  name   alpha-<a>_seed-<s>
+  ->  tags   task-…, script-…, data-…, horizon_length-10, alpha-<a>, seed-<s>
+  ->  files  $RUN_DIR/<task>/<group>/alpha-<a>_seed-<s>/  (train.log in it)
 ```
 
-Alpha is a tag, not part of the name — the comparison the sweep exists for
-stays inside one group. Names and tags are capped at 64 characters.
+A run is named after both axes of the grid. The seed alone named two runs at
+once — the same seeds are used for every alpha — and they shared a folder, the
+second overwriting the first’s `flags.json`, videos and checkpoints. Names and
+tags are capped at 64 characters.
+
+That folder holds the run: `main.py` writes the wandb staging dir,
+`flags.json`, videos and checkpoints into it, `sweep.sh` its `train.log`. Both
+build the name themselves, so `sweep.sh` normalizes the alpha to the spelling
+`main.py` uses (`--alphas 1000.0` → `alpha-1000`) and refuses anything that is
+not a decimal number.
 
 There is no timestamp in the name, so re-running the same wrapper with the same
 flags **joins the previous group** (it warns first). That is how you add seeds
 to an existing question; pass `--run-group NAME` when you want a separate one.
 
-Tags reach wandb through `main.py`'s `--wandb_tags`: `wandb.init` is given
-`tags=` explicitly, so the `WANDB_TAGS` environment variable cannot set them.
-`train_qc.sh` sets `script-`/`task-`/`data-` by itself for runs launched
-without a sweep.
+Every tag is `<what>-<value>` and is written in one place only: `main.py` tags
+`task-` and `script-` from what it is given, `train_qc.sh` adds `data-` and
+`sweep.sh` `alpha-`, `seed-` and your flags. The shell’s tags reach wandb via
+`main.py`’s `--wandb_tags`, since `wandb.init` is given `tags=` explicitly and
+the `WANDB_TAGS` environment variable cannot set them. The run group is not a
+tag — wandb groups runs by it already.
 
 ## The older scripts
 

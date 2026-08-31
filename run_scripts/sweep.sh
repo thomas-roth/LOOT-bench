@@ -25,9 +25,9 @@
 # the command line, so they win.
 #
 # One sweep is one wandb group; the alphas in it are told apart by their
-# alpha-<a> tag. Each run logs to its own folder:
+# alpha-<a> tag. The log goes into the folder main.py writes the run itself to:
 #
-#   $RUN_DIR/<task>/<run group>/alpha-<alpha>/seed-<seed>/train.log
+#   $RUN_DIR/<task>/<run group>/alpha-<alpha>_seed-<seed>/train.log
 #
 # A failed run does not stop the others; the failures are named at the end and
 # the exit status is non-zero. Ctrl-C stops the whole sweep.
@@ -234,9 +234,30 @@ case "$MAX_PARALLEL" in '' | *[!0-9]*) die "--max-parallel wants a number, got '
 
 alphas=()
 IFS=',' read -r -a alphas <<<"$ALPHAS"
+# main.py names the run folder from the same alpha and, being handed a float,
+# renders `1000.0` as `1000`. Spelling it that way here too is what keeps
+# train.log in the run's folder rather than in an empty one beside it. What is
+# not a decimal number is refused here rather than by absl, minutes in.
+normalized=()
 for a in "${alphas[@]}"; do
   [ -n "$a" ] || die "--alphas has an empty entry: '$ALPHAS'"
+  case "$a" in
+  *[!0-9.]* | *.*.* | .* | *.) die "--alphas wants plain decimal numbers, got '$a'" ;;
+  esac
+  case "$a" in
+  *.*)
+    while [ "${a%0}" != "$a" ]; do a="${a%0}"; done # "0.50" -> "0.5", "1000.0" -> "1000."
+    a="${a%.}"
+    ;;
+  esac
+  normalized+=("$a")
 done
+alphas=("${normalized[@]}")
+# The alphas- tag then names what ran, not what was typed.
+ALPHAS="$(
+  IFS=,
+  echo "${alphas[*]}"
+)"
 
 # One set of seeds for every alpha, not a fresh draw per alpha: the alphas are
 # then compared on the same seeds, and a difference between them is not a
@@ -273,9 +294,9 @@ if [ "${#RUN_GROUP}" -gt "$TAG_MAX" ]; then
   echo "[sweep] WARNING: pass a shorter --run-group if that collides." >&2
 fi
 
+# No `task-`/`script-` tags: main.py has --env_name and $G3A_RUN_SCRIPT and tags
+# both itself.
 SWEEP_TAGS=(
-  "$(clamp "script-$G3A_RUN_SCRIPT")"
-  "$(clamp "task-$TASK_ID")"
   "$(clamp "data-$(sanitize "$(basename "$DATASET" .npz)")")"
 )
 if [ -z "$SEEDS" ] && [ "$NUM_SEEDS" != "$DEFAULT_NUM_SEEDS" ]; then
@@ -318,7 +339,7 @@ fi
 
 start_run() {
   local alpha="$1" seed="$2" log_dir tags
-  log_dir="$GROUP_DIR/alpha-$alpha/seed-$seed"
+  log_dir="$GROUP_DIR/alpha-${alpha}_seed-$seed"
   tags="$(
     IFS=,
     echo "${SWEEP_TAGS[*]},alpha-$alpha,seed-$seed"
@@ -391,7 +412,7 @@ reap_one() {
   done
   running=(${rest[@]+"${rest[@]}"})
   if [ "$status" -ne 0 ]; then
-    echo "[sweep] $cell failed with status $status, see $GROUP_DIR/${cell// /\/}/train.log" >&2
+    echo "[sweep] $cell failed with status $status, see $GROUP_DIR/${cell// /_}/train.log" >&2
     failed+=("$cell")
   else
     echo "[sweep] $cell done"
