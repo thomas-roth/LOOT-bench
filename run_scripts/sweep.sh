@@ -32,8 +32,13 @@
 # A failed run does not stop the others; the failures are named at the end and
 # the exit status is non-zero. Ctrl-C stops the whole sweep.
 #
+# The repository and the dataset are read over Kerberized NFS here, so the
+# sweep renews the Kerberos ticket for as long as it runs.
+#
 # Environment: RUN_DIR (default /var/tmp/$USER/qc-runs), G3A_RUN_SCRIPT (the
-# script-<name> tag; a wrapper sets it), plus what train_qc.sh reads.
+# script-<name> tag; a wrapper sets it), SWEEP_RENEW_INTERVAL (seconds between
+# ticket renewals, default 1800; 0 turns the renewal off), plus what
+# train_qc.sh reads.
 
 set -euo pipefail
 
@@ -54,7 +59,7 @@ die() {
 }
 
 usage() {
-  sed -n '2,36p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'
+  sed -n '2,41p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'
   exit "${1:-1}" # asked for it: 0; got the arguments wrong: 1
 }
 
@@ -335,6 +340,69 @@ if [ -d "$GROUP_DIR" ] && [ "$DRY_RUN" -eq 0 ]; then
   sleep 3
 fi
 
+# --- the kerberos ticket -----------------------------------------------------
+
+# $REPO, the venvs and the dataset are read over NFS mounted with sec=krb5p, and
+# a sweep outlives a login ticket. When the ticket expires the runs do not fail
+# gracefully: they die with SIGBUS (the .venv pages they mmap'd stop being
+# readable) or status 126 (train_qc.sh can no longer be executed). The renewer
+# is a child of the sweep, so it leaves nothing behind afterwards.
+RENEW_INTERVAL="${SWEEP_RENEW_INTERVAL:-1800}"
+RENEW_PID=""
+PAM_CCACHE="/tmp/krb5cc_$(id -u)"
+
+# Read from a local disk there is nothing to renew.
+repo_needs_ticket() {
+  local opts
+  opts="$(findmnt -no OPTIONS --target "$REPO" 2>/dev/null)" || return 1
+  case "$opts" in
+  *sec=krb5*) return 0 ;;
+  *) return 1 ;;
+  esac
+}
+
+start_renewer() {
+  [ "$RENEW_INTERVAL" != 0 ] || return 0
+  repo_needs_ticket || return 0
+  command -v kinit >/dev/null 2>&1 || die "$REPO needs a Kerberos ticket, but kinit is missing"
+  # Refused here rather than hours in, when the first run touches the share.
+  klist -s 2>/dev/null || die "no valid Kerberos ticket for $REPO; run kinit first"
+  klist 2>/dev/null | grep -q 'renew until' ||
+    echo "[sweep] WARNING: the ticket cannot be renewed; kinit -r 14d before a long sweep." >&2
+  # PAM deletes its own cache when any session of this user logs out, including
+  # one that has nothing to do with the sweep; renewing does not bring it back.
+  case "${KRB5CCNAME:-FILE:$PAM_CCACHE}" in
+  *"$PAM_CCACHE")
+    echo "[sweep] WARNING: the ticket cache is PAM's $PAM_CCACHE, which is deleted" >&2
+    echo "[sweep] WARNING: when any session of yours logs out. Copy it to local disk and" >&2
+    echo "[sweep] WARNING: point KRB5CCNAME at the copy before a long sweep." >&2
+    ;;
+  esac
+  (
+    # The trap takes the sleep along, so a stopped sweep leaves none behind.
+    trap 'kill $! 2>/dev/null; exit 0' TERM
+    while :; do
+      sleep "$RENEW_INTERVAL" &
+      wait $! 2>/dev/null || true
+      kinit -R 2>/dev/null || {
+        echo "[sweep] WARNING: kinit -R failed; the runs will die when the ticket expires" >&2
+        exit 1
+      }
+    done
+  ) &
+  RENEW_PID="$!"
+  echo "[sweep] ticket   renewed every ${RENEW_INTERVAL}s by pid $RENEW_PID"
+}
+
+# Both traps call this before stop_rest, whose bare `wait` would otherwise wait
+# for a renewer that never returns.
+stop_renewer() {
+  [ -n "$RENEW_PID" ] || return 0
+  kill "$RENEW_PID" 2>/dev/null || true
+  wait "$RENEW_PID" 2>/dev/null || true
+  RENEW_PID=""
+}
+
 # --- launch ------------------------------------------------------------------
 
 start_run() {
@@ -401,7 +469,10 @@ stop_rest() {
   done
   wait 2>/dev/null || true
 }
-trap 'echo "[sweep] interrupted, stopping the runs" >&2; stop_rest; exit 130' INT TERM
+trap 'echo "[sweep] interrupted, stopping the runs" >&2; stop_renewer; stop_rest; exit 130' INT TERM
+trap stop_renewer EXIT
+
+start_renewer
 
 reap_one() {
   local status=0 done_pid="" rest=()
