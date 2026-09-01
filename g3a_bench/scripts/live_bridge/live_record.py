@@ -37,18 +37,28 @@ Key bindings:
     saved counts and the currently valid keys.
 
 Usage:
-    uv run python g3a_bench/scripts/live_bridge/live_record.py
+    uv run g3a-record-demos
 
     With real follower arm:
-    uv run python g3a_bench/scripts/live_bridge/live_record.py --follower
+    uv run g3a-record-demos --follower
 
     With explicit ports:
-    uv run python g3a_bench/scripts/live_bridge/live_record.py --follower \\
+    uv run g3a-record-demos --follower \\
         --follower-port /dev/ttyACM1 --leader-port /dev/ttyACM0
+
+    The file is still runnable directly, which is the fallback if the console
+    script ever segfaults on import (see the import note below):
+    uv run python g3a_bench/scripts/live_bridge/live_record.py
 """
 
 # Load lerobot/HF-datasets native libs before mjlab/mujoco-warp to avoid a
 # native import-order segfault (HF `datasets` vs mujoco-warp). Must precede mjlab.
+#
+# The ``g3a-record-demos`` console script cannot honour that order: importing
+# this module imports g3a_bench/__init__.py first, which registers the tasks and
+# therefore loads mjlab; the same limit g3a_bench.qc.convert documents. The
+# reversed order raised nothing when measured, so the entry point exists; run
+# the file directly if a segfault ever appears.
 import lerobot.datasets.lerobot_dataset  # noqa: F401,E402,I001
 
 import argparse

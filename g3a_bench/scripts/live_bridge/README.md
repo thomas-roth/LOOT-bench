@@ -14,7 +14,7 @@ Find USB ports with `uv run lerobot-find-port`. On Linux, grant access with
 Records episodes at ~50 Hz from live teleop. Requires hardware.
 
 ```bash
-uv run python g3a_bench/scripts/live_bridge/live_record.py \
+uv run g3a-record-demos \
     [--follower] [--leader-port PORT] [--follower-port PORT] \
     [--task TASK] [--num-episodes N] [--dataset-dir PATH]
 ```
