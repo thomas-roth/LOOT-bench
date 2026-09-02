@@ -20,6 +20,15 @@ from g3a_bench.qc.transitions import QC_KEYS
 
 OBS_DIM = 5
 
+STAMPED_TASK = "G3A-Test-Task-Dk1_uni"
+"""Task id for a dataset that only has to carry *some* stamp.
+
+Deliberately not a registered id: nothing resolves this string, and only its
+equality with the environment's decides the check. A real id here would read
+as if the test were about that variant. The tests that build an environment
+name a real task instead.
+"""
+
 
 def _leader_pose(value: float) -> list[float]:
     """A reachable leader-arm pose. Joints in rad, gripper normalized [0, 1]."""
@@ -232,7 +241,15 @@ class _FakeEnv:
 
 class TestStampCheck:
     def _dataset(self):
-        return _build(SUCCESS_THEN_TIMEOUT)
+        """A current dataset: every stamp present, the task among them.
+
+        The stamp is added here rather than by ``_build``, which would have to
+        compile the task to read the action term off it. The one test about a
+        file that predates the stamp pops it back off.
+        """
+        data = _build(SUCCESS_THEN_TIMEOUT)
+        data["task"] = np.array(STAMPED_TASK, dtype=np.str_)
+        return data
 
     def _env_from(self, data, **overrides):
         kwargs = {
@@ -316,6 +333,7 @@ class TestStampCheck:
         existing dataset is not refused by this change."""
         data = self._dataset()
         env = self._env_from(data, task_id="G3A-Place-RandS-RandT-Dk1_uni")
+        data.pop("task")
         with pytest.warns(UserWarning, match="no task stamp"):
             check_dataset_matches_env(data, env)
 
@@ -579,4 +597,8 @@ class TestLoadDataset:
             def start_pose_noise(self):
                 return self._start_pose_noise
 
+        # Stamped so the check compares the terms rather than warning about a
+        # file that predates the task stamp. _TorchEnv answers no task id, so
+        # the identity check is skipped and the torch path is what is read.
+        data["task"] = np.array(STAMPED_TASK, dtype=np.str_)
         check_dataset_matches_env(data, _TorchEnv())
