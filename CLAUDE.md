@@ -27,6 +27,11 @@ randomness axes independently (`RandS`/`FixedS` for the cube spawn,
 `tasks/peg_insertion` is an archived, unregistered category kept importable
 for reference (see its README).
 
+**Read `docs/adr/` before changing anything it touches.** Those records are the
+ground truth for *why* the repo is shaped this way; `CONTEXT.md` is the glossary
+that names the concepts. If your work contradicts a record, say so and reopen
+the decision — do not overturn it in silence.
+
 ## Commands
 
 Use `uv run` for everything — the venv is managed by uv. The environment is at .venv/.
@@ -57,23 +62,30 @@ uv run g3a-convert-demos --success-dir dataset/demos/<task>/<stamp> \
 # Verification scripts (see tests/tasks/README.md), not installed as console scripts
 uv run python tests/tasks/build_sim_registered_tasks.py
 uv run python tests/tasks/check_success_reward.py
-
-# Before/after pictures of the three QC-rebuild faults (see tests/qc/faults-visual/README.md)
-uv run python tests/qc/faults-visual/run_all.py --cpu    # -> out/render/faults-visual/index.html
+uv run python tests/tasks/compare_sim_settings.py
 
 # Native-viewer checks (see tests/viewer/README.md), need a display, not for CI
 uv run python tests/viewer/measure_viewer_fps.py
 uv run python tests/viewer/check_viewer_shutdown.py
+
+# Read a demo set before spending a training run on it (ADR-012, ~2 minutes).
+# Runs from the qc venv (it needs JAX), with both checkouts on the path.
+PYTHONPATH=<g3a-bench>:<qc> <qc>/.venv/bin/python tests/qc/bc_gate.py out/qc/demos.npz
+
+# Launch a QC-FQL run in the separate qc checkout (must run inside tmux)
+./train_qc.sh G3A-Place-FixedS-FixedT-Dk1_uni out/qc/demos.npz --offline_steps 100000
+run_scripts/G3A-Place/fixed-variants/fixed-s_fixed-t_100k-0.sh   # a 3-seed sweep
 ```
 
 The pytest suite (`uv run pytest tests/`) unit-tests the pure kernels in
-`tasks/common/` (`tests/tasks/`) and the DK1 collision contract on the
-compiled model (`tests/trlc_dk1/`). See `tests/tasks/README.md` for
-what each verification script covers; all accept `--cpu` to force CPU-only
+`tasks/common/` (`tests/tasks/`), the QC seam without a simulator
+(`tests/qc/`: the converter, the transition assembly, the gym adapter, the
+BC gate), the teleop bridge (`tests/live_bridge/`, no hardware needed), and
+the DK1 collision contract on the compiled model (`tests/trlc_dk1/`). See
+`tests/tasks/README.md` and `tests/live_bridge/README.md` for what each
+script covers; all verification scripts accept `--cpu` to force CPU-only
 execution. `tests/viewer/` holds the manual native-viewer checks (FPS cap,
-shutdown segfault). `tests/qc/faults-visual/` reconstructs the three faults the QC
-rebuild fixed and writes before/after pictures to `out/render/faults-visual/`; it
-reads the two recorded sessions and changes nothing.
+shutdown segfault).
 
 ## Architecture
 
@@ -97,28 +109,35 @@ adding/editing a category means mirroring an existing one:
   helpers), `observations.py`, `rewards.py`, `terminations.py`.
   `mdp/__init__.py` re-exports the terms.
 - `<cat>_env_cfg.py` — `make_<cat>_env_cfg(variant, play)` builds only the
-  category-shaped parts (entities, command, task obs/reward/termination terms:
-  `progress` + `success`, both weight 1.0, no shaping/penalties) and hands
-  them to `tasks/common/env_cfg.make_manipulation_env_cfg`, which owns the
-  shared skeleton (table, proprioceptive obs, actor/critic groups, reset
-  events, viewer/sim defaults, the `play` strip-down).
+  category-shaped parts (entities, command, task observation/termination
+  terms, and the **one** task reward — no shaping terms and no penalties, see
+  ADR-006) and hands them to
+  `tasks/common/env_cfg.make_manipulation_env_cfg`, which owns the shared
+  skeleton (table, proprioceptive obs, actor/critic groups, reset events,
+  `start_pose_noise`, viewer/sim defaults, the `play` strip-down).
 - `config/__init__.py` — one `tasks/common/registration.register_category(...)`
   call: it loops robots × variants, wires the robot in (via
   `tasks/common/manipulator_wiring.wire_manipulator_into_env` with the
-  category's `grasp_obs_terms`/`ee_contact_sensors`), and registers each task
-  with mjlab's registry using the shared RSL-RL PPO cfg
-  (`tasks/common/rl_cfg.manipulation_ppo_runner_cfg`, per-category
-  `max_iterations`) — mjlab's registry requires an `rl_cfg`, but the actual
-  training path is QC-FQL in the separate `qc` checkout, not RSL-RL PPO.
+  category's `ee_contact_sensors` and its `grip_contact_sensor` /
+  `object_contact_sensor`), and registers each task with mjlab's registry
+  using the shared RSL-RL PPO cfg
+  (`tasks/common/rl_cfg.manipulation_ppo_runner_cfg`, which takes an
+  `experiment_name` and nothing else) — mjlab's registry requires an
+  `rl_cfg`, but the actual training path is QC-FQL in the separate `qc`
+  checkout, not RSL-RL PPO.
 - `__init__.py` — empty (discovery happens one level up, see below).
 - *(shape_sorter only)* `xmls/` — committed STL shape-sorter assets
   (`sorter.xml`, `piece_<shape>.xml`, STL meshes, `sorter_layout.json`),
   generated once by `xmls/make_sorter_assets.py`.
 
-`tasks/common/` is the home of everything shared: the workbench builder, the
-manipulator wiring, the registration seam + PPO cfg, the shared success
-gating (`success.py`: `OBJECT_VEL_THRESHOLD` and the `SuccessGate` that
-combines a category's success criterion with the at-rest + released
+`tasks/common/` is the home of everything shared: the workbench builder
+(`env_cfg.py`), the manipulator wiring, the registration seam + PPO cfg, the
+normalized action term (`actions.py`), the one-reward convention
+(`rewards.py`: `MIN_SHORTFALL` and `shaped_task_reward`), the shared
+observation terms (`observations.py`: `ee_pose_w` and `rot6d_from_matrix`),
+the absolute-pose reset (`events.py`: `reset_joints_to_pose`), the shared
+success gating (`success.py`: `OBJECT_VEL_THRESHOLD` and the `SuccessGate`
+that combines a category's success criterion with the at-rest + released
 conditions), the `GripperGateCommandCfg`/`GripperOpenGate` "gripper released"
 success gate (`commands.py`; the joints/threshold are robot-specific and
 injected by the manipulator wiring), the `ScatterGrid` spawn sampler
@@ -133,6 +152,53 @@ the MDP and shared-helper modules from being scanned as task configs;
 `peg_insertion` is blacklisted because it's an archived, unregistered
 category. Top-level `g3a_bench/__init__.py` imports `g3a_bench.tasks`, so a
 single `import g3a_bench` registers everything.
+
+### The QC training seam (`g3a_bench/qc/`)
+Training is QC-FQL and it runs from a **separate checkout of upstream `qc`**
+(`ColinQiyangLi/qc`). This repo keeps only the seam (ADR-002). The in-repo
+copy of the trainer is deleted; do not bring one back.
+
+- `env.py` — `G3aEnv`, a single gymnasium env over one mjlab task. It is
+  a seam and nothing else: no reward shaping, no observation rewriting, no
+  action remapping (ADR-009). Four choices there are load-bearing: auto-reset
+  is **off** (mjlab would return the *next* episode's first observation next to
+  `done`), observation corruption is off, `terminated`/`truncated` pass through
+  as mjlab reports them, and observations are **copied** out of simulator
+  memory (mjlab returns a view the next step overwrites).
+- `episode.py` — per-episode bookkeeping and the `info` dict `qc` reads.
+  Success is **latched** over the episode, keyed off `reward == 0.0`. Contact
+  telemetry is published under **flat** keys (`pad_contact_force`,
+  `object_contact_force`); `qc/evaluation.py` consumes them by name, so the key
+  names are a cross-repo contract with no version pin. After changing either
+  side, run a short eval and check `eval/pad_contact_runs` is non-zero.
+- `transitions.py` — recorded rows → `(s, a, r, s', done)`. `terminals` marks an
+  **episode boundary**, `masks` marks whether to **bootstrap**; they are not the
+  same column (ADR-010). Every episode end is a boundary, only a success is
+  absorbing. A timed-out episode's final row is **dropped**, because the
+  recorder stored no successor for it.
+- `convert.py` — the `g3a-convert-demos` entry point. It repeats the record-time
+  action conversion exactly (same function, same gravity compensation), sorts
+  rows by `(episode, frame)`, and stamps the action `scale`/`offset`, the
+  `start_pose_noise` the episodes were recorded under, and the task id into the
+  `.npz` (ADR-011). It is the only module here that imports lerobot.
+- `dataset.py` — `load_dataset(path, env)` reads a dataset back and **raises** on
+  an action-convention, start-pose-noise, or task mismatch against the
+  environment it is handed (ADR-011); an un-stamped `task` on an old file
+  warns instead. It imports no lerobot on purpose: the `qc` venv loads
+  datasets and must stay free of the recording stack.
+
+`train_qc.sh` launches a run. It checks the things that are invisible in the
+code and cost a whole run when wrong (ADR-004): `g3a-bench` reached by
+`PYTHONPATH` and never pip-installed in the `qc` venv, a CUDA-12 torch,
+`XLA_PYTHON_CLIENT_PREALLOCATE=false`, a run directory off NFS, a wandb login,
+and a tmux session. `run_scripts/<task>/` holds the per-experiment sweep
+launchers that call it.
+
+Two documents govern what to run: **ADR-012** says to gate a new demonstration
+set with `tests/qc/bc_gate.py` before spending a training run, and **ADR-014**
+lists the closed experiments that must not be run again (the discount, a dense
+reward arm, `horizon_length=1`, a `flow_steps` sweep, more eval-reset coverage).
+Read both before proposing an experiment.
 
 ### Robot-agnostic design
 Tasks never hardcode robot details. `robots/interface.py` defines
@@ -175,11 +241,14 @@ actuated).
   `uv pip` interface, not `uv sync`/`uv lock` (uv issue #12994, unimplemented).
   Tradeoff: no lean CPU-only build on Linux/Windows — CPU-only boxes still run
   fine on the (larger, ~2.5 GB) cu128 wheels.
-- **use the newest release of mjlab** and the API has drifted from older snippets.
-  Check the installed source code in .venv. E.g. use
-  `mjlab.utils.lab_api.math` (not `mjlab.utils.math`), `RslRlOnPolicyRunnerCfg`
-  with separate actor/critic `RslRlModelCfg` (not `RslRlPpoRunnerCfg`), and
-  `mjlab.viewer.debug_visualizer`.
+- **mjlab is pinned to `>=1.5.1,<1.6`.** mjlab 1.6.0 refuses the DK1 collision
+  specification, so no task builds on it (ADR-003). The upper bound is a hard
+  constraint, not a preference: remove it only together with a DK1 asset that
+  compiles on 1.6. Inside that range use the newest release, and read the
+  installed source in `.venv` — the API has drifted from older snippets. E.g.
+  use `mjlab.utils.lab_api.math` (not `mjlab.utils.math`),
+  `RslRlOnPolicyRunnerCfg` with separate actor/critic `RslRlModelCfg` (not
+  `RslRlPpoRunnerCfg`), and `mjlab.viewer.debug_visualizer`.
 - **One action unit is half a joint's travel.** Every task uses
   `tasks/common/actions.NormalizedJointPositionActionCfg`: `-1` commands a
   joint's lower limit, `+1` its upper, and the term reads those limits off the
@@ -191,6 +260,43 @@ actuated).
   asserts the two agree. mjlab's plain `JointPositionActionCfg` uses a residual
   scale instead, which suits an unbounded PPO policy and makes the task
   unreachable for a tanh-bounded one.
+- **One task reward, in `[-1, 0]`, exactly `0` only at success** (ADR-006,
+  `tasks/common/rewards.py`). Every task ends on success, so a positive
+  per-step reward would pay a policy to hover at the goal and never touch it.
+  A non-success step is floored at `-MIN_SHORTFALL` (1e-3), because QC's
+  `--sparse` maps `(rewards != 0.0) * -1.0` and would relabel a true zero a
+  success. The reward **lags the observation by one control step** on purpose:
+  mjlab runs the reward and termination managers before the command manager,
+  so success in step `k` is paid at step `k + 1`, the step that also
+  terminates. The lag is the same when recording and when evaluating, so it
+  cancels — never correct it on one side alone. Rewards are not scaled by the
+  timestep (`scale_rewards_by_dt=False`), or the numbers in a recorded dataset
+  would follow the decimation.
+- **Observations carry no noise, on any term or group** (ADR-015). Observation
+  noise is a robustness device for an on-policy run that collects its own data.
+  Training is offline from recorded demonstrations, and the demonstrations came
+  through the uncorrupted observation, so noise would split the offline and
+  online halves apart. `actor` and `critic` are now the same terms. If
+  sim-to-real robustness is ever wanted, put the noise back in **one** place
+  (`make_manipulation_env_cfg`) and **record the demonstrations through it**.
+- **`ee_pose` publishes a 6D rotation, not a quaternion** (ADR-007). The term is
+  9 wide: position, then the first two columns of the rotation matrix
+  (`tasks/common/observations.rot6d_from_matrix`). mjlab's `quat_from_matrix`
+  picks its branch with an `argmax` over candidates that tie, and the DK1 grasp
+  site sits on that tie, so float noise flipped the sign of one smooth motion on
+  14 of 120 steps. Body poses keep their quaternion — `data.xquat` is integrated
+  continuously and never runs the unstable branch.
+- **Episodes start at the robot's home pose** (ADR-008).
+  `tasks/common/events.reset_joints_to_pose` resets to an **absolute** pose
+  (`ManipulatorInterface.reset_joint_pos`, the DK1's `START_JOINT_POS`) plus a
+  uniform sample of half-width `start_pose_noise`, default `0.0`. mjlab's
+  `reset_joints_by_offset` resets relative to the MJCF keyframe, 1.7 rad away
+  on joints 2 and 3 — a policy trained on demos and evaluated from a state it
+  had never seen. Sampled positions clamp to the **hard** joint limits, and the
+  gripper is never sampled. `place` keeps the seam at
+  `place_env_cfg.START_POSE_NOISE`; keep any value well under the recorder's
+  0.2 rad alignment gate. Measure start-state variety with peak-to-peak range,
+  never standard deviation.
 - **Fixed props (boards, fields) are fixed-base entities** — a `MjSpec` body with
   *no* free joint, which mjlab auto-wraps as a mocap body. Position them with
   `EntityCfg(init_state=EntityCfg.InitialStateCfg(pos=...))`, **not** the spec

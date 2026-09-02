@@ -144,6 +144,25 @@ uv run pytest tests/live_bridge/test_live_record_helpers.py -v
 
 ---
 
+### `test_debug_panel.py`
+
+Unit tests for the `--debug-obs` live dashboard (`debug_panel.py`) — no viewer, no simulator. Uses a fake env/obs layout to verify `LiveDebugPanel` and helpers `_ObsLayout`, `_xyz`, `_RunningStats`, `_aggregate_buffered`.
+
+| Test class | What it checks |
+|------------|----------------|
+| `TestObsLayout` | offsets, ee/goal/object term detection, domino heuristic, fallback to None |
+| `TestXyz` | xyz formatting, NaN flag, short-array fallback |
+| `TestRunningStats` / `TestAggregateBuffered` | cross-frame mean/min/max, torch inputs, non-finite handling |
+| `TestLiveDebugPanelPerFrame` | per-frame EEF/GOAL/OBJECT/REWARD/DONE output, tty vs piped (ANSI) behaviour, status line, reward accumulation |
+| `TestDeferredQposQvel` | qpos/qvel only buffered per-frame, checked at episode end |
+| `TestFinishEpisodeSummary` | episode-aggregated min/mean/max, anomaly report, boundary banner, reset isolation |
+
+```bash
+uv run pytest tests/live_bridge/test_debug_panel.py -v
+```
+
+---
+
 ### `manual_replay_demo.py`
 
 **Not a pytest test — an interactive script.** Opens a MuJoCo viewer window

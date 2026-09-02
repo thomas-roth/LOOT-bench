@@ -1,21 +1,21 @@
 # G3A Benchmark
 
 Long-horizon robot-manipulation benchmark tasks (block stacking, domino
-placement, shape insertion, ball-to-target) registered into mjlab. Training
-is QC-FQL (offline-to-online RL), which runs from a separate upstream `qc`
-checkout; this repo holds only the seam to it, in `g3a_bench/qc/`. mjlab's
-registry also requires a PPO cfg per task, but that RSL-RL PPO cfg is only a
-registration requirement, not the training path used. See
-`docs/TaskCategories.md` and each category's `README.md` for the per-category
-deep dives.
+placement, shape insertion, ball-to-target, cube placing) registered into
+mjlab. Training is QC-FQL (offline-to-online RL), which runs from a separate
+upstream `qc` checkout; this repo holds only the seam to it, in
+`g3a_bench/qc/`. mjlab's registry also requires a PPO cfg per task, but that
+RSL-RL PPO cfg is only a registration requirement, not the training path used.
+See `docs/TaskCategories.md` and each category's `README.md` for the
+per-category deep dives.
 
 ## Language
 
 ### Tasks and registration
 
 **Category**:
-One of the four registered task families (stack, domino, shape sorter,
-ball) plus the archived, unregistered peg insertion; a package under
+One of the five registered task families (stack, domino, shape sorter, ball,
+place) plus the archived, unregistered peg insertion; a package under
 `tasks/` with variants, assets and MDP terms.
 _Avoid_: domain (overloaded with domain randomization)
 
@@ -43,6 +43,25 @@ The one reward term a task has, weight 1.0. It stays in `[-1, 0]` and reads
 exactly `0` only at success. A category with a progress signal shapes the
 interval; ball has none and sits at `-1` until it scores. See ADR-006.
 _Avoid_: reward mode (the old name for a tier of `progress` + `success` terms)
+
+**Shortfall floor**:
+`MIN_SHORTFALL` (1e-3), the distance below zero every non-success reward must
+keep. It is what makes QC's `--sparse` mapping safe.
+
+**Reward lag**:
+The one control step between a success and the reward that pays it, caused by
+mjlab's manager order. It is identical when recording and when evaluating, so
+it cancels. See ADR-006.
+
+**Home pose**:
+The absolute per-joint start pose (`START_JOINT_POS`) every episode resets to
+and the teleop operator aligns the leader arm to. Contrast: the *rest* pose,
+where the leader arm hangs, and the MJCF *keyframe*, which mjlab's offset reset
+would use. See ADR-008.
+
+**Start-pose noise**:
+Half-width of the uniform sample added around the home pose at reset
+(`start_pose_noise`, default `0.0`). A task fact, not a launcher flag.
 
 ### Success semantics
 
@@ -88,3 +107,56 @@ each jittered by less than the half-cell size.
 **Distractor**:
 An extra free body with no goal slot/socket, present only to make the task
 harder.
+
+### Training seam
+
+**Seam**:
+The whole of what this repo gives the trainer: the gym adapter, the demo
+converter and the dataset contract in `g3a_bench/qc/`. It changes no part of
+the MDP, because the recorder must see the same MDP as the trainer. See
+ADR-002 and ADR-009.
+
+**Adapter**:
+`g3a_bench/qc/env.py`, one mjlab task presented to `qc` as a plain single
+gymnasium environment. Auto-reset off, corruption off, `terminated` and
+`truncated` kept apart, observations copied out of simulator memory.
+
+**Action convention**:
+The `scale` and `offset` that map an action to joint targets. The converter
+stamps the pair in force at record time into the dataset, and `load_dataset`
+raises when it does not match the environment a run builds. See ADR-011.
+
+**Boundary** (`terminals`):
+The end of an episode in a converted dataset. Every episode end is one.
+
+**Bootstrap mask** (`masks`):
+Whether to bootstrap past a transition. Only an absorbing state — a success —
+gets `0`. Not the same column as the boundary. See ADR-010.
+
+**BC gate**:
+The behaviour-cloning fit (`tests/qc/bc_gate.py`) read on a demonstration set
+before a training run is started. A measurement instrument, not pipeline code:
+observation in, the action chunk out, held-out error read back. See ADR-012.
+
+**Recovery demonstration**:
+A recorded attempt that starts off the ideal path, near the states a rollout
+really visits. Contrast: a *nominal* demonstration, another clean run of the
+same kind. Proposed as the answer to demonstrations that are too far apart to
+interpolate between, and **rejected for now** in favour of pinning the spawn
+and target instead; none has been recorded. See ADR-013.
+
+**Closed experiment**:
+A measurement that already removed a suspect, listed in ADR-014. Running one
+again measures nothing new.
+
+**Contact telemetry**:
+The flat `pad_contact_force` / `object_contact_force` keys the adapter
+publishes in `info`. A cross-repo contract with `qc/evaluation.py`, read by
+name and with no version pin. No success rule reads them.
+
+### Demonstrations
+
+**Session**:
+One teleop recording run, written to `out/demos/success|failure/<task>/<stamp>/`
+and kept, when it is worth keeping, as `dataset/demos/<task>/<stamp>/` plus the
+sibling `<stamp>_failure/`.

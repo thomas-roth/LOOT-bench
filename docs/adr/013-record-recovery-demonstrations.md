@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: rejected for now
 ---
 
 # Record recovery demonstrations, not more nominal ones
@@ -7,6 +7,19 @@ status: proposed
 The next demonstration effort records attempts that start off the ideal path,
 near the states a rollout really visits. Do not record more nominal
 demonstrations of the same kind.
+
+**Rejected for now.** A cheaper strategy was taken instead: pin the cube spawn
+and the target, and let the four `Place` variants (`RandS`/`FixedS`,
+`RandT`/`FixedT`) shrink the state space the demonstrations have to cover
+rather than widen the data that covers it. That needs no teleoperation time.
+299 more nominal demonstrations were recorded for it -- 99 more `RandS-RandT`,
+then 100 for each of the three pinned variants -- and `start_pose_noise` went
+back to `0.0`.
+
+Nothing here is refuted. The measurements below still stand, and no recovery
+demonstration has been recorded. This record stays parked until a fixed-variant
+run reports: a rising curve there retires it, a flat one makes it the standing
+proposal again.
 
 ## Why
 
