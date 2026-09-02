@@ -7,7 +7,7 @@ This module is the seam between the two, and nothing more -- no reward
 shaping, no observation rewriting, no action remapping. Anything that changes
 the MDP belongs in the task definition, where the recorder sees it too.
 
-Use :func:`make_g3a_env`.
+Use :class:`G3aEnv`.
 
 Three things here are load-bearing rather than stylistic:
 
@@ -120,6 +120,14 @@ class G3aEnv(gymnasium.Env):
             )
 
         self.task_id = task_id
+        # Half-width [rad] the reset samples from. Stored so a dataset can be
+        # checked against the environment it was recorded under (see
+        # g3a_bench.qc.dataset.check_dataset_matches_env). Read off the cfg's
+        # position_range so task default and launcher override both flow through
+        # one path.
+        self._start_pose_noise = float(
+            cfg.events["reset_robot_joints"].params["position_range"][1]
+        )
         self._env = ManagerBasedRlEnv(cfg=cfg, device=device, render_mode=render_mode)
         self.render_mode = render_mode
         if seed is not None:
@@ -148,10 +156,19 @@ class G3aEnv(gymnasium.Env):
         """The joint action term, which owns the scale and offset.
 
         Published so a dataset can be checked against the convention this env
-        actually runs (``qc.convert.check_dataset_matches_env``) rather than
+        actually runs (``qc.dataset.check_dataset_matches_env``) rather than
         against a copy of it.
         """
         return self._env.action_manager.get_term("joint_pos")
+
+    def start_pose_noise(self) -> float:
+        """Half-width [rad] of the start-pose sample this env was built with.
+
+        Published alongside :meth:`action_term` for the same reason: a dataset
+        stamped at record time must be comparable to the environment at train
+        time without importing the recorder stack.
+        """
+        return self._start_pose_noise
 
     def _observation(self, obs: Mapping[str, Any]) -> np.ndarray:
         """The actor group, as a fresh float32 row.
@@ -244,21 +261,3 @@ class G3aEnv(gymnasium.Env):
 
     def close(self) -> None:
         self._env.close()
-
-
-def make_g3a_env(
-    task_id: str,
-    *,
-    device: str = "cuda",
-    seed: int | None = None,
-    start_pose_noise: float | None = None,
-    render_mode: str | None = None,
-) -> G3aEnv:
-    """Build a :class:`G3aEnv`. See its constructor for the arguments."""
-    return G3aEnv(
-        task_id,
-        device=device,
-        seed=seed,
-        start_pose_noise=start_pose_noise,
-        render_mode=render_mode,
-    )

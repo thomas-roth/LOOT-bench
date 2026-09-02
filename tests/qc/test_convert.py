@@ -9,11 +9,11 @@ training to zero.
 import numpy as np
 import pytest
 
-from g3a_bench.qc.convert import (
+from g3a_bench.qc.convert import build_dataset, convert
+from g3a_bench.qc.dataset import (
     STAMP_KEYS,
-    build_dataset,
+    _env_start_pose_noise,
     check_dataset_matches_env,
-    convert,
     load_dataset,
 )
 from g3a_bench.qc.transitions import QC_KEYS
@@ -50,7 +50,9 @@ def _columns(
 SUCCESS_THEN_TIMEOUT = _columns({0: [-0.7, -0.4, 0.0], 1: [-0.9, -0.8, -0.6]})
 
 
-def _build(columns: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
+def _build(
+    columns: dict[str, np.ndarray], task: str | None = None
+) -> dict[str, np.ndarray]:
     """Call the converter with named columns, not a splat.
 
     The splat reads better but hides the signature from the type checker,
@@ -62,6 +64,7 @@ def _build(columns: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
         observations=columns["observations"],
         leader_actions=columns["leader_actions"],
         rewards=columns["rewards"],
+        task=task,
     )
 
 
@@ -123,15 +126,73 @@ class TestRowOrder:
 class TestStamp:
     def test_publishes_every_stamp_key(self):
         out = _build(SUCCESS_THEN_TIMEOUT)
-        assert set(out) >= STAMP_KEYS
+        # The task stamp is conditional: synthetic builds carry no task.
+        assert set(out) >= STAMP_KEYS - {"task"}
+        assert "task" not in out
+
+    def test_task_is_stamped_when_given(self):
+        task = "G3A-Stack-Low-Dk1_uni"
+        out = _build(SUCCESS_THEN_TIMEOUT, task=task)
+        assert str(np.asarray(out["task"]).reshape(-1)[0]) == task
 
     def test_stamp_matches_the_action_term(self):
-        from g3a_bench.scripts.live_bridge.mapper import action_scale_offset
+        # Stamp must be read off the built term, not a second DK1-only compile.
+        # For DK1 they agree, but the term is the authority.
+        from g3a_bench.qc.env import G3aEnv
 
-        scale, offset = action_scale_offset()
-        out = _build(SUCCESS_THEN_TIMEOUT)
-        np.testing.assert_array_almost_equal(out["action_scale"], scale)
-        np.testing.assert_array_almost_equal(out["action_offset"], offset)
+        task = "G3A-Stack-Low-Dk1_uni"
+        env = G3aEnv(task, device="cpu")
+        try:
+            term = env.action_term()
+            scale = term.scale
+            offset = term.offset
+            if hasattr(scale, "detach"):
+                scale = scale.detach().cpu().numpy()  # type: ignore[union-attr]
+            if hasattr(offset, "detach"):
+                offset = offset.detach().cpu().numpy()  # type: ignore[union-attr]
+            scale = np.asarray(scale, dtype=np.float32).reshape(-1)
+            offset = np.asarray(offset, dtype=np.float32).reshape(-1)
+        finally:
+            env.close()
+        # Legacy path (no task) still matches DK1 term
+        out_legacy = _build(SUCCESS_THEN_TIMEOUT)
+        np.testing.assert_array_almost_equal(out_legacy["action_scale"], scale)
+        np.testing.assert_array_almost_equal(out_legacy["action_offset"], offset)
+        # Robot-agnostic path (explicit task) must also match
+        out_task = _build(SUCCESS_THEN_TIMEOUT, task=task)
+        np.testing.assert_array_almost_equal(out_task["action_scale"], scale)
+        np.testing.assert_array_almost_equal(out_task["action_offset"], offset)
+
+    def test_stamp_is_robot_agnostic(self):
+        # Different tasks can have different action dims/scales; the helper
+        # must resolve per-task, not via the DK1-only mapper.
+        from g3a_bench.qc.convert import _action_scale_offset_from_task
+
+        task_dk1 = "G3A-Stack-Low-Dk1_uni"
+        scale, offset = _action_scale_offset_from_task(task_dk1, device="cpu")
+        assert scale.shape[0] == 7
+        # The task-resolved stamp must equal the term's stamp
+        from g3a_bench.qc.env import G3aEnv
+
+        env = G3aEnv(task_dk1, device="cpu")
+        try:
+            term = env.action_term()
+            env_scale = np.asarray(
+                term.scale.detach().cpu().numpy()
+                if hasattr(term.scale, "detach")
+                else term.scale,
+                dtype=np.float32,
+            ).reshape(-1)
+            env_offset = np.asarray(
+                term.offset.detach().cpu().numpy()
+                if hasattr(term.offset, "detach")
+                else term.offset,
+                dtype=np.float32,
+            ).reshape(-1)
+        finally:
+            env.close()
+        np.testing.assert_array_almost_equal(scale, env_scale)
+        np.testing.assert_array_almost_equal(offset, env_offset)
 
     def test_still_publishes_the_training_keys(self):
         out = _build(SUCCESS_THEN_TIMEOUT)
@@ -147,13 +208,26 @@ class _FakeTerm:
 class _FakeEnv:
     """Just enough of the adapter to answer the stamp check."""
 
-    def __init__(self, scale, offset, obs_dim, action_dim):
+    def __init__(
+        self,
+        scale,
+        offset,
+        obs_dim,
+        action_dim,
+        start_pose_noise=0.0,
+        task_id=None,
+    ):
         self._term = _FakeTerm(scale, offset)
         self.observation_space = type("S", (), {"shape": (obs_dim,)})()
         self.action_space = type("S", (), {"shape": (action_dim,)})()
+        self._start_pose_noise = float(start_pose_noise)
+        self.task_id = task_id
 
     def action_term(self):
         return self._term
+
+    def start_pose_noise(self):
+        return self._start_pose_noise
 
 
 class TestStampCheck:
@@ -166,7 +240,12 @@ class TestStampCheck:
             "offset": data["action_offset"],
             "obs_dim": data["observations"].shape[1],
             "action_dim": data["actions"].shape[1],
+            "start_pose_noise": float(
+                np.asarray(data["start_pose_noise"]).reshape(-1)[0]
+            ),
         }
+        if "task" in data:
+            kwargs["task_id"] = str(np.asarray(data["task"]).reshape(-1)[0])
         kwargs.update(overrides)
         return _FakeEnv(**kwargs)
 
@@ -199,6 +278,116 @@ class TestStampCheck:
         env = self._env_from(data, action_dim=3)
         with pytest.raises(ValueError, match="action width"):
             check_dataset_matches_env(data, env)
+
+    def test_a_different_start_pose_noise_is_rejected(self):
+        data = self._dataset()
+        env = self._env_from(
+            data, start_pose_noise=float(data["start_pose_noise"].reshape(-1)[0]) + 0.05
+        )
+        with pytest.raises(ValueError, match="start_pose_noise"):
+            check_dataset_matches_env(data, env)
+
+    def test_a_missing_start_pose_noise_stamp_is_rejected(self):
+        data = self._dataset()
+        data.pop("start_pose_noise")
+        env = self._env_from(_build(SUCCESS_THEN_TIMEOUT))
+        with pytest.raises(ValueError, match="no start_pose_noise"):
+            check_dataset_matches_env(data, env)
+
+    def test_a_different_task_is_rejected(self):
+        """The failure the width checks cannot see: same robot, same obs and
+        action widths, different variant (e.g. Place FixedS-FixedT vs
+        RandS-RandT) trains silently on the wrong spawn/target distribution."""
+        data = self._dataset()
+        data["task"] = np.array("G3A-Place-FixedS-FixedT-Dk1_uni", dtype=np.str_)
+        env = self._env_from(data, task_id="G3A-Place-RandS-RandT-Dk1_uni")
+        with pytest.raises(ValueError, match="dataset task"):
+            check_dataset_matches_env(data, env)
+
+    def test_the_matching_task_passes(self):
+        data = self._dataset()
+        task = "G3A-Place-RandS-RandT-Dk1_uni"
+        data["task"] = np.array(task, dtype=np.str_)
+        env = self._env_from(data, task_id=task)
+        check_dataset_matches_env(data, env)
+
+    def test_a_missing_task_stamp_warns_but_passes(self):
+        """Minimal breakage: a .npz predating the stamp still loads, so an
+        existing dataset is not refused by this change."""
+        data = self._dataset()
+        env = self._env_from(data, task_id="G3A-Place-RandS-RandT-Dk1_uni")
+        with pytest.warns(UserWarning, match="no task stamp"):
+            check_dataset_matches_env(data, env)
+
+
+class TestEnvStartPoseNoise:
+    """Each source ``_env_start_pose_noise`` reads, in priority order.
+
+    A silent miss is how a wrong env would compare its noise to the stamp,
+    so a broken source must say which source it tried and what is missing.
+    """
+
+    @staticmethod
+    def _env(**attrs):
+        return type("NoiseEnv", (), attrs)()
+
+    @staticmethod
+    def _cfg_env(events):
+        cfg = type("Cfg", (), {"events": events})()
+        return type("Unwrapped", (), {"cfg": cfg})()
+
+    def test_the_seam_method_is_the_first_source(self):
+        def noise(self):
+            return 0.05
+
+        env = self._env(start_pose_noise=noise)
+        assert _env_start_pose_noise(env) == pytest.approx(0.05)
+
+    def test_a_seam_attribute_works_too(self):
+        env = self._env(start_pose_noise=0.05)
+        assert _env_start_pose_noise(env) == pytest.approx(0.05)
+
+    def test_the_private_attribute_is_the_second_source(self):
+        env = self._env(_start_pose_noise=0.05)
+        assert _env_start_pose_noise(env) == pytest.approx(0.05)
+
+    def test_the_cfg_is_the_third_source(self):
+        events = {
+            "reset_robot_joints": type(
+                "Term", (), {"params": {"position_range": (-0.05, 0.05)}}
+            )()
+        }
+        env = self._env(unwrapped_env=self._cfg_env(events))
+        assert _env_start_pose_noise(env) == pytest.approx(0.05)
+
+    def test_a_higher_source_beats_the_cfg(self):
+        events = {
+            "reset_robot_joints": type(
+                "Term", (), {"params": {"position_range": (-0.05, 0.05)}}
+            )()
+        }
+        env = self._env(start_pose_noise=0.1, unwrapped_env=self._cfg_env(events))
+        assert _env_start_pose_noise(env) == pytest.approx(0.1)
+
+    def test_a_cfg_without_the_event_names_the_missing_term(self):
+        env = self._env(unwrapped_env=self._cfg_env({}))
+        with pytest.raises(ValueError, match="reset_robot_joints"):
+            _env_start_pose_noise(env)
+
+    def test_a_cfg_without_the_param_names_the_missing_param(self):
+        events = {"reset_robot_joints": type("Term", (), {"params": {}})()}
+        env = self._env(unwrapped_env=self._cfg_env(events))
+        with pytest.raises(ValueError, match="position_range"):
+            _env_start_pose_noise(env)
+
+    def test_a_broken_seam_value_names_the_attribute(self):
+        env = self._env(start_pose_noise="not-a-number")
+        with pytest.raises(ValueError, match="env.start_pose_noise"):
+            _env_start_pose_noise(env)
+
+    def test_no_source_at_all_says_none_were_found(self):
+        with pytest.raises(ValueError, match="cannot read start_pose_noise"):
+            _env_start_pose_noise(self._env())
 
 
 class TestSessionOffsetting:
@@ -242,7 +431,9 @@ class TestReadingARecording:
     """
 
     @staticmethod
-    def _write(root, episodes):
+    def _write(root, episodes, task: str | list[str] = "G3A-Stack-Low-Dk1_uni"):
+        """Write one session. ``task`` may be a per-episode sequence, which is
+        how a root with two task ids is made for the mixed-task tests."""
         from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
         features = {
@@ -258,7 +449,8 @@ class TestReadingARecording:
         dataset = LeRobotDataset.create(
             "probe", fps=50, features=features, root=str(root)
         )
-        for rewards in episodes:
+        for episode, rewards in enumerate(episodes):
+            episode_task = task[episode] if isinstance(task, (list, tuple)) else task
             for frame, reward in enumerate(rewards):
                 dataset.add_frame(
                     {
@@ -268,7 +460,7 @@ class TestReadingARecording:
                         "action": np.array(_leader_pose(0.1 * frame), np.float32),
                         "next.reward": np.array([reward], dtype=np.float32),
                         "next.done": np.array([frame == len(rewards) - 1]),
-                        "task": "G3A-Stack-Low-Dk1_uni",
+                        "task": episode_task,
                     }
                 )
             dataset.save_episode()
@@ -282,6 +474,11 @@ class TestReadingARecording:
 
         loaded = np.load(output)
         assert set(loaded.files) >= QC_KEYS | STAMP_KEYS
+        # The task stamp carries the id recorded per frame, so a dataset
+        # from one task cannot pass the check against another.
+        assert str(np.asarray(loaded["task"]).reshape(-1)[0]) == (
+            "G3A-Stack-Low-Dk1_uni"
+        )
         # Six recorded rows, minus the timed-out episode's unusable last row.
         assert len(loaded["observations"]) == 4
         np.testing.assert_array_equal(loaded["terminals"], [0.0, 0.0, 1.0, 1.0])
@@ -299,6 +496,35 @@ class TestReadingARecording:
         with pytest.raises(FileNotFoundError, match="not a LeRobot dataset root"):
             convert([tmp_path / "nowhere"], tmp_path / "demos.npz")
 
+    def test_mixed_tasks_across_roots_are_rejected(self, tmp_path):
+        """Two sessions of two tasks in one call would stamp one of them and
+        train silently on the other."""
+        first = self._write(
+            tmp_path / "a",
+            [[-0.5, 0.0]],
+            task="G3A-Place-FixedS-FixedT-Dk1_uni",
+        )
+        second = self._write(tmp_path / "b", [[-0.5, 0.0]])
+        with pytest.raises(ValueError, match="mixed tasks across roots"):
+            convert([first, second], tmp_path / "demos.npz")
+
+    def test_mixed_tasks_inside_one_root_are_rejected(self, tmp_path):
+        root = self._write(
+            tmp_path / "a",
+            [[-0.5, 0.0], [-0.5, 0.0]],
+            task=["G3A-Place-FixedS-FixedT-Dk1_uni", "G3A-Stack-Low-Dk1_uni"],
+        )
+        with pytest.raises(ValueError, match="mixed tasks inside"):
+            convert([root], tmp_path / "demos.npz")
+
+    def test_a_dataset_without_a_task_uses_the_legacy_stamp(self, tmp_path):
+        """An empty task id counts as none: the legacy DK1 stamp is used and
+        the output carries no task for the check to match against."""
+        root = self._write(tmp_path / "session", [[-0.5, 0.0]], task="")
+        data = convert([root], tmp_path / "demos.npz")
+        assert "task" not in data
+        assert set(data) >= STAMP_KEYS - {"task"}
+
 
 class TestLoadDataset:
     def test_round_trips_through_the_npz(self, tmp_path):
@@ -306,8 +532,11 @@ class TestLoadDataset:
         path = tmp_path / "demos.npz"
         np.savez(path, **data)  # type: ignore[arg-type]
         loaded = load_dataset(path)
+        # ``task`` is absent on synthetic builds, so only check the keys
+        # that exist.
         for key in QC_KEYS | STAMP_KEYS:
-            np.testing.assert_array_equal(loaded[key], data[key])
+            if key in data:
+                np.testing.assert_array_equal(loaded[key], data[key])
 
     def test_checks_against_an_env_when_given_one(self, tmp_path):
         data = _build(SUCCESS_THEN_TIMEOUT)
@@ -318,6 +547,7 @@ class TestLoadDataset:
             offset=data["action_offset"],
             obs_dim=data["observations"].shape[1],
             action_dim=data["actions"].shape[1],
+            start_pose_noise=float(np.asarray(data["start_pose_noise"]).reshape(-1)[0]),
         )
         with pytest.raises(ValueError, match="action scale"):
             load_dataset(path, env)
@@ -339,8 +569,14 @@ class TestLoadDataset:
                 "S", (), {"shape": (data["observations"].shape[1],)}
             )()
             action_space = type("S", (), {"shape": (data["actions"].shape[1],)})()
+            _start_pose_noise = float(
+                np.asarray(data["start_pose_noise"]).reshape(-1)[0]
+            )
 
             def action_term(self):
                 return _TorchTerm()
+
+            def start_pose_noise(self):
+                return self._start_pose_noise
 
         check_dataset_matches_env(data, _TorchEnv())

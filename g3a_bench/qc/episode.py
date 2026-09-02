@@ -17,7 +17,7 @@ SUCCESS_REWARD = 0.0
 CONTACT_THRESHOLD = 0.1
 """[N] force above which a step counts as touching the object.
 
-Matches the constant ``qc/evaluation.py`` thresholds ``pad_contact_force`` at,
+``qc/evaluation.py`` imports this value to threshold ``pad_contact_force``,
 so ``object_contact_steps`` below and qc's own ``pad_contact_runs`` measure
 the same kind of step and can be read side by side. It equals
 ``tasks.common.commands.MIN_GRIP_FORCE`` as well, but for an unrelated reason

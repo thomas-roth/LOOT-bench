@@ -138,6 +138,8 @@ def gravity_compensate_ctrl(ctrl: np.ndarray) -> np.ndarray:
 def lerobot_to_mjlab_raw_action(
     joint_pos: np.ndarray,
     gravity_compensate: bool = False,
+    scale: np.ndarray | None = None,
+    offset: np.ndarray | None = None,
 ) -> np.ndarray:
     """Convert a leader-arm pose to the action that commands it in the sim.
 
@@ -152,9 +154,16 @@ def lerobot_to_mjlab_raw_action(
             gravity_compensate_ctrl) before computing the action. Opt-in and
             off by default — record_replay.py and tests rely on the exact
             uncompensated mapping.
+        scale: action scale to invert with. When None, read off the compiled
+            DK1 model via :func:`action_scale_offset` (DK1-only fallback).
+        offset: action offset to invert with. Must be provided together with
+            ``scale``.
     """
     ctrl = lerobot_to_mjlab_ctrl(joint_pos)
     if gravity_compensate:
         ctrl = gravity_compensate_ctrl(ctrl)
-    scale, offset = action_scale_offset()
+    if (scale is None) != (offset is None):
+        raise ValueError("scale and offset must be provided together or not at all")
+    if scale is None or offset is None:
+        scale, offset = action_scale_offset()
     return (ctrl - offset) / scale
