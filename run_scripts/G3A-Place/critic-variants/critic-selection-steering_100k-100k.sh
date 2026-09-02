@@ -9,8 +9,8 @@
 # ensemble) selects which chunk to execute.
 #
 # This contrasts the two single-role arms:
-#   critic-steering_short.sh       (distill-ddpg:   steering only)
-#   critic-selection_short.sh (best-of-n, n=32: selection only)
+#   critic-steering_*.sh   (distill-ddpg:   steering only)
+#   critic-selection_*.sh  (best-of-n, n=32: selection only)
 #
 # Any extra arguments are passed through to train_qc.sh.
 
@@ -19,13 +19,13 @@ set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 export G3A_RUN_SCRIPT="$(basename "${BASH_SOURCE[0]}" .sh)"
 
-exec "$REPO/train_qc.sh" G3A-Place-RandS-RandT-Dk1_uni "$REPO/out/qc/place-rands-randt_2026-08-23_17-08-12.npz" \
-  --seed=42 \
-  --agent=agents/acfql_full_critic.py \
+exec "$REPO/train_qc.sh" G3A-Place-RandS-RandT-Dk1_uni "$REPO/dataset/qc/place_joint_rand-s_rand-t_149-demos_2026-08-15_16-18-15+2026-08-23_17-08-12.npz" \
+  --seed 42 \
+  --agent agents/acfql_full_critic.py \
   --offline_steps 100000 \
   --online_steps 100000 \
   --eval_interval 20000 \
   --eval_episodes 20 \
   --video_episodes 5 \
-  --run_group=place_critic-selection-steering \
+  --run_group place_critic-selection-steering \
   "$@"
