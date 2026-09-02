@@ -59,15 +59,16 @@ for seed in $SEEDS; do
   log_dir="$RUN_DIR/$TASK/$RUN_GROUP/seed-$seed"
   mkdir -p "$log_dir"
 
-  "$REPO/train_qc.sh" "$TASK" "$REPO/out/qc/place_fixed-s_fixed-t_100-demos_2026-08-28_19-12-42.npz" \
-    --seed="$seed" \
-    --agent=agents/acfql.py \
+  "$REPO/train_qc.sh" "$TASK" "$REPO/dataset/qc/place_joint_fixed-s_fixed-t_100-demos_2026-08-28_19-12-42.npz" \
+    --seed "$seed" \
+    --agent agents/acfql.py \
+    --agent.normalize_q_loss True \
     --offline_steps 100000 \
     --online_steps 0 \
     --eval_interval 20000 \
     --eval_episodes 20 \
     --video_episodes 5 \
-    --run_group="$RUN_GROUP" \
+    --run_group "$RUN_GROUP" \
     "$@" >"$log_dir/train.log" 2>&1 &
 
   pids+=("$!")

@@ -2,11 +2,11 @@
 # Full-critic (best-of-32 + Q-steering) run of G3A-Place-RandS-RandT-Dk1_uni on QC-FQL.
 #
 # A/B goal: critic used for BOTH selection and steering.
-# agents/acfql_full_critic.py sets actor_type=distill-ddpg-select: the actor
-# loss is bc_flow + alpha*distill + q_loss (so the critic gradient-steers the
-# actor toward high-Q chunks), and at every decision point the agent samples
-# 32 action chunks and the critic (TD-trained each step, argmax over its Q
-# ensemble) selects which chunk to execute.
+# Stock agents/acfql.py with actor_type=distill-ddpg-select and
+# actor_num_samples=32: the actor loss is bc_flow + alpha*distill + q_loss
+# (so the critic gradient-steers the actor toward high-Q chunks), and at every
+# decision point the agent samples 32 action chunks and the critic (TD-trained
+# each step, argmax over its Q ensemble) selects which chunk to execute.
 #
 # This contrasts the two single-role arms:
 #   critic-steering_*.sh   (distill-ddpg:   steering only)
@@ -20,8 +20,12 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 export G3A_RUN_SCRIPT="$(basename "${BASH_SOURCE[0]}" .sh)"
 
 exec "$REPO/train_qc.sh" G3A-Place-RandS-RandT-Dk1_uni "$REPO/dataset/qc/place_joint_rand-s_rand-t_149-demos_2026-08-15_16-18-15+2026-08-23_17-08-12.npz" \
+  --start-pose-noise 0.05 \
   --seed 42 \
-  --agent agents/acfql_full_critic.py \
+  --agent agents/acfql.py \
+  --agent.normalize_q_loss=True \
+  --agent.actor_type distill-ddpg-select \
+  --agent.actor_num_samples 32 \
   --offline_steps 100000 \
   --online_steps 100000 \
   --eval_interval 20000 \
