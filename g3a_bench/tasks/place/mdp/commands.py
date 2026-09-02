@@ -74,10 +74,9 @@ MAX_TRAVEL_DIST = math.hypot(
 """Largest possible spawn->target separation given the disjoint x-ranges
 above (opposite y corners); normalizes ``place_progress`` to a fixed,
 non-per-episode constant (analogous to how ``stack_progress`` normalizes by
-the fixed ``target_height``). NOTE: derived from the *default* range tuples
-above, not from ``PlaceCommandCfg``'s (overridable) fields -- if those cfg
-fields are ever overridden away from the defaults, recompute this constant
-to match (same caveat as domino's ``HARDEST_COUNT``-anchored math)."""
+the fixed ``target_height``). Module-level default for the default ranges
+above; per-env instances recompute this from ``PlaceCommandCfg`` (see
+``PlaceCommand._max_travel_dist``) so cfg overrides stay consistent."""
 
 
 def get_command(env: ManagerBasedRlEnv, name: str) -> PlaceCommand:
@@ -133,6 +132,24 @@ class PlaceCommand(CommandTerm):
             ContactSensor, env.scene.sensors[GRIP_CONTACT_SENSOR_NAME]
         )
 
+        # Fixed poses / normalizer derived from cfg so overrides stay
+        # consistent. Module constants remain as defaults for docs/imports.
+        self._fixed_spawn_xy = (
+            _midpoint(cfg.spawn_x_range),
+            _midpoint(cfg.spawn_y_range),
+        )
+        self._fixed_target_xy = (
+            _midpoint(cfg.target_x_range),
+            _midpoint(cfg.target_y_range),
+        )
+        sx0, sx1 = cfg.spawn_x_range
+        sy0, sy1 = cfg.spawn_y_range
+        tx0, tx1 = cfg.target_x_range
+        ty0, ty1 = cfg.target_y_range
+        dx = max(abs(tx1 - sx0), abs(tx0 - sx1))
+        dy = max(abs(ty1 - sy0), abs(ty0 - sy1))
+        self._max_travel_dist = math.hypot(dx, dy)
+
         self.metrics["dist_to_target"] = torch.zeros(E, device=dev)
         self.metrics["reached"] = torch.zeros(E, device=dev)
         self.metrics["episode_success"] = torch.zeros(E, device=dev)
@@ -165,7 +182,7 @@ class PlaceCommand(CommandTerm):
         self.reached = place_reached(
             self.dist_to_target, self.cfg.pos_threshold * margin
         )
-        self.progress = place_progress(self.dist_to_target, MAX_TRAVEL_DIST)
+        self.progress = place_progress(self.dist_to_target, self._max_travel_dist)
 
         speed = self.cube.data.root_link_lin_vel_w.norm(dim=-1)
         released = self._gripper_gate(self._env.scene["robot"]) & self._contact_gate(
@@ -198,7 +215,7 @@ class PlaceCommand(CommandTerm):
         if self.variant.random_spawn:
             xy, spawn_yaw = self._scatter.sample_poses(n, 1)
         else:
-            xy = torch.tensor(FIXED_SPAWN_XY, device=dev).expand(n, 1, 2)
+            xy = torch.tensor(self._fixed_spawn_xy, device=dev).expand(n, 1, 2)
             spawn_yaw = torch.full((n, 1), FIXED_SPAWN_YAW, device=dev)
         write_upright_spawn(
             [self.cube],
@@ -218,8 +235,8 @@ class PlaceCommand(CommandTerm):
             tx = x0 + u[:, 0] * (x1 - x0)
             ty = y0 + u[:, 1] * (y1 - y0)
         else:
-            tx = torch.full((n,), FIXED_TARGET_XY[0], device=dev)
-            ty = torch.full((n,), FIXED_TARGET_XY[1], device=dev)
+            tx = torch.full((n,), self._fixed_target_xy[0], device=dev)
+            ty = torch.full((n,), self._fixed_target_xy[1], device=dev)
         tz = torch.full((n,), self._half_h, device=dev)
         self.target_pos_w[env_ids] = torch.stack([tx, ty, tz], dim=-1) + origins
 

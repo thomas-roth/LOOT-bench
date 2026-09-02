@@ -46,9 +46,8 @@ of the reasons a run fails, and no more.
 
 Runs from the qc venv (it needs JAX), with both checkouts on the path::
 
-    PYTHONPATH=/disk/users/id310/code/g3a-bench:/disk/users/id310/code/qc \\
-    /disk/users/id310/code/qc/.venv/bin/python tests/qc/bc_gate.py \\
-        out/qc/stack.npz
+    PYTHONPATH=<g3a-bench>:<qc> <qc>/.venv/bin/python tests/qc/bc_gate.py \\
+        out/qc/demos.npz
 
 Exit status is the verdict: 0 when the held-out interior error beats
 ``--target``, 1 when it does not.
@@ -66,6 +65,7 @@ os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
 import argparse
 import json
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -88,6 +88,40 @@ INTERIOR_SKIP = 5
 The opening frames of every episode look alike, because the arm starts from
 one pose. Reading them measures the start pose, not the policy.
 """
+
+
+@dataclass(frozen=True)
+class FitCfg:
+    """Training hyper-parameters that always travel together (Data Clump)."""
+
+    hidden: tuple[int, ...]
+    steps: int
+    batch_size: int
+    lr: float
+    lr_schedule: str
+    layer_norm: bool
+    seed: int
+    eval_every: int
+
+
+@dataclass(frozen=True)
+class FitData:
+    """Everything the gate reads from the dataset, as one object (Data Clump).
+
+    ``horizon`` and ``action_dim`` live here, not in :class:`FitCfg`, because
+    they shape the data, not the fit.
+    """
+
+    standardized: NDArray[np.float32]
+    chunk: NDArray[np.float32]
+    valid: NDArray[np.float32]
+    starts: NDArray[np.intp]
+    reads: dict[str, tuple[NDArray[np.intp], NDArray[np.float32]]]
+    action_dim: int
+    horizon: int
+    train_ids: list[int]
+    held_ids: list[int]
+    actions: NDArray[np.float32]
 
 
 def build_chunks(
@@ -266,32 +300,16 @@ def load_columns(path: Path) -> dict[str, NDArray]:
 
 
 def fit(
-    observations: NDArray[np.float32],
-    chunk: NDArray[np.float32],
-    valid: NDArray[np.float32],
-    starts: NDArray[np.intp],
-    reads: dict[str, tuple[NDArray[np.intp], NDArray[np.float32]]],
-    *,
-    hidden: list[int],
-    horizon: int,
-    action_dim: int,
-    steps: int,
-    batch_size: int,
-    lr: float,
-    lr_schedule: str,
-    layer_norm: bool,
-    seed: int,
-    eval_every: int,
-    report: Any,
+    data: FitData, cfg: FitCfg, report: Any
 ) -> tuple[list[dict[str, float]], dict[str, float]]:
     """Fit observation -> action chunk, reading the error as it goes.
 
     Args:
-        observations: standardized, one row per transition.
-        chunk: the regression target from :func:`build_chunks`.
-        valid: its mask.
-        starts: window start rows the fit may draw from.
-        reads: named query sets, each ``(rows, reference first action)``.
+        data: the prepared problem: standardized observations, the chunk
+            target from :func:`build_chunks` and its mask, the window starts
+            the fit may draw from, and the named read sets, each
+            ``(rows, reference first action)``.
+        cfg: training hyper-parameters.
         report: called with the history row after each evaluation.
 
     Returns:
@@ -310,28 +328,34 @@ def fit(
         ) from error
 
     model = MLP(
-        (*hidden, horizon * action_dim), activate_final=False, layer_norm=layer_norm
+        (*cfg.hidden, data.horizon * data.action_dim),
+        activate_final=False,
+        layer_norm=cfg.layer_norm,
     )
-    key = jax.random.PRNGKey(seed)
+    key = jax.random.PRNGKey(cfg.seed)
     key, init_key = jax.random.split(key)
-    params = model.init(init_key, jnp.asarray(observations[:1]))["params"]
-    schedule = optax.cosine_decay_schedule(lr, steps) if lr_schedule == "cosine" else lr
+    params = model.init(init_key, jnp.asarray(data.standardized[:1]))["params"]
+    schedule = (
+        optax.cosine_decay_schedule(cfg.lr, cfg.steps)
+        if cfg.lr_schedule == "cosine"
+        else cfg.lr
+    )
     tx = optax.adam(schedule)
     opt_state = tx.init(params)
 
-    obs_d = jnp.asarray(observations)
-    chunk_d = jnp.asarray(chunk)
-    valid_d = jnp.asarray(valid)
-    starts_d = jnp.asarray(starts)
+    obs_d = jnp.asarray(data.standardized)
+    chunk_d = jnp.asarray(data.chunk)
+    valid_d = jnp.asarray(data.valid)
+    starts_d = jnp.asarray(data.starts)
 
     @jax.jit
     def train_step(params, opt_state, key):
         key, sub = jax.random.split(key)
-        rows = starts_d[jax.random.randint(sub, (batch_size,), 0, len(starts_d))]
+        rows = starts_d[jax.random.randint(sub, (cfg.batch_size,), 0, len(starts_d))]
 
         def loss_fn(p):
             pred = model.apply({"params": p}, obs_d[rows]).reshape(
-                batch_size, horizon, action_dim
+                cfg.batch_size, data.horizon, data.action_dim
             )
             return jnp.mean((pred - chunk_d[rows]) ** 2 * valid_d[rows][..., None])
 
@@ -342,7 +366,7 @@ def fit(
     @jax.jit
     def first_action(params, rows):
         return model.apply({"params": params}, obs_d[rows]).reshape(
-            -1, horizon, action_dim
+            -1, data.horizon, data.action_dim
         )[:, 0]
 
     def read(params) -> dict[str, float]:
@@ -353,7 +377,7 @@ def fit(
         spread.
         """
         out = {}
-        for name, (rows, reference) in reads.items():
+        for name, (rows, reference) in data.reads.items():
             pred = np.asarray(first_action(params, jnp.asarray(rows)))
             out[name] = float(np.abs(pred - reference).max(axis=-1).mean())
         return out
@@ -361,9 +385,9 @@ def fit(
     history: list[dict[str, float]] = []
     final: dict[str, float] = {}
     loss = jnp.asarray(0.0)
-    for step in range(1, steps + 1):
+    for step in range(1, cfg.steps + 1):
         params, opt_state, key, loss = train_step(params, opt_state, key)
-        if step % eval_every == 0 or step == steps:
+        if step % cfg.eval_every == 0 or step == cfg.steps:
             final = read(params)
             row = {"step": step, "mse": float(loss), **final}
             history.append(row)
@@ -371,7 +395,7 @@ def fit(
     return history, final
 
 
-def main() -> None:
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("dataset", help=".npz from g3a-convert-demos")
     parser.add_argument(
@@ -412,8 +436,10 @@ def main() -> None:
     )
     parser.add_argument("--eval-every", type=int, default=10000)
     parser.add_argument("--out", default="", help="write history.json here")
-    args = parser.parse_args()
+    return parser.parse_args()
 
+
+def prepare_data(args: argparse.Namespace) -> FitData:
     data = load_columns(Path(args.dataset))
     observations = data["observations"].astype(np.float32)
     actions = data["actions"].astype(np.float32)
@@ -439,17 +465,37 @@ def main() -> None:
         reads[f"{label} t=0"] = (rows0, actions[rows0])
         reads[f"{label} t>={INTERIOR_SKIP}"] = (rows_i, actions[rows_i])
 
-    step = np.abs(np.diff(actions, axis=0)).max(axis=-1)
+    return FitData(
+        standardized=standardized,
+        chunk=chunk,
+        valid=valid,
+        starts=starts,
+        reads=reads,
+        action_dim=action_dim,
+        horizon=args.horizon,
+        train_ids=train_ids,
+        held_ids=held_ids,
+        actions=actions,
+    )
+
+
+def print_context(args: argparse.Namespace, data: FitData) -> list[str]:
+    step = np.abs(np.diff(data.actions, axis=0)).max(axis=-1)
     print(f"dataset    : {args.dataset}")
     print(
-        f"             {len(actions)} transitions, {len(episode_ids)} episodes, "
-        f"{action_dim}-d actions"
+        f"             {len(data.actions)} transitions, "
+        f"{len(data.train_ids) + len(data.held_ids)} episodes, "
+        f"{data.action_dim}-d actions"
     )
     print(
-        f"split      : fit {len(train_ids)} episodes ({len(starts)} of "
-        f"{len(chunk)} windows), hold out {len(held_ids)}: {held_ids}"
+        f"split      : fit {len(data.train_ids)} episodes "
+        f"({len(data.starts)} of {len(data.chunk)} windows), "
+        f"hold out {len(data.held_ids)}: {data.held_ids}"
     )
-    print(f"model      : MLP {args.hidden} -> {args.horizon * action_dim} (qc's body)")
+    print(
+        f"model      : MLP {args.hidden} -> "
+        f"{data.horizon * data.action_dim} (qc's body)"
+    )
     print(
         f"optimizer  : adam lr={args.lr} ({args.lr_schedule}), "
         f"batch {args.batch_size}, {args.steps} steps"
@@ -461,41 +507,46 @@ def main() -> None:
     )
     print(f"bar        : held-out interior error under {args.target}\n")
 
-    columns = list(reads)
+    columns = [
+        "train t=0",
+        f"train t>={INTERIOR_SKIP}",
+        "held t=0",
+        f"held t>={INTERIOR_SKIP}",
+    ]
     header = f"{'step':>8}{'train mse':>12}" + "".join(f"{c:>13}" for c in columns)
     print(header)
     print("-" * len(header))
+    return columns
 
+
+def run_fit(
+    data: FitData, cfg: FitCfg, columns: list[str]
+) -> tuple[list[dict[str, float]], dict[str, float]]:
     started = time.time()
     history, final = fit(
-        standardized,
-        chunk,
-        valid,
-        starts,
-        reads,
-        hidden=list(args.hidden),
-        horizon=args.horizon,
-        action_dim=action_dim,
-        steps=args.steps,
-        batch_size=args.batch_size,
-        lr=args.lr,
-        lr_schedule=args.lr_schedule,
-        layer_norm=args.layer_norm,
-        seed=args.seed,
-        eval_every=args.eval_every,
+        data,
+        cfg,
         report=lambda row: print(
             f"{row['step']:8d}{row['mse']:12.6f}"
-            + "".join(f"{row[c]:13.4f}" for c in columns)
+            + "".join(f"{row.get(c, 0):13.4f}" for c in columns)
         ),
     )
-    print(f"\n{args.steps} steps in {time.time() - started:.0f} s")
+    print(f"\n{cfg.steps} steps in {time.time() - started:.0f} s")
+    return history, final
 
-    held_interior = final[f"held t>={INTERIOR_SKIP}"]
-    train_interior = final[f"train t>={INTERIOR_SKIP}"]
-    passed = held_interior < args.target
+
+def print_verdict(
+    final: dict[str, float],
+    train_interior: float,
+    held_interior: float,
+    target: float,
+    out: str,
+    history: list[dict[str, float]],
+) -> None:
+    passed = held_interior < target
 
     print(f"\nfitted   interior error : {train_interior:.4f}")
-    print(f"held out interior error : {held_interior:.4f}   (bar {args.target})")
+    print(f"held out interior error : {held_interior:.4f}   (bar {target})")
     if passed:
         print("\nPASS. The fit transfers to unseen episodes. A run is worth starting.")
     elif train_interior < 0.5 * held_interior:
@@ -511,13 +562,33 @@ def main() -> None:
             "before recording more."
         )
 
-    if args.out:
-        out = Path(args.out)
-        out.mkdir(parents=True, exist_ok=True)
-        (out / "history.json").write_text(json.dumps(history, indent=2))
-        print(f"wrote {out / 'history.json'}")
+    if out:
+        path = Path(out)
+        path.mkdir(parents=True, exist_ok=True)
+        (path / "history.json").write_text(json.dumps(history, indent=2))
+        print(f"wrote {path / 'history.json'}")
 
     raise SystemExit(0 if passed else 1)
+
+
+def main() -> None:
+    args = parse_args()
+    data = prepare_data(args)
+    cfg = FitCfg(
+        hidden=tuple(args.hidden),
+        steps=args.steps,
+        batch_size=args.batch_size,
+        lr=args.lr,
+        lr_schedule=args.lr_schedule,
+        layer_norm=args.layer_norm,
+        seed=args.seed,
+        eval_every=args.eval_every,
+    )
+    columns = print_context(args, data)
+    history, final = run_fit(data, cfg, columns)
+    held_interior = final[f"held t>={INTERIOR_SKIP}"]
+    train_interior = final[f"train t>={INTERIOR_SKIP}"]
+    print_verdict(final, train_interior, held_interior, args.target, args.out, history)
 
 
 if __name__ == "__main__":
