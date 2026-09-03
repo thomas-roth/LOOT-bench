@@ -26,6 +26,6 @@ exec "$REPO/train_qc.sh" G3A-Place-RandS-RandT-Dk1_uni "$REPO/out/qc/place-rands
   --online_steps 100000 \
   --eval_interval 20000 \
   --eval_episodes 20 \
-  --video_episodes 5 \
+  --video_episodes 6 \
   --run_group=place_critic-selection-steering \
   "$@"
