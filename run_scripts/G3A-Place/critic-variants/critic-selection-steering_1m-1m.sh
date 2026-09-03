@@ -25,7 +25,7 @@ exec "$REPO/train_qc.sh" G3A-Place-RandS-RandT-Dk1_uni \
   --agent.actor_type=distill-ddpg-select \
   --agent.actor_num_samples=32 \
   --agent.normalize_q_loss=True \
-  --start-pose-noise=0.05 \
+  --start_pose_noise=0.05 \
   --seed=42 \
   --offline_steps=1000000 \
   --online_steps=1000000 \

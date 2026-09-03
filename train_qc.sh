@@ -18,7 +18,7 @@
 #   WANDB_MODE            online | offline | disabled  (default: online)
 #   G3A_RUN_SCRIPT        wandb tag naming the launching script (default: train_qc.sh)
 #   G3A_START_POSE_NOISE  override task start-pose noise [rad] (default: task value)
-#                         or pass --start-pose-noise / --g3a_start_pose_noise
+#                         or pass --start_pose_noise
 #   G3A_ALLOW_NO_TMUX     set to 1 to run outside tmux
 #   CUDA_VISIBLE_DEVICES, and any other variable the run should inherit
 
@@ -53,20 +53,19 @@ shift 2
 # Optional start-pose noise override (ADR-008). The task default is 0.0; a
 # dataset recorded at 0.05 must run with the same value or
 # g3a_bench.qc.dataset.check_dataset_matches_env aborts at load time.
-# Accepts --start-pose-noise / --start_pose_noise / --g3a_start_pose_noise
-# as a flag through to qc/main.py:main (--g3a_start_pose_noise), or via
-# G3A_START_POSE_NOISE env var. When given here the value is normalized to
-# --g3a_start_pose_noise so qc sees one name.
+# Accepts --start_pose_noise as a flag, or the G3A_START_POSE_NOISE env var.
+# The value is passed to qc/main.py:main under its own name,
+# --g3a_start_pose_noise, so qc sees one name and this wrapper another.
 G3A_START_POSE_NOISE="${G3A_START_POSE_NOISE:-}"
 EXTRA_ARGS=()
 while [ $# -gt 0 ]; do
   case "$1" in
-  --start-pose-noise | --start_pose_noise | --g3a_start_pose_noise)
+  --start_pose_noise)
     [ $# -ge 2 ] || die "$1 needs a value (half-width [rad])"
     G3A_START_POSE_NOISE="$2"
     shift 2
     ;;
-  --start-pose-noise=* | --start_pose_noise=* | --g3a_start_pose_noise=*)
+  --start_pose_noise=*)
     G3A_START_POSE_NOISE="${1#*=}"
     shift
     ;;
@@ -82,7 +81,7 @@ if [ -n "$G3A_START_POSE_NOISE" ]; then
   case "$G3A_START_POSE_NOISE" in
   '' | *[!0-9.\-+eE]*) die "G3A_START_POSE_NOISE='$G3A_START_POSE_NOISE' is not a number" ;;
   esac
-  EXTRA_ARGS+=(--g3a_start_pose_noise "$G3A_START_POSE_NOISE")
+  EXTRA_ARGS+=("--g3a_start_pose_noise=$G3A_START_POSE_NOISE")
   set -- "${EXTRA_ARGS[@]}"
 fi
 
