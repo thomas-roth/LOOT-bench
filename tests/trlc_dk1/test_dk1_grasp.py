@@ -8,7 +8,7 @@ is lowered from the rated 114 N to 20 N. At the rated force the pads sank
 natural-frequency PD held gently but closed too slowly.
 
 Guards the resulting grasp contract: closing the gripper on a task-piece-
-sized box (a) reaches the piece quickly, (b) keeps pad penetration small —
+sized box (a) reaches the piece quickly, (b) keeps pad penetration small:
 transiently at impact and at steady state, (c) holds the piece at the grasp
 site instead of squeezing it out, and (d) keeps the grip force gentle but
 firmly nonzero. Physics options mirror the play/live-bridge env, where the

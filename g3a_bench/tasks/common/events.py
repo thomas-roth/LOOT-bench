@@ -44,8 +44,8 @@ def reset_joints_to_pose(
 
     The clamp deliberately skips the soft limits (``soft_joint_pos_limit_factor``
     shrinks each range toward its midpoint), because a soft clamp can move the
-    start pose without saying so, and the recording and the evaluation must
-    begin at the same place -- the mismatch this event exists to close. The
+    start pose without saying so, and recording and evaluation must
+    begin at the same place. That match is what this event exists to close. The
     DK1's current start pose is comfortably inside the soft band, so nothing
     is being worked around today; the hard clamp is what keeps a later start
     pose near a joint limit from being quietly pulled inward.

@@ -17,8 +17,8 @@ has no such split.
 
 ## What it actually changed
 
-Nothing on either QC path. Both already forced the flag off — the adapter in
-`g3a_bench/qc/env.py` and the `play` cfg the recorder builds — so the noise had
+Nothing on either QC path. Both the adapter in `g3a_bench/qc/env.py` and the
+`play` cfg the recorder builds already forced the flag off, so the noise had
 never reached a demonstration or a training observation. It survived only as a
 default that two callers had to undo, and as noise declared on terms where a
 reader would reasonably assume it applied.
@@ -37,7 +37,7 @@ observation is still 42 wide and no recorded dataset is invalidated.
   not the training path (see ADR-002).
 - The adapter keeps setting `enable_corruption = False`. It is redundant, and
   it stays as the seam's own guarantee (ADR-009).
-- If sim-to-real robustness is ever wanted, put the noise back in one place —
-  `tasks/common/env_cfg.make_manipulation_env_cfg` — and **record the
+- If sim-to-real robustness is ever wanted, put the noise back in one place
+  (`tasks/common/env_cfg.make_manipulation_env_cfg`) and **record the
   demonstrations through it**. Turning it on for training alone reintroduces
   exactly the split this record closes.

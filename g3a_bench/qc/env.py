@@ -3,7 +3,7 @@
 ``qc`` drives a plain gymnasium env: it resets, steps one action at a time,
 and reads ``terminated``/``truncated`` itself. mjlab gives a vectorized env
 that returns torch tensors and, by default, resets finished envs in place.
-This module is the seam between the two, and nothing more -- no reward
+This module is the seam between the two, and nothing more: no reward
 shaping, no observation rewriting, no action remapping. Anything that changes
 the MDP belongs in the task definition, where the recorder sees it too.
 
@@ -25,7 +25,7 @@ Three things here are load-bearing rather than stylistic:
   training run.
 * **Terminated and truncated are kept apart.** ``terminated`` means the task
   reached an absorbing state, and offline RL uses it to decide whether to
-  bootstrap past the final transition. A timeout is not absorbing -- the
+  bootstrap past the final transition. A timeout is not absorbing: the
   episode was cut short, and the value of the state it was cut at is not
   zero. Collapsing the two is the single easiest way to teach an agent that
   running out of time is as good as finishing.
@@ -98,9 +98,8 @@ class G3aEnv(gymnasium.Env):
             task_id: a registered mjlab task id, e.g. ``G3A-Stack-Low-Dk1_uni``.
             device: torch device for the simulation.
             seed: seed for the reset sampling. mjlab seeds a process-global
-                RNG, so seeding one env seeds them all -- build the training
-                and evaluation envs with different seeds if you want them to
-                diverge.
+                RNG, so seeding one env seeds them all. Build training
+                and evaluation envs with different seeds to diverge.
             start_pose_noise: override the task's start-pose sampling range
                 [rad]. ``0.0`` gives a bit-identical start every episode,
                 which replay verification needs and training does not want.
@@ -110,8 +109,7 @@ class G3aEnv(gymnasium.Env):
         cfg = load_env_cfg(task_id, play=False)
         cfg.scene.num_envs = 1
         cfg.auto_reset = False
-        # Redundant while no task declares observation noise, and kept as the
-        # seam's own guarantee -- see the module docstring.
+        # Redundant while no task declares noise; kept as the seam's guarantee.
         cfg.observations["actor"].enable_corruption = False
         if start_pose_noise is not None:
             cfg.events["reset_robot_joints"].params["position_range"] = (
@@ -120,11 +118,7 @@ class G3aEnv(gymnasium.Env):
             )
 
         self.task_id = task_id
-        # Half-width [rad] the reset samples from. Stored so a dataset can be
-        # checked against the environment it was recorded under (see
-        # g3a_bench.qc.dataset.check_dataset_matches_env). Read off the cfg's
-        # position_range so task default and launcher override both flow through
-        # one path.
+        # Stored for the dataset-vs-env check in qc.dataset.
         self._start_pose_noise = float(
             cfg.events["reset_robot_joints"].params["position_range"][1]
         )
@@ -139,9 +133,7 @@ class G3aEnv(gymnasium.Env):
         self.observation_space = Box(-np.inf, np.inf, (obs_dim,), dtype=np.float32)
         self.action_space = Box(-1.0, 1.0, (action_dim,), dtype=np.float32)
 
-        # Resolved once: the categories that grasp declare these sensors, ball
-        # does not, and whether a key appears in ``info`` has to be a property
-        # of the task rather than of the step.
+        # Ball tasks declare no contact sensors; resolve once per task.
         self._grip_sensor = self._contact_sensor(GRIP_CONTACT_SENSOR_NAME)
         self._object_sensor = self._contact_sensor(OBJECT_CONTACT_SENSOR_NAME)
 
@@ -175,7 +167,7 @@ class G3aEnv(gymnasium.Env):
 
         The copy is deliberate. mjlab hands back a view on simulator memory
         that the next step overwrites, and qc keeps the previous observation
-        alive across the step to build its transition -- without a copy, every
+        alive across the step to build its transition. Without a copy, every
         transition would record its own next state as its current state.
         """
         actor = obs["actor"]
@@ -234,12 +226,8 @@ class G3aEnv(gymnasium.Env):
         obs, reward, terminated, truncated, _ = self._env.step(tensor)
 
         reward_f = float(reward[0].item())
-        # Passed through as mjlab reports them. Its termination manager already
-        # routes each term by its own ``time_out`` flag, so the two buffers are
-        # disjoint by construction and need no untangling here. Both can be
-        # true on one step -- a task that succeeds on its very last step -- and
-        # that has to survive: forcing truncation in that case would tell the
-        # learner to bootstrap past a genuine absorbing state.
+        # Pass through as reported; both can be true when success lands on the
+        # last step, and that must survive (no forced truncation).
         terminated_f = bool(terminated[0].item())
         truncated_f = bool(truncated[0].item())
 

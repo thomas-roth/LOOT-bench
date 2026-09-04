@@ -1,20 +1,4 @@
-"""MjSpec builders for the ball task category.
-
-The ball is a free-body sphere. The *field* is a fixed-base entity holding
-the target structure (a minigolf platform+pit, or a throw marker/U-pocket
-plus wall); like the other categories' boards, it is placed via
-``EntityCfg.init_state.pos`` and its geoms use env-local workspace
-coordinates. ``ThrowWallVariation`` additionally uses ``get_wall_spec`` for a
-*separate* fixed-base wall entity that moves independently of the field.
-
-Every minigolf layout gets a perimeter railing around the platform edges
-(``_add_railing``), like real minigolf; it also serves as the bank for
-``using_wall``'s redirect shot, so there is no separate bank wall. The
-layouts are strictly additive: ``direct`` is the railing alone, ``using_wall``
-adds a blocker across the direct line, ``obstacle`` adds a box in the lane
-the blocker leaves open, and ``ramp`` additionally raises the pit onto an
-elevated section reached via an incline shifted past the blocker/obstacle.
-"""
+"""MjSpec builders for ball and field. Field pose comes from init_state."""
 # pyright: reportAttributeAccessIssue=false
 # (mujoco ships no type stubs for the compiled MjSpec module)
 
@@ -47,26 +31,17 @@ WALL_RGBA = (0.55, 0.55, 0.6, 1.0)
 PLATFORM_RGBA = TABLE_RGBA
 RIM_RGBA = (0.85, 0.2, 0.2, 1.0)
 
-# Platform footprint, shared by every minigolf layout: the right edge must
-# clear the target's hole plus a rim margin -- derive it from TARGET_X/
-# HOLE_RADIUS instead of hardcoding it, or it silently falls out of sync
-# again if the target moves.
+# Platform footprint. Right edge clears the hole plus a rim margin.
 _PLAT_RIM = 0.08
 PLAT_X = (0.18, TARGET_X + HOLE_RADIUS + _PLAT_RIM)
 PLAT_Y = (-0.22, 0.22)
 
-# Ramp: the platform is low (PLATFORM_Z) up to _RAMP_X0, an inclined section
-# bridges to the raised (PLATFORM_Z + RAMP_RISE) section starting at
-# _RAMP_X1 that holds the pit. Shifted beyond the blocker (x 0.58) and
-# obstacle (x 0.52) so both stay on the low section for every layout that
-# includes them.
+# Ramp from low platform to raised section holding the pit.
 _RAMP_X0, _RAMP_X1 = 0.64, 0.76
 _INCLINE_THICKNESS = 0.02
 
 _RAIL_T = 0.012
-# Rail top heights: enough to contain the rolling ball (r 0.025) above the
-# local surface; the ramp layout uses one uniform (higher) top so a single
-# set of perimeter boxes also covers the raised section.
+# Rail top heights. Ramp uses one uniform higher top.
 _RAIL_TOP = PLATFORM_Z + 0.04
 _RAIL_TOP_RAMP = PLATFORM_Z + RAMP_RISE + 0.04
 
@@ -224,8 +199,7 @@ def _add_platform_with_hole(
 
 
 def _add_obstacle(body):
-    """A box in the open (-y) lane the blocker leaves, forcing a bank shot
-    through one of two narrow sub-lanes (rail side / blocker side)."""
+    """Box in the open lane, forcing a bank shot through narrow sub-lanes."""
     hz = 0.025
     _add_box(body, "obstacle", 0.52, -0.13, PLATFORM_Z + hz, 0.02, 0.025, hz, WALL_RGBA)
 
@@ -245,8 +219,7 @@ def _add_railing(body, z_top):
 
 
 def _add_blocker(body):
-    """Blocker across the direct spawn->pit line; forces a bank shot off
-    the perimeter railing."""
+    """Blocker across the direct line. Forces a bank shot off the railing."""
     t, h = 0.012, 0.05
     _add_box(body, "blocker", 0.58, 0.09, PLATFORM_Z + h / 2, t, 0.13, h / 2, WALL_RGBA)
 
@@ -321,8 +294,7 @@ def get_field_spec(variant: BallVariantCfg, name: str = "field") -> mujoco.MjSpe
 
 
 def get_wall_spec(name: str = "wall") -> mujoco.MjSpec:
-    """Standalone wall entity for ``ThrowWallVariation`` (moves independently
-    of the field: reset varies its distance and sink depth)."""
+    """Standalone wall entity for ThrowWallVariation."""
     spec = mujoco.MjSpec()
     body = spec.worldbody.add_body(name=name)
     body.add_geom(

@@ -1,25 +1,4 @@
-"""Task command for the place category.
-
-At every resample the command:
-
-1. scatters the cube upright at a fresh spawn pose via the shared
-   ``ScatterGrid`` (the same single-object-through-multi-object API every
-   other category uses, even though there is only one object here and no
-   collision to avoid),
-2. draws a fresh target point uniformly in its own workspace region, disjoint
-   in x from the spawn region (``spawn_x_range`` vs ``target_x_range``) so
-   the cube can never spawn already at the target.
-
-Each of the two draws is independently switched off by the variant
-(``random_spawn`` / ``random_target``, see ``variants.py``); a switched-off
-axis writes the region's midpoint (``FIXED_SPAWN_XY`` / ``FIXED_TARGET_XY``)
-every reset instead.
-
-Every step it recomputes the cube-to-target 3D distance and turns it into a
-continuous ``progress`` (``mdp/success.py::place_progress``) and a pure-
-position ``success`` test (``place_reached``), gated by the shared at-rest +
-released conditions (``SuccessGate``).
-"""
+"""Place command. Scatters the cube, draws a target, tests placement."""
 
 from __future__ import annotations
 
@@ -61,22 +40,15 @@ def _midpoint(r: tuple[float, float]) -> float:
 
 FIXED_SPAWN_XY = (_midpoint(SPAWN_X_RANGE), _midpoint(WORKSPACE_Y))
 FIXED_TARGET_XY = (_midpoint(TARGET_X_RANGE), _midpoint(WORKSPACE_Y))
-"""Poses the ``Fixed*`` variants pin to. Derived from the ranges above rather
-than written out, so the fixed pose can never drift out of the region its
-random counterpart samples."""
+"""Poses the Fixed variants pin to. Derived from ranges, never drifts."""
 
 FIXED_SPAWN_YAW = 0.0
-"""A pinned spawn is fully deterministic -- position *and* orientation."""
+"""A pinned spawn is fully deterministic: position and orientation."""
 
 MAX_TRAVEL_DIST = math.hypot(
     TARGET_X_RANGE[1] - SPAWN_X_RANGE[0], WORKSPACE_Y[1] - WORKSPACE_Y[0]
 )
-"""Largest possible spawn->target separation given the disjoint x-ranges
-above (opposite y corners); normalizes ``place_progress`` to a fixed,
-non-per-episode constant (analogous to how ``stack_progress`` normalizes by
-the fixed ``target_height``). Module-level default for the default ranges
-above; per-env instances recompute this from ``PlaceCommandCfg`` (see
-``PlaceCommand._max_travel_dist``) so cfg overrides stay consistent."""
+"""Largest spawn to target distance. Normalizes progress to a constant."""
 
 
 def get_command(env: ManagerBasedRlEnv, name: str) -> PlaceCommand:
@@ -190,11 +162,7 @@ class PlaceCommand(CommandTerm):
         )
         self._gate.update(self.reached, speed, released)
 
-        # No pinning of progress on success frames: the category once raised it
-        # to 1.0 there, so that a "progress + success - reward_max" reward read
-        # exactly 0 in the absorbing state. tasks/common/rewards.py now owns
-        # that exactness for every category -- shaped_task_reward returns a
-        # literal zero wherever the gate has latched, whatever progress says.
+        # shaped_task_reward handles the exact zero on latched success.
         self.metrics["dist_to_target"] = self.dist_to_target
         self.metrics["reached"] = self.reached.float()
         self.metrics["episode_success"] = self.episode_success
@@ -208,10 +176,7 @@ class PlaceCommand(CommandTerm):
 
         self._gate.reset(env_ids)
 
-        # Cube spawn: single-object scatter draw (same API every other
-        # category uses; count=1 here, no collision to avoid), or the pinned
-        # pose. The fixed branch consumes no RNG -- the seed-prefix rule the
-        # scatter upholds only concerns the sampled variants.
+        # Cube spawn: scatter draw, or the pinned pose if spawn is fixed.
         if self.variant.random_spawn:
             xy, spawn_yaw = self._scatter.sample_poses(n, 1)
         else:
@@ -226,8 +191,7 @@ class PlaceCommand(CommandTerm):
             env_ids,
         )
 
-        # Target: independent uniform draw in its own disjoint region, or the
-        # pinned point.
+        # Target: uniform draw in its region, or the pinned point.
         if self.variant.random_target:
             x0, x1 = self.cfg.target_x_range
             y0, y1 = self.cfg.target_y_range

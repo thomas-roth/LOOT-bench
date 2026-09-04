@@ -572,7 +572,7 @@ class TestLoadDataset:
 
     def test_reads_a_torch_action_term(self):
         """The action term's buffers are torch tensors on the sim device, and
-        numpy refuses a CUDA tensor outright -- so a check that only ever saw
+        numpy refuses a CUDA tensor outright. So a check that only ever saw
         numpy would raise TypeError on every GPU run."""
         import torch
 

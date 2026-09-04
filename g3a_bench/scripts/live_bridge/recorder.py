@@ -38,8 +38,7 @@ class Recorder:
         self._repo_id = repo_id
         self._fps = fps
         if qpos_dim is not None:
-            # Full sim qpos per frame — ground-truth state, enables exact
-            # replay verification / state resync without re-recording.
+            # Full sim qpos per frame for exact replay and resync.
             features["observation.qpos"] = {
                 "dtype": "float32",
                 "shape": (qpos_dim,),
@@ -47,11 +46,7 @@ class Recorder:
             }
             if qvel_dim is None:
                 qvel_dim = qpos_dim
-            # Full sim qvel per frame — needed for state-set replay (set qpos+
-            # qvel each frame, call mj_forward, render — no physics integration,
-            # no drift). Note: qvel may differ from qpos when the model has
-            # free/ball joints (quaternions in qpos vs angular velocities in
-            # qvel), so caller must provide the actual dim.
+            # Full sim qvel per frame for state-set replay (no drift).
             features["observation.qvel"] = {
                 "dtype": "float32",
                 "shape": (qvel_dim,),
@@ -61,37 +56,23 @@ class Recorder:
         self._success_root = success_root
         self._failure_root = failure_root
 
-        # Datasets are created lazily on the first committed episode of each
-        # kind, so a session with only successes never leaves an empty failure
-        # dataset on disk (and vice versa).
+        # Datasets are created lazily, so empty kinds leave no files.
         self.dataset_success: LeRobotDataset | None = None
         self.dataset_failure: LeRobotDataset | None = None
 
         self._pending: list[dict] = []
-        # Last saved episode (frames, label, seed), held back for single-level
-        # undo. Committed to the dataset when the next episode is saved or at
-        # close(). The seed travels with the frames so it is written under the
-        # correct episode index at commit time.
+        # Last saved episode, staged for single-level undo.
         self._staged: tuple[list[dict], bool, int | None] | None = None
         self._qpos_dim = qpos_dim
         self._qvel_dim = qvel_dim
         self._device = device
         self._gravity_compensate = gravity_compensate
-        # The start-pose sample half-width [rad] the episodes were recorded
-        # under. A run must evaluate under the same one, and a dataset that
-        # does not say which it used cannot be checked against a run.
+        # Start-pose half-width [rad] used for recording (checked on load).
         self._start_pose_noise = start_pose_noise
-        # Seeds and save-counts are tracked per dataset (success vs failure).
-        # The success and failure datasets are indexed independently starting at
-        # 0, and replay looks a seed up by that per-dataset --episode-index, so a
-        # single shared counter mis-mapped seeds whenever the two were interleaved.
+        # Seeds tracked per dataset (success/failure indexed from 0).
         self._episode_seeds: dict[bool, dict[str, int]] = {True: {}, False: {}}
         self._episodes_saved: dict[bool, int] = {True: 0, False: 0}
-        # g3a-bench's own recording metadata (seeds, operator, gravity
-        # compensation) doesn't fit lerobot's closed DatasetInfo schema — it's
-        # accumulated here and persisted to a sidecar file, one dict per
-        # dataset so a later write (e.g. close()'s operator_id) never clobbers
-        # an earlier one (e.g. _commit_staged()'s episode_seeds).
+        # Extra metadata kept in a sidecar (outside lerobot schema).
         self._extra_info: dict[bool, dict] = {True: {}, False: {}}
 
     def _get_dataset(self, success: bool) -> LeRobotDataset:
@@ -128,11 +109,7 @@ class Recorder:
         # Nothing is written to the dataset until then, enabling discard/redo.
         if robot_obs is None:
             robot_obs = np.zeros(7, dtype=np.float32)
-        # Deferred GPU tensors must be cloned NOW: mjlab reuses its
-        # reward/done buffers every step, so storing the view would make every
-        # buffered frame read the episode's *final* value at save time (this
-        # silently flattened next.reward to a constant per episode). clone()
-        # stays on-device — still no per-step CUDA sync.
+        # Clone deferred GPU tensors now; buffers are reused next step.
         if hasattr(reward, "detach"):
             reward = reward.detach().clone()
         if hasattr(done, "detach"):
@@ -145,17 +122,14 @@ class Recorder:
             .astype(np.float32),
             "observation.robot_state": np.asarray(robot_obs, dtype=np.float32),
             "action": np.asarray(action, dtype=np.float32),
-            "next.reward": reward,  # deferred — may be GPU tensor
-            "next.done": done,  # deferred — may be GPU tensor
+            "next.reward": reward,  # deferred, may be GPU tensor
+            "next.done": done,  # deferred, may be GPU tensor
             "task": task,
         }
         if self._qpos_dim is not None:
             if qpos is None:
                 qpos = np.zeros(self._qpos_dim, dtype=np.float32)
-            # Clone to avoid aliasing: MuJoCo/DM control reuse their internal
-            # qpos buffer across steps, so storing the view would make every
-            # buffered frame read the episode's *final* qpos at save time
-            # (same class of bug that flattened next.reward to a constant).
+            # Clone qpos; sim buffer is reused next step.
             qpos = qpos.detach().clone() if hasattr(qpos, "detach") else qpos.copy()
             frame["observation.qpos"] = qpos
         if self._qvel_dim is not None:
@@ -170,20 +144,10 @@ class Recorder:
         return len(self._pending)
 
     def save_episode(self, success: bool, seed: int | None = None) -> None:
-        """Flush buffered frames stamped with the operator's label, then persist.
-
-        Success episodes go to the success dataset, failures to the failure
-        dataset. No-op if nothing was buffered (avoids empty/garbage episodes).
-        ``seed`` is the RNG seed the env was reset with at this episode's start;
-        it is staged with the frames and written to info.json when the episode
-        is committed (next save or close), letting record_replay.py restore the
-        exact object layout.
-        """
+        """Flush buffered frames with label; seed restores replay layout."""
         if not self._pending:
             return
-        # Take ownership of the pending frames BEFORE committing: commit code
-        # must never touch self._pending, and staging after grabbing the list
-        # keeps the new episode safe even if commit misbehaves.
+        # Take ownership of pending frames before committing staged one.
         frames = self._pending
         self._pending = []
         self._commit_staged()
@@ -194,11 +158,7 @@ class Recorder:
         return self._staged is not None
 
     def undo_last_save(self) -> bool | None:
-        """Drop the staged (last saved, not yet committed) episode.
-
-        Returns the dropped episode's label, or None if nothing was staged
-        (undo is single-level: only the most recent save can be taken back).
-        """
+        """Drop staged episode; returns its label or None."""
         if self._staged is None:
             return None
         _, success, _ = self._staged
@@ -248,7 +208,7 @@ class Recorder:
             seeds[str(ep_index)] = int(seed)
             extra["episode_seeds"] = seeds
             if self._device is not None:
-                # RNG streams differ between cuda and cpu — replay warns on mismatch.
+                # RNG streams differ between cuda and cpu; replay warns on mismatch.
                 extra["seed_device"] = self._device.split(":")[0]
         write_extra_info(dataset.meta.root, extra)
 

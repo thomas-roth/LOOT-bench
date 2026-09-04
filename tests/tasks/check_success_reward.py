@@ -38,7 +38,7 @@ _NUM_ENVS = 8
 _STEPS = 10
 _KNOCKOVER_STEPS = 100
 """Control dt = timestep(0.005) * decimation(4) = 0.02 s, so 100 steps is
-~2.0 s -- enough for a 3-domino chain reaction to propagate and settle."""
+~2.0 s. Enough for a 3-domino chain reaction to propagate and settle."""
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -78,7 +78,7 @@ def _reward_convention_error(env: ManagerBasedRlEnv, zeros: torch.Tensor) -> str
     unscaled.
 
     Takes one step of its own, because the reward lags the command by exactly
-    one step -- mjlab runs the reward manager before the command manager, so
+    one step. Mjlab runs the reward manager before the command manager, so
     the reward a step returns was computed from the success buffer as it stood
     *before* that step. Snapshotting success first and then stepping is what
     makes the comparison line up. Reading both after the same step instead
@@ -215,9 +215,8 @@ def _check_place(task_id: str, device: str, *, render: bool = False) -> str | No
     """Teleport the cube onto the target.
 
     Parameterized by task id because the place category's four variants only
-    differ in which of the two draws (cube spawn, target) is pinned -- the
-    success criterion is the same for all of them, and each is checked so a
-    pinned pose that lands somewhere unscorable cannot slip through.
+    differ in which of the two draws (cube spawn, target) is pinned. The
+    success criterion is the same for all of them.
     """
     env = _make_env(task_id, device)
     cmd = cast(PlaceCommand, env.command_manager.get_term("task"))
@@ -259,16 +258,14 @@ def _teleport_dominoes_upright(cmd: DominoCommand, device: str) -> None:
 def _tip_first_domino(cmd: DominoCommand, env: ManagerBasedRlEnv, device: str) -> None:
     """Tilt only domino 0, ~25 deg toward slot 1, and let physics do the rest.
 
-    The chain criterion (``domino_fallen_along_row`` / ``chain_topple_success``
-    in ``mdp/success.py``) requires the whole row to topple *along the row
-    axis*, all leaning the same way, in row order -- so instead of teleporting
-    every domino into a "fallen" pose (the old, now-invalid semantics), this
-    seeds only the first domino past its tip-over point and simulates the
-    chain reaction through the rest of the row.
+    The chain criterion requires the whole row to topple along the row axis,
+    all leaning the same way, in row order. So instead of teleporting every
+    domino into a "fallen" pose, this seeds only the first domino past its
+    tip-over point and simulates the chain reaction.
 
     A positive pitch about the domino's body y-axis (composed after the
     upright/row-yaw quat, i.e. in the body frame) tips its body z-axis toward
-    its body x-axis -- which, upright, points along the row toward slot 1. A
+    its body x-axis. Upright, it points along the row toward slot 1. A
     domino tips over once past ~atan(hx/hz) =~ 12 deg, so 25 deg guarantees a
     fall without an initial velocity kick.
     """
@@ -359,8 +356,7 @@ def _check_shape_sorter_full(device: str, *, render: bool = False) -> str | None
     """Per socket: reorient the cube hole-up, two-station insert; all latch.
 
     The cube can only present one hole up at a time, so pieces are latched in
-    sequentially -- the latch is monotonic (never clears except on reset), so
-    an earlier piece stays scored while later sockets are reoriented to.
+    sequence. The latch is monotonic (never clears except on reset).
 
     Each piece is parked out of the cube right after its own crossing is
     registered: three teleported pieces don't all fit in the small hollow

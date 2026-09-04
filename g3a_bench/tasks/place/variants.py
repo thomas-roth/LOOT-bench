@@ -5,7 +5,7 @@ table-top target, released there. Exists to validate the QC-FQL training
 pipeline (offline-to-online RL) can learn *something* before attempting
 harder categories (stack, domino, ...).
 
-There is no difficulty axis in the usual sense -- one cube to one target
+There is no difficulty axis in the usual sense: one cube to one target
 already is the complete task. What the variants vary is how much of the
 episode is *sampled*: the cube spawn and the target each are either drawn
 fresh every reset ("Rand") or pinned to a constant pose ("Fixed"), giving
@@ -23,7 +23,7 @@ sparse mode left to shape.
 from dataclasses import dataclass
 
 CUBE_HALF_EXTENTS = (0.02, 0.02, 0.02)
-"""Matches stack's "cube" form (``FORM_HALF_EXTENTS["cube"]``) -- reuse the
+"""Matches stack's "cube" form (``FORM_HALF_EXTENTS["cube"]``). Reuses the
 established box geometry rather than inventing new physics constants."""
 
 CUBE_MASS = 0.10
@@ -51,7 +51,7 @@ class PlaceVariantCfg:
 
 
 def _variant_name(random_spawn: bool, random_target: bool) -> str:
-    """``"<Rand|Fixed>S-<Rand|Fixed>T"`` -- S for the cube spawn, T for the
+    """``"<Rand|Fixed>S-<Rand|Fixed>T"``: S for the cube spawn, T for the
     target. ``config/__init__.py`` splits it back on the hyphen into the task
     id's ``<task>-<variation>`` slots."""
     return (

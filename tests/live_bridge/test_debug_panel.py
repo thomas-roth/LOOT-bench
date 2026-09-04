@@ -46,7 +46,7 @@ class TestObsLayout:
 
     def test_domino_first_task_term_is_object(self):
         """domino's task_obs_terms puts domino_poses (positions) first, then
-        slot_placed/phase — object_term must pick the positional one."""
+        slot_placed/phase. object_term must pick the positional one."""
         names = [
             "joint_pos",
             "joint_vel",
@@ -161,7 +161,7 @@ class TestAggregateBuffered:
 
 class TestLiveDebugPanelPerFrame:
     """Per-frame output: EEF/GOAL/OBJECT/REWARD/DONE/ANOMALIES + optional FPS
-    line only — no obs/action/qpos/qvel breakdown (that's finish_episode's
+    line only. No obs/action/qpos/qvel breakdown (that is finish_episode's
     job, see TestFinishEpisodeSummary)."""
 
     def _panel(self) -> LiveDebugPanel:
@@ -187,7 +187,7 @@ class TestLiveDebugPanelPerFrame:
         assert "DONE" in out
 
     def test_no_per_frame_obs_or_saved_breakdown(self, capsys):
-        """The min/mean/max breakdown must NOT appear every step — only in
+        """The min/mean/max breakdown must NOT appear every step. Only in
         the once-per-episode summary from finish_episode."""
         panel = self._panel()
         obs = torch.zeros(42)
@@ -213,7 +213,7 @@ class TestLiveDebugPanelPerFrame:
 
     def test_nan_in_obs_is_not_flagged_per_frame(self, capsys):
         """A NaN in joint_pos is checked live (cheap), but not shown until
-        the episode-end summary — no per-frame ANOMALIES line exists."""
+        the episode-end summary. No per-frame ANOMALIES line exists."""
         panel = self._panel()
         bad_obs = torch.zeros(42)
         bad_obs[0] = float("nan")  # falls inside joint_pos, offset 0
@@ -236,7 +236,7 @@ class TestLiveDebugPanelPerFrame:
         assert "n/a" in out
 
     def test_falls_back_to_append_when_not_a_tty(self, capsys):
-        """capsys isn't a terminal, so isatty() is False here — this is the
+        """capsys is not a terminal, so isatty() is False here. This is the
         piped/redirected-output fallback: no ANSI codes, plain scrolling."""
         panel = self._panel()
         obs = torch.zeros(42)
@@ -273,8 +273,8 @@ class TestLiveDebugPanelPerFrame:
 
     def test_includes_viewer_status_when_given(self, capsys):
         """The FPS/step/speed/RTF line mjlab's base viewer normally prints on
-        its own timer — folded into the panel instead of a second, floating
-        print — appears only when a status object is passed."""
+        its own timer. Folded into the panel instead of a second, floating
+        print. Appears only when a status object is passed."""
         panel = self._panel()
         status = SimpleNamespace(
             step_count=42,
@@ -300,7 +300,7 @@ class TestLiveDebugPanelPerFrame:
 
 
 class TestDeferredQposQvel:
-    """qpos/qvel are the expensive fields (GPU sync) — update() must only
+    """qpos/qvel are the expensive fields (GPU sync). update() must only
     buffer them, never touch/convert them; the real aggregation + NaN check
     happens once, in finish_episode."""
 
@@ -331,7 +331,7 @@ class TestDeferredQposQvel:
             torch.zeros(42), np.zeros(7, np.float32), 0.0, False, qpos=bad_qpos
         )
         out = capsys.readouterr().out
-        assert "ANOMALIES" not in out  # not caught live — that's the point
+        assert "ANOMALIES" not in out  # not caught live. That is the point
 
         panel.finish_episode("SUCCESS")
         out = capsys.readouterr().out

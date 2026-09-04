@@ -54,5 +54,5 @@ deviation. The observations are float32, and `np.std` over bit-identical
 samples returns about 1e-6, so a non-zero standard deviation does not prove
 variation and an implementation that randomizes nothing passes. A test must
 also assert that a scene term varies, which proves the measurement would have
-seen robot variation, and must read with observation corruption off — which no
+seen robot variation, and must read with observation corruption off, which no
 longer needs arranging, because no task declares observation noise.

@@ -7,35 +7,32 @@ actions with a plain regressor, and see how well the fit transfers to episodes
 it never saw.** Nothing here is pipeline code, and nothing here trains a
 policy. It is a measurement instrument.
 
-The regressor gets exactly what the flow actor gets -- the same observation,
-the same ``horizon_length`` action chunk, the same ``valid`` mask, the same MLP
-body (imported from qc, so the two cannot drift apart) -- and nothing else. No
-flow-matching noise, no critic, no sampling. So a poor read here is a statement
-about the data, not about the agent.
+The regressor gets exactly what the flow actor gets: the same observation,
+action chunk, ``valid`` mask, and MLP body. No flow noise, critic, or
+sampling. So a poor read reflects the data, not the agent.
 
 Read the two numbers together:
 
-* **held-out error near the trained error** -- the mapping generalizes. The
+* **held-out error near the trained error**: the mapping generalizes. The
   data is fine and a run is worth starting.
-* **trained error low, held-out error high** -- the regressor memorized the
+* **trained error low, held-out error high**: the regressor memorized the
   demonstrations. More of the same demonstrations will not help.
-* **both high** -- the observation does not determine the action. Look at the
+* **both high**: the observation does not determine the action. Look at the
   observation layout or at how the demonstrations were recorded.
 
 **The bar is 0.0766**, and it is measured, not inherited. It is what this gate
-reads on the old 100-demonstration set -- the pre-rebuild pipeline's export,
-``G3A-Place-Easy-Dk1_uni_qc_physical.npz``, ten episodes held out -- which
-fitted to 0.0075 on the episodes it saw. That is a single legacy file, *not*
-the committed sessions under ``dataset/demos/G3A-Place-RandS-RandT-Dk1_uni``:
-that directory has since grown past the set the number was read on, so
-pointing this gate at it will not reproduce 0.0766.
+reads on the old 100-demonstration set: the pre-rebuild export
+``G3A-Place-Easy-Dk1_uni_qc_physical.npz`` with ten episodes held out, fitted
+to 0.0075 on the episodes it saw. That is a single legacy file, *not* the
+committed sessions under ``dataset/demos/G3A-Place-RandS-RandT-Dk1_uni``,
+which has since grown past the set the number was read on.
 
-Two numbers survive from the old pipeline for that same file -- 0.166 from the
-lost repository tool, 0.118 from ``probes/probe17_regressor.py``, which skipped
-one long episode -- and **neither is the bar here**. They were read differently:
-the holdout taken from the front of the session, the read stopped at frame 500,
-a constant learning rate, 25k steps. This gate reproduces none of them, so its
-number is not theirs and cannot be compared to them. It holds out at random,
+Two numbers survive from the old pipeline for that same file: 0.166 from the
+lost repository tool and 0.118 from ``probes/probe17_regressor.py``. Neither
+is the bar here. They were read differently: holdout from the front, read
+stopped at frame 500, constant learning rate, 25k steps. This gate reproduces
+none of them, so its number is not theirs and cannot be compared to them. It
+holds out at random,
 because the first attempts of a session are the clumsy ones, and it reads the
 whole body of every held-out episode.
 
@@ -76,10 +73,8 @@ TARGET = 0.0766
 """Held-out interior error of the old 100-demonstration set, read by this gate.
 
 Measured on the legacy ``G3A-Place-Easy-Dk1_uni_qc_physical.npz`` with
-``--holdout 10`` and every other setting left at its default -- see this
-module's docstring for why that file, and not today's demo directory, is the
-one the number belongs to. The old pipeline's recorded 0.166 came from a
-different read of the same file.
+``--holdout 10`` and defaults elsewhere. See this module docstring for why
+that file, not today's demo directory, owns the number.
 """
 
 INTERIOR_SKIP = 5
@@ -131,9 +126,8 @@ def build_chunks(
 
     Mirrors ``qc/utils/datasets.py::sample_sequence``: a window may cross an
     episode boundary, and the steps at or after the first terminal inside it
-    are masked out rather than dropped. Reproducing the mask matters -- a gate
-    that trained on windows the agent never sees would answer a different
-    question.
+    are masked out rather than dropped. Reproducing the mask matters: a gate
+    trained on windows the agent never sees would answer another question.
 
     Returns:
         ``(chunk, valid)`` of shape ``(n, horizon, action_dim)`` and

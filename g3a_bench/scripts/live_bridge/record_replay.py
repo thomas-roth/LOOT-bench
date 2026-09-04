@@ -1,23 +1,5 @@
-"""Replay LeRobot dataset through simulation, show in native viewer,
-and save a recorded LeRobot dataset to logs/.
-
-Usage:
-    # replay a locally recorded session (from live_record.py)
-    uv run python g3a_bench/scripts/live_bridge/record_replay.py \\
-        --dataset-dir dataset/demos/G3A-Stack-Low-Dk1_uni/2026-07-18_16-59-03
-
-    # replay a specific episode
-    uv run python g3a_bench/scripts/live_bridge/record_replay.py \\
-        --dataset-dir ... --episode-index 2
-
-    # replay the default HuggingFace dataset (no --dataset-dir)
-    uv run python g3a_bench/scripts/live_bridge/record_replay.py
-
-The native MuJoCo window opens and replays the dataset through the sim.
-Output is saved to <dataset-dir>/sim_replay/episode_<N>/success/ (local) or
-logs/sim_replay_cube_stack3/episode_<N>/success/ (HuggingFace).
-After the episode finishes, the viewer keeps running (hold-last-action mode)
-until you close the window or press Ctrl+C.
+"""Replay a LeRobot dataset through sim and record to logs/.
+Viewer holds last action after the episode until closed.
 """
 
 # Load lerobot/HF-datasets native libs before mjlab/mujoco-warp to avoid a
@@ -79,9 +61,7 @@ def main():
     # 1. Load task config (play mode: infinite, no noise).
     cfg = load_env_cfg(args.task, play=True)
     cfg.terminations["time_out"].time_out = False
-    # Drop ee_ground_collision: it survives the play-mode termination pop, and a
-    # single >10 N gripper-vs-ground contact in the replayed trajectory would
-    # auto-reset the env mid-episode (auto_reset=True) and corrupt the recording.
+    # Drop done terms so replay runs the full episode uninterrupted.
     cfg.terminations.pop("ee_ground_collision", None)
     cfg.terminations.pop(
         "success", None
@@ -108,10 +88,7 @@ def main():
         repo_id_out = "sim_replay_cube_stack3"
         out_root = str(LOGS_DIR / repo_id_out)
 
-    # Isolate each episode's replay output. Without this, replaying a second
-    # episode (or re-running one) collides: LeRobotDataset.create does
-    # mkdir(exist_ok=False) and raises FileExistsError on the existing root.
-    # sim_replay is regenerated output, so a stale run is safe to overwrite.
+    # Per-episode output dir; stale sim_replay output is overwritten.
     out_root = str(Path(out_root) / f"episode_{args.episode_index}")
     if Path(out_root).exists():
         print(f"[WARN] Overwriting existing replay output at {out_root}")
@@ -121,9 +98,7 @@ def main():
     total_frames = reader._end - reader._start
     print(f"[INFO] Dataset opened — episode has {total_frames} frames")
 
-    # 3.5 Restore the per-episode seed saved by live_record.py: a seeded reset
-    #     re-runs the same RNG draws, so the object scatter and the sampled
-    #     goal come out exactly as they were during recording — for any task.
+    # Restore recorded seed so scatter and goal match recording.
     episode_seed: int | None = None
     seed_val = reader.meta_info.get("episode_seeds", {}).get(str(args.episode_index))
     if seed_val is not None:
@@ -144,10 +119,7 @@ def main():
             "updated live_record.py to get reproducible replays."
         )
 
-    # 4. Create recorder.
-    # Derive the sim observation width and fps from the env rather than
-    # hardcoding them, so a different task (different actor-obs size or
-    # control rate) still records a correctly-shaped, correctly-timed dataset.
+    # Obs width and fps come from the env, so any task fits.
     obs_dim = int(env.get_observations()["actor"].shape[-1])
     qpos_dim = int(env.env.sim.data.qpos.shape[-1])
     qvel_dim = int(env.env.sim.data.qvel.shape[-1])
@@ -215,10 +187,7 @@ class _ReplayAndRecord:
         self._last_state = None
         self._fallback_action_np = None
 
-        # Drift vs the original recording: for locally recorded sessions the
-        # dataset's observation.state is the sim actor obs, so per frame we can
-        # compare it with the replayed obs. Quantifies replay faithfulness
-        # (sim nondeterminism / open-loop divergence) as a printed number.
+        # Per-frame obs drift quantifies replay faithfulness.
         self._drift_sum = 0.0
         self._drift_max = 0.0
         self._drift_frames = 0
@@ -333,11 +302,7 @@ class _RecordingViewer(NativeViewerWrapper):
         )
 
     def _execute_step(self) -> bool:
-        """Override base to capture step results for recording.
-
-        Base viewer calls: obs → policy(obs) → env.step(actions)
-        without capturing return values. We need reward and done.
-        """
+        """Step env and pass reward/done to the recording policy."""
         try:
             with torch.no_grad():
                 obs = self.env.get_observations()

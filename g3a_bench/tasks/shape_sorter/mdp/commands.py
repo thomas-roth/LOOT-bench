@@ -1,27 +1,4 @@
-"""Task command for the shape-sorter category.
-
-Owns the world pose of every hole mouth (from the cube's live root pose,
-re-derived every step -- the cube is a free body, so its holes move with it),
-the per-reset cube drop and piece scatter, and the insertion test (a latched
-mouth-plane crossing per piece, ``mdp/success.py``). Unlike the legacy
-insertion sorter (one commanded target piece per episode), *every* piece must
-latch into its own hole for success.
-
-At every resample the command draws exactly one shared ``rand(n, 4)`` for the
-cube (jitter x, jitter y, face pick, yaw -- the face/yaw columns are drawn but
-unused when the variant's ``spawn`` mode doesn't need them, so the draw count
-never depends on the spawn mode), then scatters all pieces via
-``ScatterGrid.sample_poses`` in index order (seed-prefix safe across piece
-counts).
-
-Deviation from a literal "identity quat" for ``spawn="fixed"``: identity
-puts the sorter's circle hole (needed by every variant) flat against the
-table, which no free-body reorientation-free episode can insert into. Instead
-"fixed" drops the cube on the one face that is never a required hole (the
-unused star socket -- see ``variants.FACE_DOWN_SHAPES``), so every variant
-using it stays solvable without the robot having to flip the cube first,
-matching the design intent of "fixedOrientation" being the easy baseline.
-"""
+"""Shape-sorter command. Owns hole poses, spawns, and insertion latching."""
 
 from __future__ import annotations
 
@@ -66,9 +43,7 @@ if TYPE_CHECKING:
     from mjlab.envs.manager_based_rl_env import ManagerBasedRlEnv
     from mjlab.viewer.debug_visualizer import DebugVisualizer
 
-# The six flat resting orientations of the sorter cube (each face down),
-# composed with a random yaw on reset -- copied from the legacy insertion
-# sorter's table (order matches ``variants.FACE_DOWN_SHAPES``).
+# Flat resting orientations of the cube, one per face down.
 _FLAT_AXES = torch.tensor(
     [
         [1.0, 0.0, 0.0],  # identity ....... -z face down (circle)
@@ -82,8 +57,7 @@ _FLAT_AXES = torch.tensor(
 _FLAT_ANGLES = torch.tensor(
     [0.0, math.pi, math.pi / 2, -math.pi / 2, -math.pi / 2, math.pi / 2]
 )
-# Index into the table above whose down face is the (never required) star
-# socket -- the deterministic pose used by ``spawn="fixed"``.
+# Pose used by spawn fixed. Down face is the unused star socket.
 _FIXED_FACE_INDEX = 1
 
 _NORMAL_WORKSPACE_X = (0.13, 0.27)
@@ -201,13 +175,7 @@ class ShapeSorterCommand(CommandTerm):
 
     @property
     def command(self) -> torch.Tensor:
-        """(E, N*6): per hole, in piece order: env-local mouth xyz, axis xyz.
-
-        Not exposed as an observation (``command_obs=False`` -- see
-        ``shape_sorter_env_cfg.py``): ``cube_pose`` already gives the policy
-        everything needed to infer hole poses. Kept for internal use
-        (debug-vis).
-        """
+        """(E, N*6): per hole mouth xyz and axis xyz, in piece order."""
         mouth = self.socket_mouth_w - self._env.scene.env_origins.unsqueeze(1)
         return torch.cat([mouth, self.socket_axis_w], dim=-1).reshape(self.num_envs, -1)
 
@@ -280,9 +248,7 @@ class ShapeSorterCommand(CommandTerm):
         self._gate.reset(env_ids)
         self._latch.reset(env_ids)
 
-        # --- Cube pose: one shared draw (jitter x, jitter y, face, yaw),
-        # independent of spawn mode, so the draw count/mapping never shifts
-        # across variants (seed-prefix rule). ---
+        # Cube pose: one shared draw, same count for every spawn mode.
         u = torch.rand(n, 4, device=dev)
         zeros = torch.zeros(n, device=dev)
         jitter = (u[:, :2] - 0.5) * 2.0 * torch.tensor(SORTER_SPAWN_JITTER, device=dev)
@@ -316,8 +282,7 @@ class ShapeSorterCommand(CommandTerm):
             torch.zeros(n, 6, device=dev), env_ids=env_ids
         )
 
-        # --- Pieces: scatter upright on distinct jittered cells, per-piece
-        # draws in index order via ``sample_poses``. ---
+        # Pieces: scatter upright on distinct cells, in index order.
         scatter = self._wide_scatter if variant.wide_positions else self._normal_scatter
         xy, spawn_yaw = scatter.sample_poses(n, N)
         write_upright_spawn(

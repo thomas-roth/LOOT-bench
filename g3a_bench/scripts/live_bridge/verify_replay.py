@@ -1,13 +1,5 @@
 # pyright: reportAttributeAccessIssue=false
-"""Numerically verify that a recorded demo replays *exactly* — no viewer,
-no eyeballing.
-
-Re-runs a live_record.py episode headlessly through the sim (seeded reset +
-recorded actions, exactly the way live_record stepped it) and compares the
-resulting sim state against the ground truth stored per frame in the dataset
-(``observation.qpos``), printing per-frame deviation stats, the first frame
-that exceeds tolerance, the worst offending DOFs, and a hard PASS/FAIL
-verdict (exit code 0/1).
+"""Verify a recorded demo replays exactly (headless, numeric PASS/FAIL).
 
 What is compared per frame i (alignment matches recording_mixin._execute_step):
   - pre-step actor obs        vs  observation.state[i]
@@ -17,36 +9,14 @@ Frames whose recorded ``next.done`` is True are excluded from the qpos check:
 during recording the env auto-resets *inside* env.step() on done, so the
 recorded qpos of that frame is the post-reset scatter, not the trajectory.
 
-Known, expected divergence in the default mode: at recording time the arm
-started from the operator's live pose (written back after the seeded reset),
-which is not stored in the dataset — replay starts from the reset pose
-instead. The robot DOFs therefore show an initial transient that the
-position-controlled arm converges out of; the verdict allows it a settle
-window (--settle-frames) while object DOFs must match from frame 0.
-Use --sync-start to instead teleport the sim to the first recorded state
-(``observation.qpos`` and, when the dataset has it, ``observation.qvel``)
-and require *every* compared frame to match.
-
-Usage:
-    # verify episode 0 of a recorded session
-    uv run python g3a_bench/scripts/live_bridge/verify_replay.py \\
-        --dataset-dir dataset/demos/G3A-Stack-Low-Dk1_uni/2026-07-18_16-59-03
-
-    # verify a specific episode, stricter tolerance, per-frame CSV
-    uv run python g3a_bench/scripts/live_bridge/verify_replay.py \\
-        --dataset-dir ... --episode-index 1 --tol 1e-6 --csv /tmp/drift.csv
-
-    # offline: diff an existing record_replay.py output against the original
-    uv run python g3a_bench/scripts/live_bridge/verify_replay.py \\
-        --dataset-dir dataset/demos/<task>/<stamp> --episode-index 0 \\
-        --sim-replay-dir dataset/demos/<task>/<stamp>/sim_replay/episode_0
+Robot arm starts from operator's live pose at recording time, but from reset
+pose at replay time. Robot DoFs only required to match after --settle-frames.
+Require all frame pairs to match using --sync-start.
 """
 
 import os
 
-# This script only ever reads *local* datasets, but lerobot silently falls
-# back to pulling repo_id from the HuggingFace hub when the local metadata is
-# incomplete — turning a local problem into a confusing 401. Stay offline.
+# Force offline mode; avoid confusing hub 401 on incomplete metadata.
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 
 # Load lerobot/HF-datasets native libs before mjlab/mujoco-warp to avoid a
@@ -149,17 +119,11 @@ def load_episode(dataset_dir: str, episode_index: int) -> Episode:
 
 
 def build_env_like_live_record(task: str, device: str) -> RslRlVecEnvWrapper:
-    """Build the env with the exact same config mutations as live_record.main().
-
-    Any difference here changes the physics being compared, so this must stay
-    in lockstep with live_record.py.
-    """
+    """Build env with the same config as live_record (keep in lockstep)."""
     cfg = load_env_cfg(task, play=True)
     cfg.terminations["time_out"].time_out = False
 
-    # Unlike live_record, drop done-producing terminations: a done mid-replay
-    # auto-resets the env inside step() and destroys the comparison.
-    # Termination terms only produce `done`, never forces — physics identical.
+    # Done terms only set done; dropping them keeps physics identical.
     cfg.terminations.pop("ee_ground_collision", None)
     cfg.terminations.pop("success", None)
 
@@ -359,10 +323,7 @@ def resimulate_and_compare(args, ep: Episode) -> bool:
     print(f"[INFO] Episode: {n} frames, seed {ep.seed}")
     env.env.reset(seed=ep.seed)
 
-    # Seed-reproduction check: object DOFs of the freshly reset scene vs the
-    # first recorded (post-step-0) qpos. Objects are at rest at episode start,
-    # so one control step moves them ~0 — any real deviation here means the
-    # seeded scatter itself did not reproduce.
+    # Check seeded scatter via object DOFs against recorded frame 0.
     qpos_now = env.env.sim.data.qpos[0].cpu().numpy()
     scatter_dev = float(np.max(np.abs((qpos_now - ep.qpos[0])[~robot_mask])))
     print(
@@ -372,9 +333,7 @@ def resimulate_and_compare(args, ep: Episode) -> bool:
 
     start = 0
     if args.sync_start:
-        # Teleport to the first recorded state: position and velocity. Modern
-        # live_record.py captures qvel per frame; older recordings without it
-        # fall back to zeroing (the old documented approximation).
+        # Teleport to first recorded state; old sets lack qvel.
         env.env.sim.data.qpos[0] = torch.from_numpy(ep.qpos[0]).to(device)
         if ep.qvel is not None:
             env.env.sim.data.qvel[0] = torch.from_numpy(ep.qvel[0]).to(device)
@@ -447,12 +406,7 @@ def resimulate_and_compare(args, ep: Episode) -> bool:
 
 
 def diff_existing_replay(args, ep: Episode) -> bool:
-    """Offline mode: diff a record_replay.py output dataset against the
-    original recording. No sim is built.
-
-    Both live_record and record_replay capture qpos post-step, so replay
-    qpos[i] corresponds to original qpos[i] (1:1 alignment).
-    """
+    """Diff a record_replay output against the original (no sim)."""
     rep = load_episode(args.sim_replay_dir, 0)
     print(
         f"[INFO] Original: {len(ep.actions)} frames | "

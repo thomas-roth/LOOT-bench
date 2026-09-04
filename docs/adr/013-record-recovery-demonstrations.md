@@ -12,8 +12,8 @@ demonstrations of the same kind.
 and the target, and let the four `Place` variants (`RandS`/`FixedS`,
 `RandT`/`FixedT`) shrink the state space the demonstrations have to cover
 rather than widen the data that covers it. That needs no teleoperation time.
-299 more nominal demonstrations were recorded for it -- 99 more `RandS-RandT`,
-then 100 for each of the three pinned variants -- and `start_pose_noise` went
+299 more nominal demonstrations were recorded for it (99 more `RandS-RandT`,
+then 100 for each of the three pinned variants), and `start_pose_noise` went
 back to `0.0`.
 
 Nothing here is refuted. The measurements below still stand, and no recovery

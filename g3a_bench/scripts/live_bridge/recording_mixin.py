@@ -1,6 +1,4 @@
-"""Viewer-agnostic recording state machine (record → provisional failure →
-reset phase). Only viewer-specific drawing differs; everything else here to
-avoid drift."""
+"""Viewer-agnostic recording state machine (record, fail-grace, reset)."""
 
 import copy
 import time
@@ -22,9 +20,7 @@ RESET_THRESHOLD_RAD = 0.2  # all 6 arm joints must be within this many rad of ho
 
 
 class RecordingViewerMixin:
-    """Multi-episode recording + reset phase. States: RECORDING → (non-success
-    termination: PROVISIONAL_FAILURE, auto-saves after a 2s grace period unless
-    discarded) → RESET_PHASE → next episode."""
+    """Multi-episode recording with 2 s failure grace and reset phase."""
 
     def _init_recording(
         self,
@@ -41,27 +37,14 @@ class RecordingViewerMixin:
         env=None,
         debug_obs_append: bool = False,
     ) -> None:
-        """Set up recording state; call from subclass __init__.
-
-        The debug panel is always on (see debug_panel.py) — ``env`` is read
-        once here to build its obs-term layout (self.env isn't assigned yet
-        at this point in the subclass __init__, see live_record.py).
-        ``debug_obs_append`` (``--debug-obs``) switches it from the default
-        in-place-overwrite style to append-only (nothing ever overwritten).
-        """
+        """Set up recording state; call from subclass __init__."""
         self._recorder = recorder
         self._robot_obs_list = robot_obs_list
         self._hw_failed = hw_failed
         self._debug_timing = debug_timing
         self._debug_panel = LiveDebugPanel(env, append_only=debug_obs_append)
         self._live_start_pose_rel = live_start_pose_rel
-        # Leader-frame absolute pose the reset gate fires at. The sim arm
-        # reads the leader action verbatim (mapper pass-through), so a leader
-        # held at the start pose reads HOME + (START - HOME) = START in its
-        # own joint frame. The gate MUST read the leader, not the sim arm:
-        # the env reset inside _enter_reset_phase yanks the sim arm to the
-        # start pose, which a sim-based gate would accept before the operator
-        # has actually aligned the leader.
+        # Reset gate reads the leader pose (sim arm is already reset).
         if live_start_pose_rel is not None and home_joint_pos:
             home_arm = np.array(
                 [home_joint_pos[f"joint{i}"] for i in range(1, 7)],
@@ -100,10 +83,7 @@ class RecordingViewerMixin:
     # Ghost arm helpers
 
     def _get_ghost_color(self) -> tuple[float, float, float, float]:
-        """Orange during the provisional-failure save-or-discard window;
-        success/failure color persists until the arm is realigned to the
-        reset position (_exit_reset_phase clears it); otherwise the neutral
-        reset-target color."""
+        """Ghost color for prompt, feedback, or neutral reset target."""
         if self._provisional_failure:
             return GHOST_COLOR_PROMPT
         if self._feedback_color is None:
@@ -201,7 +181,7 @@ class RecordingViewerMixin:
         return True
 
     def _undo_last_save(self) -> None:
-        """Drop the last saved (still staged) episode — single-level undo."""
+        """Drop last staged episode; single-level undo."""
         label = self._recorder.undo_last_save()
         if label is None:
             print("[INFO] Nothing to undo (no episode staged)")
@@ -253,8 +233,7 @@ class RecordingViewerMixin:
             return False
 
     def _read_fired_terminations(self) -> str:
-        """Names of the termination terms that fired for the viewed env,
-        e.g. "out_of_bounds" — same post-done read as the success check."""
+        """Names of termination terms that fired for the viewed env."""
         try:
             tm = self.env.env.termination_manager
             fired = [n for n in tm.active_terms if bool(tm.get_term(n)[0].item())]
@@ -263,9 +242,7 @@ class RecordingViewerMixin:
             return "unknown"
 
     def _handle_done(self, is_success: bool) -> None:
-        """Episode label = which termination fired: success termination saves
-        as success; any other termination enters PROVISIONAL_FAILURE (auto-saves
-        as failure after the grace period unless F saves now or D discards)."""
+        """Success saves at once; other dones get a 2 s failure grace."""
         if is_success:
             print("[INFO] Task succeeded — auto-saving as success")
             self._end_episode(success=True)
@@ -287,8 +264,7 @@ class RecordingViewerMixin:
     # HUD
 
     def _hud_text(self) -> tuple[str, str]:
-        """Two-column HUD text (labels, values) for the viewer's text overlay:
-        state, saved counts, staged/undo info, and the currently valid keys."""
+        """Two-column HUD text: state, counts, and valid keys."""
         if self._provisional_failure:
             state = "SAVE OR DISCARD?"
             keys = "V save success   F save failure   D discard   C wrist cam"
@@ -351,11 +327,7 @@ class RecordingViewerMixin:
                     self.env.step(actions)
                     self._step_count += 1
                     self._stats_steps += 1
-                    # Gate on the leader's pose, not the sim arm's: the env
-                    # reset inside _enter_reset_phase yanked the arm to the
-                    # start pose, which would satisfy a sim-based gate before
-                    # the operator has aligned the leader. The leader must
-                    # reach the start pose itself before recording resumes.
+                    # Gate on leader pose; sim arm was reset already.
                     leader_action = getattr(self.policy, "latest_leader_action", None)
                     if (
                         leader_action is not None
@@ -397,14 +369,10 @@ class RecordingViewerMixin:
                 leader_action = getattr(self.policy, "latest_leader_action", None)
                 robot_obs = self._robot_obs_list[0]
                 if leader_action is not None and robot_obs is not None:
-                    # Ground-truth sim state. Cloned because the qpos buffer is
-                    # overwritten next step, and kept on-device — the GPU→CPU
-                    # copy is deferred to save time so this loop pays no extra
-                    # CUDA sync (that stall dropped live fps from 60 to 45).
+                    # Clone sim state; buffer is overwritten next step.
                     qpos_t = self.env.env.sim.data.qpos[0].clone()
                     qvel_t = self.env.env.sim.data.qvel[0].clone()
-                    # rew[0] and dones[0] are GPU tensors — defer .item() to
-                    # save_episode() to avoid per-step CUDA syncs.
+                    # rew/dones stay on GPU; .item() deferred to save time.
                     self._recorder.add_frame(
                         {"actor": obs["actor"]},
                         leader_action,
@@ -415,12 +383,7 @@ class RecordingViewerMixin:
                         qpos=qpos_t,
                         qvel=qvel_t,
                     )
-                    # Mirrors exactly what was just handed to add_frame above,
-                    # so the panel can never show something other than what
-                    # actually landed in the dataset. status is the viewer's
-                    # own already-computed FPS/step/speed/RTF (get_status()
-                    # just reads fields updated on its own 0.5s timer) — free
-                    # to pass along, no extra sync.
+                    # Show exactly what was recorded; status is already cached.
                     get_status = getattr(self, "get_status", None)
                     self._debug_panel.update(
                         obs["actor"][0],

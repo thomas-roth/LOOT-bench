@@ -1,67 +1,12 @@
 """Terminal dashboard for live_record.py, on by default.
-
-Per-frame line: a single header (frame/step/fps/speed/rtf, all folded into
-one ``=``-padded line — this replaces mjlab's own separate
-"Step N | FPS: .. | Speed: .. | RTF: .."  print) plus EEF/goal/object
-position, reward, and done. Anomaly (non-finite value) checks are NOT done
-or shown per frame — see "Performance" below — they're aggregated and shown
-once in the episode-end summary instead.
-
-Redrawn in place (ANSI cursor-up + clear line) instead of scrolling, for a
-live glance, by default. Falls back to plain appended prints when stdout
-isn't a terminal (piped/redirected), or unconditionally when ``append_only``
-is set (``--debug-obs``) — nothing is ever overwritten, so the full
-per-frame history for every demonstration stays in the scrollback / a piped
-log file.
-
-The full observation.state / action / qpos / qvel breakdown is NOT part of
-that per-frame line — see "Performance" below for why — it's accumulated
-across the whole episode and printed once, aggregated, when the episode
-finishes (see finish_episode). finish_episode also freezes the last redrawn
-frame in the scrollback (stops treating it as overwritable) before appending
-the summary, so a finished demonstration's final state and its aggregate
-stats both stay behind, only the frame-by-frame churn within an episode is
-overwritten.
-
-Performance: Recorder deliberately defers converting qpos/qvel/reward/done
-off the GPU during the hot per-step loop (see the comments in recorder.py
-and recording_mixin.py — "avoid per-step CUDA syncs", "dropped live fps from
-60 to 45"). An earlier version of this panel synced all four of those every
-single frame to keep a running aggregate, which reintroduced exactly that
-regression. Now:
-  - qpos/qvel are only ever appended (as tensor refs, no sync) to a
-    per-episode buffer; the actual GPU->CPU sync + aggregation + NaN check
-    happens once, in finish_episode(), while the operator is deciding
-    save/discard/undo — not time-critical.
-  - obs is synced once per frame regardless (Recorder.add_frame does its own
-    separate sync on the same tensor; this panel's is a second, small one —
-    not free, but small, and unavoidable if EEF/goal/object are shown live).
-    reward/done are read via .item() AFTER that obs sync in the same call,
-    so they ride the same queue flush instead of opening their own barrier.
-  - action/robot_state are already plain numpy (from hardware / mapper), not
-    GPU tensors, so aggregating them live costs nothing extra either.
-
-Everything shown is either read straight out of the flat ``observation.state``
-vector (via the task's own observation-term layout, so it can never drift
-from what Recorder actually writes to the dataset), one of the other fields
-Recorder.add_frame stores (action, robot_state, qpos, qvel, reward, done), or
-the viewer's own already-computed FPS/step/speed/RTF stats (mjlab's
-ViewerBase normally prints these on their own timer — folded in here instead
-of leaving them as a separate, uncoordinated print). This is a read-only
-view — it never touches recording/staging state.
+Per-frame line plus episode-end aggregate; read-only view of saved data.
 """
 
 import sys
 
 import numpy as np
 
-# Common term names every task category's actor group carries (see
-# tasks/common/env_cfg.make_manipulation_env_cfg). The first task-specific
-# term after these — cube_pose, ball_pose, block_poses, domino_poses,
-# board_pose, ... — is always an object pose in (pos xyz, quat ...) layout
-# (tasks/common/observations.flatten_pose / flatten_object_poses), so its
-# first 3 values are a real object's position. That holds for every current
-# category; see the category env_cfg.py files for the ordering guarantee.
+# First task-specific term after common ones is an object pose (xyz first).
 _EE_TERM_NAME = "ee_pose"
 _GOAL_TERM_NAME = "command"
 _COMMON_TERMS = {"joint_pos", "joint_vel", _EE_TERM_NAME, _GOAL_TERM_NAME, "actions"}
@@ -70,8 +15,7 @@ _PANEL_WIDTH = 92
 
 
 class _ObsLayout:
-    """Name -> (offset, size) map for one flat obs vector, built once from
-    the env's own ObservationManager so it always matches what's saved."""
+    """Name to offset map for one flat obs vector (matches saved layout)."""
 
     def __init__(self, names: list[str], dims: list[int]):
         self.names = names
@@ -93,8 +37,7 @@ class _ObsLayout:
 
     @classmethod
     def from_env(cls, env) -> "_ObsLayout | None":
-        """Best-effort: env structure this doesn't recognize just disables
-        the named breakdown, it never crashes the recording session."""
+        """Best-effort layout; unknown envs disable the breakdown."""
         try:
             om = env.env.observation_manager
             names = list(om.active_terms["actor"])
@@ -111,8 +54,7 @@ def _to_numpy(arr) -> np.ndarray:
 
 
 def _xyz(arr) -> tuple[str, bool]:
-    """First 3 values formatted as x/y/z — used for anything that's a
-    position (EE pose, goal command, object pose)."""
+    """First 3 values as x/y/z (positions, goals, object poses)."""
     a = _to_numpy(arr)
     if a.size < 3:
         finite = np.isfinite(a)
@@ -126,11 +68,7 @@ def _xyz(arr) -> tuple[str, bool]:
 
 
 class _RunningStats:
-    """Exact min/max/mean over every value seen across an episode, without
-    keeping per-frame history — one running min/max/sum/count, updated once
-    per call to ``update``. Equivalent to concatenating every frame's array
-    and computing stats on the result, just O(1) memory instead of O(frames).
-    """
+    """Running min/max/mean over an episode, O(1) memory."""
 
     def __init__(self) -> None:
         self.dim = 0  # size of one frame's array, for display
@@ -141,8 +79,7 @@ class _RunningStats:
         self.max = float("-inf")
 
     def update(self, arr) -> bool:
-        """Folds one frame's array in. Returns True iff this frame itself
-        contained a non-finite value."""
+        """Fold one frame's array in; True if it held a non-finite value."""
         a = _to_numpy(arr)
         self.dim = a.size
         finite = np.isfinite(a)
@@ -169,13 +106,7 @@ class _RunningStats:
 
 
 def _aggregate_buffered(frames: list) -> tuple[_RunningStats, bool]:
-    """Folds a whole episode's worth of buffered per-frame tensors into one
-    _RunningStats, one frame at a time — same total work as aggregating live
-    would have been, but run once here (episode end) instead of interleaved
-    into the hot per-step recording loop. That's the actual fix: it isn't
-    that this work is free, it's that doing it all at once, when the
-    operator has already stopped teleoperating, doesn't stall real-time
-    recording or steal scheduling time from the ~200Hz hardware thread."""
+    """Aggregate buffered per-frame tensors once at episode end."""
     stats = _RunningStats()
     bad = False
     for frame in frames:
@@ -185,10 +116,7 @@ def _aggregate_buffered(frames: list) -> tuple[_RunningStats, bool]:
 
 
 class LiveDebugPanel:
-    """Call ``update(...)`` once per recorded frame; call ``reset_episode()``
-    when a new episode starts, and ``finish_episode(label)`` when it ends —
-    that's when the aggregated observation.state/action/qpos/qvel breakdown
-    prints (see module docstring)."""
+    """Per-frame update; aggregate breakdown prints at finish_episode."""
 
     def __init__(self, env, append_only: bool = False):
         self._layout = _ObsLayout.from_env(env)
@@ -200,9 +128,7 @@ class LiveDebugPanel:
     def reset_episode(self) -> None:
         self._frame = 0
         self._episode_reward = 0.0
-        # term name -> number of frames this episode where it held a
-        # non-finite value. Checked live (cheap, no extra sync) but only
-        # ever shown once, aggregated, in the episode-end summary.
+        # Anomaly counts per term; shown once in the episode summary.
         self._anomaly_frames: dict[str, int] = {}
         self._printed_lines = 0
         self._episode_num += 1
@@ -213,15 +139,7 @@ class LiveDebugPanel:
         )
         self._action_stats = _RunningStats()
         self._robot_state_stats = _RunningStats()
-        # Buffered only — NOT converted/aggregated here. See module
-        # docstring ("Performance") for why qpos/qvel are special-cased.
-        # Safe to store the bare reference without cloning: _execute_step
-        # (recording_mixin.py) already hands us a FRESH per-step .clone(),
-        # the same one it also hands to Recorder.add_frame (which clones it
-        # again, independently). If that per-step clone is ever removed,
-        # this buffer would start aliasing every entry to one reused
-        # mujoco/dm-control buffer — the same class of bug the recorder
-        # comments describe for qpos/reward. Don't drop that clone.
+        # Buffer qpos/qvel refs; caller already cloned per step.
         self._qpos_frames: list = []
         self._qvel_frames: list = []
 
@@ -236,21 +154,15 @@ class LiveDebugPanel:
         qvel=None,
         status=None,
     ) -> None:
-        """``status``: optional mjlab ``ViewerStatus`` (or any object with the
-        same attributes) — already computed by the viewer's own stats timer,
-        so reading it here costs nothing extra (no sync, no recompute)."""
+        """Status is precomputed by the viewer; reading it is free."""
         self._frame += 1
-        # obs first: this is the sync that can't be avoided (EEF/goal/object
-        # need it live). Reading reward/done via .item() AFTER it rides that
-        # same queue flush instead of opening a fresh barrier of their own.
+        # Obs sync is required; reward/done reuse the same flush.
         obs_np = _to_numpy(obs)
         reward_v = float(reward.item()) if hasattr(reward, "item") else float(reward)
         done_v = bool(done.item()) if hasattr(done, "item") else bool(done)
         self._episode_reward += reward_v
 
-        # Cheap, no extra GPU sync: obs is already host-side above, and
-        # action/robot_state are already plain numpy (hardware/mapper
-        # output, never GPU tensors).
+        # Obs/action are host-side already; no extra GPU sync here.
         bad_terms: list[str] = []
         layout = self._layout
         if layout is not None:
@@ -262,8 +174,7 @@ class LiveDebugPanel:
         if robot_state is not None and self._robot_state_stats.update(robot_state):
             bad_terms.append("robot_state")
 
-        # Expensive (GPU sync): buffer only, aggregate+check once at
-        # finish_episode instead of every frame.
+        # Buffer qpos/qvel; aggregate once at episode end.
         if qpos is not None:
             self._qpos_frames.append(qpos)
         if qvel is not None:
@@ -276,10 +187,7 @@ class LiveDebugPanel:
         self._print_overwrite(lines)
 
     def finish_episode(self, label: str) -> None:
-        """Aggregate the buffered qpos/qvel (the one deferred, expensive
-        check — see module docstring), freeze the last redrawn frame, then
-        append the full aggregated breakdown and an episode-boundary banner.
-        No-op if no frame was ever recorded this episode."""
+        """Print aggregate breakdown and banner; no-op if no frames."""
         if self._frame == 0:
             return
         qpos_stats, qpos_bad = _aggregate_buffered(self._qpos_frames)
@@ -398,11 +306,7 @@ class LiveDebugPanel:
         return lines
 
     def _print_overwrite(self, lines: list[str]) -> None:
-        """Redraw ``lines`` in place over whatever this same method printed
-        last call — falls back to a plain append when stdout isn't a
-        terminal (piped/redirected output can't be cursor-addressed), or
-        unconditionally when ``append_only`` is set (nothing ever
-        overwritten, full per-frame history kept in the scrollback)."""
+        """Redraw in place; append-only when piped or append_only set."""
         out = sys.stdout
         overwrite = (not self._append_only) and sys.stdout.isatty()
         if overwrite and self._printed_lines:
@@ -415,8 +319,7 @@ class LiveDebugPanel:
         self._printed_lines = len(lines) if overwrite else 0
 
     def _print_lines(self, lines: list[str]) -> None:
-        """Plain, unconditional append — used for the once-per-episode
-        summary, which must never be overwritten."""
+        """Plain append for the episode summary (never overwritten)."""
         out = sys.stdout
         for line in lines:
             out.write(line + "\n")

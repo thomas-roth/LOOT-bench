@@ -1,23 +1,11 @@
-"""Variant definitions for the peg-insertion task category.
-
-ARCHIVED (unregistered): superseded by ``tasks/shape_sorter`` for the shape-
-sorter family; this category keeps only its original peg/two-sheet kinds,
-importable and pyright-clean but not registered or tested. See ``README.md``.
+"""Archived peg-insertion variants. Unregistered, see README.
 
 Two kinds of task share one command/observation/reward stack:
-
-- ``peg``        a single peg must be inserted into a single tight-fitting bore
+- ``peg``:       a single peg must be inserted into a single tight-fitting bore
                  on a fixed board. The bore is either vertical (mouth up) or
                  horizontal (mouth facing the robot).
-- ``two_sheet``  a peg must be inserted through a hole that only lines up once
+- ``two_sheet``: a peg must be inserted through a hole that only lines up once
                  a movable top sheet has been slid over the fixed bottom sheet.
-
-Geometry conventions (all lengths in metres): a *shape* is a convex prism.
-``circle`` is a cylinder, ``square``/``rect`` are boxes, ``triangle``/
-``hexagon`` are regular-polygon prisms built as the convex hull of their
-corner vertices. ``circumradius``/``nsides`` fully describe the cross
-section; the matching bore is a polygonal ring with apothem
-``circumradius*cos(pi/nsides) + clearance`` so the peg is a tight fit.
 """
 
 from __future__ import annotations
@@ -41,9 +29,7 @@ class ShapeGeom:
     """Cross-section description shared by a peg and its matching bore."""
 
     nsides: int
-    """Number of polygon sides. A ``circle`` peg is a true cylinder; its
-    nsides only sets how closely the bore apothem approximates the radius
-    (the bore wall count is ``assets.CIRCLE_BORE_SEGMENTS``)."""
+    """Polygon side count. Circle bores use CIRCLE_BORE_SEGMENTS walls."""
     circumradius: float
     """Distance from the cross-section centre to a corner."""
     rect_half: tuple[float, float] | None = None
@@ -57,9 +43,7 @@ class ShapeGeom:
         return self.circumradius * math.cos(math.pi / self.nsides)
 
 
-# Cross sections, each a tight fit in its own matching bore. Every board built
-# from these has exactly one hole, so shape pairs need no physical-exclusion
-# sizing.
+# Cross sections, each a tight fit in its matching bore.
 SHAPE_GEOMS: dict[Shape, ShapeGeom] = {
     "circle": ShapeGeom(nsides=24, circumradius=0.0140),
     "square": ShapeGeom(nsides=4, circumradius=0.0130 * math.sqrt(2.0)),

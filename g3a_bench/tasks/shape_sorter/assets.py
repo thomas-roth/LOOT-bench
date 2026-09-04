@@ -9,7 +9,7 @@ bodies; the command term drops them at reset and re-derives the hole frames
 from the cube's live pose every step (see ``mdp/commands.py``).
 
 This module is a copy of the STL-sorter half of ``insertion/assets.py``
-(pared down to what the shape sorter needs -- no peg/board/socket_layout
+(pared down to what the shape sorter needs: no peg/board/socket_layout
 machinery, which stays specific to the archived peg/two_sheet insertion
 kinds).
 """

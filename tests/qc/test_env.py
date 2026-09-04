@@ -93,7 +93,7 @@ def _peak_to_peak(block: np.ndarray) -> float:
 
     Never the standard deviation. The observations are float32, and
     ``np.std`` over bit-identical samples returns ~1e-6 because the
-    accumulated mean is an ulp off -- so a non-zero std does not prove
+    accumulated mean is an ulp off. So a non-zero std does not prove
     variation, and a reset that randomizes nothing would pass a std test.
     The range is exact under any accumulation order.
     """
@@ -198,7 +198,7 @@ class TestObjectContact:
     """The cube-filtered sensor: the only key that answers "touched the cube".
 
     ``pad_contact_force`` cannot answer it. That sensor has no secondary match,
-    and the DK1 pads can reach each other -- so the number ``qc`` counts grips
+    and the DK1 pads can reach each other. So the number ``qc`` counts grips
     out of also counts a gripper closing on empty air, which is exactly what a
     failing policy does all episode.
     """

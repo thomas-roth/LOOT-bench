@@ -9,9 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-# The reward convention (tasks/common/rewards.py) puts success at exactly 0.0
-# and everything else at or below -MIN_SHORTFALL. So a reward of 0.0 *is* the
-# success signal, and the adapter needs no second opinion.
+# Success is exactly reward 0.0 per the task reward convention.
 SUCCESS_REWARD = 0.0
 
 CONTACT_THRESHOLD = 0.1
@@ -43,7 +41,7 @@ class EpisodeStats:
     """[N] the latest **unfiltered** finger-pad contact force, or ``None`` if
     the task has no ``grip_contact`` sensor. Not a running total: ``qc``
     thresholds it once per step to count grips, so it has to carry this step's
-    reading. Counts the pads touching each other -- see
+    reading. Counts the pads touching each other, see
     :attr:`object_contact_force` for the number that answers "touched the
     object". Named for the sensor's *reduction* (the pads), not for the sensor,
     which is still called ``grip_contact``."""
@@ -75,10 +73,8 @@ class EpisodeStats:
             and object_contact_force > CONTACT_THRESHOLD
         ):
             self.object_contact_steps += 1
-        # Latched, not sampled. A task's success gate can unlatch -- a block
-        # settles a millimetre and the at-rest test drops out -- and the
-        # episode ends a step later. Reading success off the final step alone
-        # would then score a successful episode as a failure.
+        # Latched: the gate can unlatch after success, so the final step alone
+        # is not enough.
         if reward >= SUCCESS_REWARD:
             self.success = True
 
@@ -93,12 +89,12 @@ class EpisodeStats:
         ``qc/evaluation.py`` reads the flat key and falls back to the nested
         ``info["proprio"]`` form, so flat is the shape that is safe on both
         branches. The name is a cross-repo contract: rename it here and
-        ``qc/evaluation.py`` stops matching, which is silent -- the counters
+        ``qc/evaluation.py`` stops matching, which is silent, the counters
         read 0.0 for every policy rather than raising.
 
         A task with no ``grip_contact`` sensor leaves the key out entirely,
         which is safe too: ``qc`` tests for it before reading it, and drops to
-        ``pad_force = None``. That is deliberate -- emitting 0.0 for a task
+        ``pad_force = None``. That is deliberate, emitting 0.0 for a task
         that cannot measure contact would put a number in ``eval.csv`` that
         looks like "never touched it" and means "never asked".
 

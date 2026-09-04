@@ -22,7 +22,7 @@ def rot6d_from_matrix(mat: torch.Tensor) -> torch.Tensor:
 
     Prefer this over a quaternion for anything a network reads. A quaternion
     covers each rotation twice (``q`` and ``-q`` are the same rotation), so
-    which of the two a converter returns is a free choice -- and mjlab's
+    which of the two a converter returns is a free choice. Mjlab's
     ``quat_from_matrix`` makes that choice with an ``argmax`` over four
     candidates that are equal in exact arithmetic. Wherever two candidates tie,
     float noise decides, and one smooth motion comes back as a sequence that
@@ -54,7 +54,7 @@ def ee_pose_w(env: ManagerBasedRlEnv, asset_cfg: SceneEntityCfg) -> torch.Tensor
     Going back through ``matrix_from_quat`` removes the flip rather than
     hiding it: a quaternion and its negation name the same rotation, so the
     conversion to a matrix drops the sign the branch invented. Canonicalizing
-    the quaternion instead would not work -- the DK1 grasp site passes through
+    the quaternion instead would not work: the DK1 grasp site passes through
     ``w == 0``, where the sign of ``w`` is noise.
 
     Body poses do not share the problem. Their quaternion comes from

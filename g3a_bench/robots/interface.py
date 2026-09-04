@@ -1,11 +1,7 @@
-"""Robot-agnostic description of a manipulator for the benchmark tasks.
+"""Robot-agnostic manipulator description for benchmark tasks.
 
-Tasks are written against this interface instead of hardcoding robot details
-(site names, collision geom patterns, action scales). Every concrete value
-lives in the robot's own ``g3a_bench.robots.<robot>`` package, which exposes a
-``get_<robot>_interface()`` factory -- nothing robot-specific belongs in this
-module. Tasks consume an instance through the ``wire_manipulator_into_env``
-adapter on the task side.
+Tasks use this interface plus wire_manipulator_into_env; concrete values live
+in each g3a_bench.robots.<robot> package.
 """
 
 from collections.abc import Callable
@@ -18,8 +14,7 @@ _GRIPPER_OPEN_FRACTION = 2 / 3
 
 
 def gripper_open_threshold(joint_range: dict[str, float]) -> float:
-    """Joint position ``_GRIPPER_OPEN_FRACTION`` of the way from ``closed``
-    to ``open`` in ``joint_range``."""
+    """Open threshold from joint_range via _GRIPPER_OPEN_FRACTION."""
     return joint_range["closed"] + _GRIPPER_OPEN_FRACTION * (
         joint_range["open"] - joint_range["closed"]
     )
@@ -37,22 +32,12 @@ class ManipulatorInterface:
     """Gripper joint(s) gating task success: all must exceed
     ``gripper_open_threshold`` for the object to count as released."""
     gripper_open_threshold: float
-    """Joint position above which a gripper joint counts as open. Derive it
-    from the joint range with :func:`gripper_open_threshold` so a merely
-    loosened grip does not count."""
+    """Joint position above which a gripper joint counts as open."""
     ee_subtree: str
     """Body name whose subtree is monitored for illegal ground contact."""
     pad_geoms: str
-    """Entity-local, fullmatch regex for the finger-pad collision geoms;
-    used as the primary of the gripper contact-release sensor (see
-    ``tasks.common.commands.ContactReleaseGate``)."""
+    """Fullmatch regex for finger-pad geoms; used as primary of contact-release."""
     viewer_body: str
     """Body the viewer camera tracks."""
     reset_joint_pos: dict[str, float] | None = None
-    """Absolute joint pose episodes start from, or ``None`` to start from the
-    entity's own keyframe. Set it to the pose the robot rests in during
-    teleoperation: the recorded demos and the evaluated episodes must start
-    from the same state, otherwise a policy trained on the demos is evaluated
-    from a state it never saw. Consumed by ``manipulator_wiring.
-    wire_manipulator_into_env``, which swaps in
-    ``tasks.common.events.reset_joints_to_pose``."""
+    """Absolute start pose, or None to start from the entity's own keyframe."""

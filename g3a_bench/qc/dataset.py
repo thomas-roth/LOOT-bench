@@ -1,15 +1,8 @@
-"""Reading a converted dataset back, and checking it against an environment.
+"""Load a converted dataset and check it against an environment.
 
-Separate from :mod:`g3a_bench.qc.convert` for one reason: **this module must
-not import lerobot**. Writing a dataset happens in this repo's venv, which has
-lerobot; reading one happens in the ``qc`` venv, which does not and must not
-(installing lerobot's dependency tree there is how a cu130 torch gets in, and
-JAX then aborts at import). A training run therefore reaches
-:func:`load_dataset` without paying for the recording stack.
-
-The check itself is the point. A dataset recorded under a different action
-convention is a silent failure: nothing raises, the loss falls, and every
-evaluation episode scores zero.
+Separate from convert so this module never imports lerobot. The qc venv
+has no lerobot; installing it pulls cu130 torch and JAX aborts at import.
+A convention mismatch is silent: loss falls and every eval episode scores zero.
 """
 
 from __future__ import annotations
@@ -25,14 +18,11 @@ from numpy.typing import NDArray
 from g3a_bench.qc.transitions import QC_KEYS
 
 STAMP_KEYS = frozenset({"action_scale", "action_offset", "start_pose_noise", "task"})
-"""Keys recording the conventions the dataset was built under.
+"""Stamp keys recording build conventions (ADR-011).
 
-``action_scale``/``action_offset`` record the action convention,
-``start_pose_noise`` the start-pose sample the demos were recorded under
-(``ADR-008``), and ``task`` the task id the dataset was recorded for.
-All are metadata, like ``episode_index`` -- strip everything
-outside :data:`QC_KEYS` before ``Dataset.create``, or qc's replay buffer will
-demand these keys from every online transition too.
+action_scale/offset record the action convention, start_pose_noise the
+recording noise (ADR-008), task the task id. Strip non-QC_KEYS before
+Dataset.create to avoid the replay buffer demanding these keys.
 """
 
 
@@ -51,13 +41,8 @@ class _Env(Protocol):
 
 
 def _as_row(value: Any) -> NDArray[np.float32]:
-    """A float32 1-D copy of a stamp value or an action-term buffer.
+    """Float32 1-D copy of a stamp value or action-term buffer."""
 
-    The term's buffers are torch tensors on the simulation device, and
-    ``np.asarray`` refuses a CUDA tensor outright -- so the check that exists
-    to catch a stale dataset would otherwise raise ``TypeError`` on every GPU
-    run, which is every real run.
-    """
     if hasattr(value, "detach"):
         value = value.detach().cpu().numpy()
     return np.asarray(value, dtype=np.float32).reshape(-1)
@@ -74,11 +59,7 @@ def _as_scalar(value: Any) -> float:
 
 
 def _as_task_str(value: Any) -> str:
-    """Decode a task stamp to a plain string.
-
-    The stamp is written as ``np.array(task, dtype=np.str_)`` but can be
-    read back as bytes depending on numpy version and npz handling.
-    """
+    """Decode a task stamp to a plain string (handles bytes forms)."""
     arr = np.asarray(value)
     if arr.size == 0:
         raise ValueError(f"expected a task stamp, got {value!r}")
@@ -92,12 +73,7 @@ def _as_task_str(value: Any) -> str:
 
 
 def _env_task_id(env: _Env) -> str | None:
-    """Task id the env was built for, or None if not exposed.
-
-    ``G3aEnv`` stores it in ``task_id``; fakes in tests may use any of the
-    names below. None means the task check is skipped (the env cannot
-    answer it), which is right for a fake that models no task.
-    """
+    """Task id the env was built for, or None if not exposed."""
     for attr in ("task_id", "task", "_task_id"):
         candidate = getattr(env, attr, None)
         if candidate is not None:
@@ -110,13 +86,7 @@ def _env_task_id(env: _Env) -> str | None:
 
 
 def _noise_from_cfg(cfg: Any) -> float:
-    """Half-width [rad] read off the mjlab cfg's reset event.
-
-    The source for an env that exposes the simulator (``unwrapped_env``)
-    without the ``start_pose_noise`` seam. Every level is checked by name,
-    so a cfg that changed shape says which key is missing instead of the
-    caller hearing only that the env is not a G3aEnv.
-    """
+    """Half-width [rad] read off the mjlab cfg reset event."""
     events = getattr(cfg, "events", None)
     if not isinstance(events, Mapping):
         raise ValueError("cfg.events is not a mapping of named event terms")
@@ -137,22 +107,7 @@ def _noise_from_cfg(cfg: Any) -> float:
 def _env_start_pose_noise(env: Any) -> float:
     """Half-width [rad] the env samples its start pose from.
 
-    ``env`` is typed ``Any`` on purpose: every source below is probed with
-    ``getattr``, so a partial fake is checkable. That is the point -- the
-    check must reach an env that is missing the seam, and name what it
-    found or did not.
-
-    Three sources, first match wins:
-
-    1. ``env.start_pose_noise`` -- the seam ``G3aEnv`` publishes, a method
-       or an attribute. Every real run takes this path.
-    2. ``env._start_pose_noise`` -- the private attribute ``G3aEnv`` stores
-       the value in, for a fake that exposes no method.
-    3. ``env.unwrapped_env.cfg`` -- the mjlab cfg, for an env that exposes
-       the simulator without the seam.
-
-    A source that is present but broken raises naming the source. The final
-    error means none of the three was found at all.
+    Probe start_pose_noise, _start_pose_noise, then unwrapped_env.cfg.
     """
     for attr in ("start_pose_noise", "_start_pose_noise"):
         candidate = getattr(env, attr, None)
@@ -176,13 +131,9 @@ def _env_start_pose_noise(env: Any) -> float:
 
 
 def check_dataset_matches_env(data: dict[str, NDArray], env: _Env) -> None:
-    """Raise unless ``data`` was recorded under the environment's conventions.
+    """Raise unless ``data`` was recorded under the env conventions.
 
-    Every check here guards a failure that is otherwise silent: training runs
-    to completion, the loss falls, and every evaluation episode scores zero.
-    Task identity is checked when the dataset carries a ``task`` stamp
-    (new recordings); old datasets without the stamp warn but still pass
-    (minimal breakage, rebuild with ``g3a-convert-demos`` to gain the check).
+    Missing task stamp warns and passes; present stamp must match exactly.
 
     Args:
         data: a dataset from ``convert.build_dataset``, or one loaded back from
@@ -240,8 +191,7 @@ def check_dataset_matches_env(data: dict[str, NDArray], env: _Env) -> None:
             f"(ADR-008)"
         )
 
-    # Task identity — minimal breakage: old datasets without the stamp
-    # pass with a warning; new datasets must match exactly.
+    # Old datasets without task stamp pass with a warning.
     if "task" not in data:
         warnings.warn(
             "dataset has no task stamp; it predates the stamp "
@@ -261,13 +211,7 @@ def check_dataset_matches_env(data: dict[str, NDArray], env: _Env) -> None:
 
 
 def load_dataset(path: str | Path, env: _Env | None = None) -> dict[str, NDArray]:
-    """Load a converted ``.npz``, checked against ``env`` when one is given.
-
-    The way a training run should read a dataset: passing the environment it is
-    about to train against turns a convention mismatch into an exception at
-    startup instead of a flat evaluation curve hours later. Filter the result
-    to :data:`QC_KEYS` before handing it to ``Dataset.create``.
-    """
+    """Load a converted ``.npz``, checked against ``env`` when given."""
     with np.load(path) as loaded:
         data = {key: loaded[key] for key in loaded.files}
     if env is not None:
@@ -276,10 +220,5 @@ def load_dataset(path: str | Path, env: _Env | None = None) -> dict[str, NDArray
 
 
 def training_columns(data: dict[str, NDArray]) -> dict[str, NDArray]:
-    """Only the keys ``qc``'s ``Dataset.create`` may be given.
-
-    The stamp and ``episode_index`` are metadata. Left in, qc's replay buffer
-    would require them from every online transition dict as well, and those
-    carry the six training keys and nothing else.
-    """
+    """Only the keys qc Dataset.create accepts (drops stamps)."""
     return {key: value for key, value in data.items() if key in QC_KEYS}

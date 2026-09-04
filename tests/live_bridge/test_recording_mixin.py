@@ -1,7 +1,7 @@
 """State-machine tests for RecordingViewerMixin, driven with fake recorder/env.
 
 External behavior only: which recorder calls fire, which state the mixin ends
-up in, and what the HUD/ghost color report — no viewer, no simulator.
+up in, and what the HUD/ghost color report. No viewer, no simulator.
 
 States: RECORDING → (non-success termination: PROVISIONAL_FAILURE, auto-saves
 as failure after a 2s grace period unless F/D/V decides first) → RESET_PHASE.
@@ -127,7 +127,7 @@ class TestTerminationHandling:
         assert not h._provisional_failure
 
     def test_failure_termination_enters_provisional(self):
-        """Non-success termination saves nothing yet — the grace window opens
+        """Non-success termination saves nothing yet. The grace window opens
         so the operator can discard or relabel first."""
         h, rec = make_harness()
         h._handle_done(is_success=False)
@@ -177,7 +177,7 @@ class TestProvisionalFailureActions:
         assert h._in_reset_phase
 
     def test_grace_window_waits_before_timeout(self):
-        """Within the grace period nothing is saved — the window stays open."""
+        """Within the grace period nothing is saved. The window stays open."""
         h, rec = make_harness()
         h._handle_done(is_success=False)
         assert h._execute_step()
@@ -286,8 +286,8 @@ class TestStateGuards:
     """Accepted keys must match what the HUD advertises per state."""
 
     def test_zero_frame_termination_skips_grace_window(self):
-        """A termination before any frame was recorded has nothing to decide —
-        it must go straight to the reset phase."""
+        """A termination before any frame was recorded has nothing to decide.
+        It must go straight to the reset phase."""
         h, rec = make_harness(num_frames=0)
         h._handle_done(is_success=False)
         assert not h._provisional_failure
@@ -312,7 +312,7 @@ class TestStateGuards:
         assert h.episodes_saved == 1
 
     def test_quit_in_grace_window_is_blocked(self):
-        """Q must not bypass an open grace window — the un-decided episode
+        """Q must not bypass an open grace window. The un-decided episode
         would be silently dropped at finalize."""
         h, rec = make_harness()
         h._handle_done(is_success=False)

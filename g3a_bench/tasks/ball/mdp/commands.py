@@ -1,19 +1,4 @@
-"""Ball command: target/wall pose, ball scatter and at-target success.
-
-Drives all ball variants (minigolf x direct/using_wall/obstacle/ramp, throw x
-U/marked/wall_variation). The target lives on the *field*, a fixed-base
-entity whose pose is randomized each reset by the generated ``reset_field``
-event (see ``ball_env_cfg.make_ball_env_cfg``); this command reads the
-field's *live* pose every step and derives the target's world position from
-it, so the goal follows the field instead of a constant env-origin offset.
-``ThrowWallVariation`` additionally has a separate, independently-moving
-``wall`` entity; other throw variants have the wall baked into the field, so
-this command derives its world pose from the field's live pose instead.
-
-The command samples the ball spawn, tracks the ball, and decides success
-(ball inside the target zone and at rest; for minigolf the ball must also
-have dropped below the target's local surface).
-"""
+"""Ball command. Samples spawns, tracks the ball, tests at-target success."""
 
 from __future__ import annotations
 
@@ -73,10 +58,7 @@ class BallCommand(CommandTerm):
             env.scene[cfg.wall_name] if cfg.wall_name is not None else None
         )
         self.grasp_cfg = cfg.grasp_cfg
-        # Resolve names -> indices against the scene. Unlike term ``asset_cfg``s
-        # (which the managers resolve), this command-owned cfg is resolved here,
-        # so ``grasp_cfg.site_ids`` picks out the single grasp site instead of
-        # defaulting to all sites.
+        # Resolve the grasp site here since this cfg is command owned.
         self.grasp_cfg.resolve(env.scene)
 
         E, dev = self.num_envs, self.device
@@ -196,9 +178,7 @@ class BallCommand(CommandTerm):
             done = bool(self.at_target[batch] > 0.5)
             success = bool(self.success[batch] > 0.5)
             color = marker_color((0.9, 0.9, 0.2, 1.0), done, success)
-            # Success is an xy-radius test on the surface: draw a flat disk of
-            # the success radius sitting on it (lifted slightly to avoid
-            # z-fighting), not a half-buried sphere.
+            # Flat disk marker on the surface, sized by the success radius.
             start = center.copy()
             start[2] += 0.0005
             end = center.copy()

@@ -12,14 +12,14 @@ success`` in ``[0, 2]``:
   the goal and never touch it. With a reward in ``[-1, 0]``, every extra step
   costs, and reaching the goal is the only way to stop paying.
 * It makes ``--sparse`` safe. QC maps ``(rewards != 0.0) * -1.0``, which is
-  correct only if nothing but success reads exactly zero -- hence
+  correct only if nothing but success reads exactly zero, hence
   :data:`MIN_SHORTFALL`.
 
 **The reward lags the observation by one step, on purpose.** mjlab's ``step()``
 runs the termination and reward managers *before* the command manager, so both
 read the success and progress buffers as they stood at the end of the previous
 step. Success reached during step ``k`` is therefore paid at step ``k + 1``,
-which is also the step that terminates -- the last transition of a successful
+which is also the step that terminates: the last transition of a successful
 episode carries ``r == 0`` together with ``terminated``, exactly the absorbing
 state offline RL wants. The lag is identical when recording and when
 evaluating, so it cancels; do not "fix" it on one side alone.
@@ -44,7 +44,7 @@ if TYPE_CHECKING:
 MIN_SHORTFALL = 1e-3
 """How far below zero a non-success reward has to stay.
 
-A task can report full progress while its success gate has not latched -- the
+A task can report full progress while its success gate has not latched: the
 objects are in place but still moving, so the at-rest condition has yet to
 hold. Without this floor that step would read exactly ``0.0`` and ``--sparse``
 would relabel it a success.

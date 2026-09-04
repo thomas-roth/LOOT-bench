@@ -59,7 +59,7 @@ under (see ``manipulator_wiring.wire_manipulator_into_env``'s
 ``grip_contact_sensor`` param).
 
 **Unfiltered on purpose**: it has no secondary match, so it reports the pads
-touching *anything*. That includes the other pad -- on the DK1 the pad faces
+touching *anything*. That includes the other pad. On the DK1 the pad faces
 meet at gripper joint -0.038 m and the joint travels to -0.045 m, so a gripper
 closed on empty air reads 1.6 to 2.5 N here. The release gate is unharmed
 (:class:`ContactReleaseGate` says why), but the number cannot answer "did it
@@ -106,9 +106,8 @@ class ContactReleaseGate:
     fooled by a wedged/diagonal grasp that crosses the open-joint threshold
     while still gripping. This reads actual contact force at the finger
     pads, independent of joint position. The sensor has no secondary
-    (object) filter -- it reports contact with anything, not just a
-    tracked object -- so this is deliberately coarser than "is it still
-    holding the scored object"; see the design doc for the trade-off.
+    (object) filter: it reports contact with anything, not just a tracked
+    object, so this is coarser than "is it still holding the scored object".
 
     That coarseness includes **pad-against-pad** contact on a gripper closed
     on nothing. It costs nothing here, because this gate never runs alone:

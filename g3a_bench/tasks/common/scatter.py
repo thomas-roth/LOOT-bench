@@ -1,7 +1,7 @@
 """Grid-based spawn sampling with jittered, distinct cell centers.
 
 :meth:`ScatterGrid.tiling` sizes the grid so cells are at least one object
-diameter apart and jitter never closes that gap — samples are collision-free
+diameter apart and jitter never closes that gap. Samples are collision-free
 by construction. :meth:`sample_poses` draws them with a *sequential*
 Fisher-Yates shuffle: object ``i`` consumes exactly one ``rand(E, 4)`` draw
 (cell pick among the cells left by objects ``0..i-1``, jitter x/y, yaw), in
@@ -84,7 +84,7 @@ class ScatterGrid:
         """Draw ``count`` distinct jittered cells plus a yaw per object.
 
         Sequential Fisher-Yates: object ``i`` consumes one ``rand(E, 4)``
-        draw — cell pick among the remaining cells, jitter x/y, yaw — so the
+        draw (cell pick among remaining cells, jitter x/y, yaw), so the
         draw count and the draw-to-pose mapping are independent of ``count``
         (seed-prefix rule, see module docstring).
 

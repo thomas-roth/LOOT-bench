@@ -1,10 +1,7 @@
-"""TRLC-DK1 actuator configuration.
+"""DK1 actuator configs (DAMIAO DM4340/DM4310).
 
-Motor specs (DAMIAO DM4340 / DM4310), effective inertias, and the arm/gripper
-actuator builders. There is no action scale here any more -- see the note at
-the foot of the file. Motor specs and arm gains are taken from the official
-trlc_dk1_control config.py to match the real-world controller. The gripper
-uses a sim-specific soft tuning (see the gripper section below).
+Motor specs and arm gains match official trlc_dk1_control config.py; gripper
+uses sim-specific soft tuning.
 """
 
 import math
@@ -13,9 +10,7 @@ from dataclasses import dataclass
 from mjlab.actuator import BuiltinPositionActuatorCfg
 from mjlab.utils.actuator import ElectricActuator, reflect_rotary_to_linear
 
-##
 # Motors.
-##
 
 _ARMATURE_DM_4340 = 0.032
 "[kg*m²], rotor inertia of DM4340 reflected through gearbox."
@@ -35,9 +30,7 @@ _DM_4310 = ElectricActuator(
 )
 
 
-##
 # Arm joint actuators.
-##
 
 
 @dataclass(frozen=True)
@@ -72,18 +65,11 @@ def get_arm_actuators(prefix: str = "") -> tuple[BuiltinPositionActuatorCfg, ...
     )
 
 
-##
 # Gripper transmission and control parameters.
 #
-# The real-life gripper runs the DM4310's internal (unpublished) position loop
-# with grip forces coming from the torque cap: a servo that saturates its
-# force cap after a small position error. The sim gripper keeps that shape
-# (stiffness = cap / saturation error) but lowers the cap from the rated
-# 114 N to 20 N: at the rated force, sim-stiffness contacts let the pads sink
-# ~4.5 mm into task pieces and eject them from the grip, while 20 N holds
-# them with sub-millimeter penetration (tests/trlc_dk1/test_dk1_grasp.py).
-# Overdamped so the impact transient settles without bounce.
-##
+# Cap grip forces at 20 N instead of real-life 114 N (rated 114 N would let
+# pads sink ~4.5 mm into task pieces, 20 N holds them with sub-milimeter
+# precision). Overdamped to avoid bounce. See tests/trlc_dk1/test_dk1_grasp.py.
 
 GRIPPER_MECHANICAL_RANGE = {"open": 0.001, "closed": -0.045}
 "[m], mechanical gripper range mirroring `finger` joint range in xml/dk1.xml."
@@ -125,9 +111,7 @@ _GRIPPER_DAMPING = (
 "[kg/s], damping of the stiffness-spring-mass system."
 
 
-##
 # Gripper joint actuator.
-##
 
 
 def get_gripper_actuator(prefix: str = "") -> BuiltinPositionActuatorCfg:
@@ -141,13 +125,4 @@ def get_gripper_actuator(prefix: str = "") -> BuiltinPositionActuatorCfg:
     )
 
 
-##
-# Action scale.
-#
-# There is none here any more. The DK1 used to publish a per-joint residual
-# scale -- the position error producing a quarter of the motor's torque, about
-# 0.07 rad on the big joints. That number only makes sense for an unbounded
-# policy, which emits whatever magnitude it needs. Every task now uses
-# tasks/common/actions.NormalizedJointPositionAction instead, where one action
-# unit is half a joint's travel and the numbers come from the compiled model.
-##
+# No action scale here. Tasks use NormalizedJointPositionAction.

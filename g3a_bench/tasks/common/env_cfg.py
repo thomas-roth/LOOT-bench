@@ -1,27 +1,7 @@
-"""Shared tabletop-manipulation env-cfg skeleton for all task categories.
+"""Shared workbench for all tasks. Categories pass core parts as parameters.
 
-Every G3A task is the same workbench — a manipulator at a table with
-joint-position control, proprioceptive + task observations, and a
-success/time-out episode — plus a category-shaped core (entities, command,
-task observations/rewards/terminations). :func:`make_manipulation_env_cfg`
-builds the skeleton and takes the core as parameters; the per-category
-``make_*_env_cfg`` are thin caps.
-
-Robot-specific knobs are left as placeholders (empty grasp site, empty viewer
-body, no ``"robot"`` scene entity).
-Fill them by calling :func:`~g3a_bench.tasks.common.manipulator_wiring.
-wire_manipulator_into_env` with a concrete ``ManipulatorInterface`` before
-registering the task.
-
-**No observation carries noise, and no group corrupts.** Observation noise is a
-robustness device for an on-policy run that collects its own data; this repo
-trains QC-FQL offline from recorded demonstrations, and there the noise only
-splits the two halves apart. The demonstrations were recorded through the
-uncorrupted observation, so a corrupted training observation would describe a
-state the operator never saw. Both paths already forced it off -- the adapter
-in ``g3a_bench/qc/env.py`` and the recorder's ``play`` cfg -- and the terms are
-now free of it, so the config says what it does instead of relying on two
-callers to undo it. See ``docs/adr/015-observations-carry-no-noise.md``.
+Robot placeholders are filled by wire_manipulator_into_env. No observation
+carries noise (see ADR-015).
 """
 
 from mjlab.entity import EntityCfg
@@ -110,12 +90,7 @@ def make_manipulation_env_cfg(
             if command_obs
             else {}
         ),
-        # Named, so this reads the action term's own buffer rather than the
-        # manager's. The manager stores the policy output before any term
-        # touches it, and the term clamps to the action box (see
-        # tasks/common/actions.py) -- so the unnamed form would report an
-        # action the simulator did not apply. Teleoperation is where the two
-        # differ: gravity compensation can leave the box near a joint limit.
+        # Named so it reads the term buffer with clamping applied.
         "actions": ObservationTermCfg(
             func=mdp.last_action, params={"action_name": "joint_pos"}
         ),
@@ -127,10 +102,7 @@ def make_manipulation_env_cfg(
     }
 
     actions: dict[str, ActionTermCfg] = {
-        # Scale and offset are derived from the compiled model, not set here
-        # and not set per-robot: [-1, 1] spans each joint's own travel. See
-        # tasks/common/actions.py for why a residual scale cannot work with a
-        # bounded policy.
+        # Limits come from the compiled model. See tasks/common/actions.py.
         "joint_pos": NormalizedJointPositionActionCfg(
             entity_name="robot",
             actuator_names=(".*",),
@@ -199,8 +171,7 @@ def make_manipulation_env_cfg(
             enable_shadows=False,
             enable_reflections=False,
         ),
-        # Same settings as the mjlab manipulation example, except task-specific
-        # values and nativeccd disabled.
+        # Same as the mjlab manipulation example, with nativeccd disabled.
         sim=SimulationCfg(
             nconmax=nconmax,
             njmax=njmax,
@@ -210,20 +181,13 @@ def make_manipulation_env_cfg(
                 ls_iterations=50,
                 impratio=10,
                 cone="elliptic",
-                # Disabling nativeccd makes MuJoCo Warp use the analytic
-                # box-box collider (up to 8 contacts with per-contact depth)
-                # instead of GJK/EPA (<=4 contacts sharing one depth/frame),
-                # which jitters. Affects all box-box pairs: objects on the
-                # table top and in the box finger pads. No-op for other pairs.
+                # Analytic box-box collider. Stable contacts for boxes.
                 disableflags=("nativeccd",),
             ),
         ),
         decimation=4,
         episode_length_s=episode_length_s,
-        # Keep the reward exactly what the term returns. mjlab's default
-        # multiplies every reward by step_dt, which would tie the numbers
-        # baked into a recorded dataset to the decimation above. See the
-        # convention note in tasks/common/rewards.py.
+        # Keep raw reward values, unscaled by step dt.
         scale_rewards_by_dt=False,
     )
 

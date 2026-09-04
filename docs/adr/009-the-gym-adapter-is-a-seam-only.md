@@ -51,7 +51,7 @@ it.
 The key names are a **cross-repo contract**: the adapter produces them in
 `g3a_bench/qc/episode.py` and `qc/evaluation.py` consumes them by name. The two
 live in separate repositories with no version pin between them, and a drift is
-silent -- the consumer falls through to `None` and the counters read 0.0
+silent: the consumer falls through to `None` and the counters read 0.0
 rather than raising. After changing either side, run a short eval and check
 `eval/pad_contact_runs` is non-zero; the DK1 pads always self-contact, so a
 zero there means the contract broke.

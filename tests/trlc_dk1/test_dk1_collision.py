@@ -1,7 +1,7 @@
 """DK1 collision-mode contract tests on the compiled MuJoCo model.
 
 Applies a collision mode to the unimanual DK1 spec exactly the way mjlab does
-(``CollisionCfg.edit_spec``) and compiles it — no env, no warp, CPU-only.
+(``CollisionCfg.edit_spec``) and compiles it. No env, no warp, CPU-only.
 Guards the gripper-only invariant: exactly the wrist/finger/pad geoms have
 collision enabled, and the finger pads keep their tuned contact parameters.
 """

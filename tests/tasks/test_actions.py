@@ -2,7 +2,7 @@
 
 The pure tests need no simulator. The one that builds a task earns its cost:
 it is the only place that checks the convention actually reached the compiled
-model, and a wrong action range does not raise -- it just puts the task out of
+model, and a wrong action range does not raise. It just puts the task out of
 reach and reads back as a policy that never learns.
 """
 
@@ -108,7 +108,7 @@ class TestCompiledTask:
         ``live_bridge/mapper.py`` turns a leader-arm pose into an action while
         recording; the action term turns an action into a joint target while
         evaluating. If the two ever disagree, the demos describe a trajectory
-        the policy is never scored on -- and nothing raises.
+        the policy is never scored on, and nothing raises.
         """
         from g3a_bench.scripts.live_bridge.mapper import (
             ACTUATED_JOINT_NAMES,

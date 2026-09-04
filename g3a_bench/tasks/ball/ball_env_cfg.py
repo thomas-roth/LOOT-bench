@@ -15,8 +15,7 @@ from g3a_bench.tasks.common.table import table_entity_cfg
 
 COMMAND_NAME = "task"
 
-# Goal randomization: the field (and, for ThrowWallVariation, the wall) is
-# perturbed around its init pose every reset instead of pinned exactly.
+# Field and wall are perturbed around init pose each reset.
 _FIELD_POSE_RANGE = {"x": (-0.02, 0.02), "y": (-0.03, 0.03)}
 _WALL_POSE_RANGE = {"x": (-0.06, 0.06), "z": (-0.08, 0.0)}
 
@@ -107,9 +106,7 @@ def make_ball_env_cfg(
             grasp_cfg=grasp_cfg,
         ),
         task_obs_terms=task_obs_terms,
-        # The target position is per-episode random (the field is
-        # randomized each reset); command now carries the raw env-local
-        # target position (fixed from a ball-relative delta - see spec).
+        # Target varies per episode, so expose the command observation.
         command_obs=True,
         task_rewards=task_rewards,
         task_terminations=task_terminations,

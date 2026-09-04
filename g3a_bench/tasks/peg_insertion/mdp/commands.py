@@ -1,16 +1,5 @@
-"""Peg-insertion command: goal bores, peg scatter and insertion success.
-
-ARCHIVED (unregistered, untested): see ``README.md``. One command term drives
-both insertion kinds (single peg, two-sheet). It owns:
-
-- the world pose of every bore mouth (from :func:`socket_layout`, so geometry
-  and success metric stay in sync). Boards are fixed props, so their mouths
-  are constant,
-- the per-reset scatter of pegs and the offset of the movable top sheet, and
-- the insertion test (pure criteria in ``success.py``): instantaneous axial
-  depth + lateral centring + tilt (+ sheet alignment).
-
-Peg ``i`` is assigned to socket ``i``, in the variant's socket order.
+"""Archived peg-insertion command. Unregistered, see README.
+Goal bores, peg scatter, insertion test.
 """
 
 from __future__ import annotations
@@ -106,16 +95,13 @@ class InsertionCommand(CommandTerm):
         )
         board_pos = torch.tensor(BOARD_POS, device=dev, dtype=torch.float32)
         origins = self._env.scene.env_origins  # (E, 3)
-        # Fixed prop pinned to the env origin (identity orientation), so
-        # world mouth poses are constant per env.
+        # Fixed prop, so world mouth poses are constant per env.
         self.socket_mouth_w = (
             origins.unsqueeze(1) + board_pos + self._mouth_local.unsqueeze(0)
         )  # (E, S, 3)
         self.socket_axis_w = self._axis_local.unsqueeze(0).expand(E, S, 3).contiguous()
 
-        # Fixed-board insertion test tolerances and per-socket ghost-peg
-        # marker data for debug vis: peg shape/color and the bore
-        # cross-section basis (columns c0, c1, axis_out), matching the walls.
+        # Tolerances and ghost-peg marker data for debug vis.
         self.insert_depth = variant.insert_depth
         self.lateral_tol = variant.lateral_tol
         self.tilt_cos = math.cos(math.radians(variant.tilt_tol_deg))
@@ -134,9 +120,7 @@ class InsertionCommand(CommandTerm):
         self._gripper_gate = GripperOpenGate(cfg)
         self._half_len = PEG_HALF_LEN
 
-        # Pegs are spawned upright into the reach band, env-local (env origins
-        # are added at spawn time), on a jittered grid sized for the largest
-        # peg's bounding radius.
+        # Pegs spawn upright in the reach band on a jittered grid.
         self._scatter = ScatterGrid.tiling(
             _WORKSPACE_X, _WORKSPACE_Y, object_radius=_OBJECT_RADIUS, device=dev
         )

@@ -1,9 +1,4 @@
-"""Environment configuration for the peg-insertion task category.
-
-ARCHIVED (unregistered, untested): see ``README.md``. Kept importable and
-pyright-clean so a future robot/category can still borrow from it, but not
-wired into ``config/`` and not discovered by ``tasks/__init__.py``.
-"""
+"""Archived peg-insertion env config. Unregistered, see README."""
 
 from mjlab.entity import EntityCfg
 from mjlab.envs import ManagerBasedRlEnvCfg

@@ -85,7 +85,7 @@ def test_split_episodes_does_not_hold_out_everything():
 
 
 def test_training_starts_drops_every_window_touching_a_holdout():
-    """Not only the windows that start in one -- a window can cross into it."""
+    """Not only the windows that start in one. A window can cross into it."""
     starts = training_starts(EPISODE_INDEX, horizon=3, held=[1])
 
     windows = EPISODE_INDEX[starts[:, None] + np.arange(3)[None, :]]

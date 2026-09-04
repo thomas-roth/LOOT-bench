@@ -63,8 +63,8 @@ the set the number was read on, so the gate will not reproduce 0.0766 there.
   The exit status is the verdict: `0` when the held-out interior error beats
   `--target` (default 0.0766), `1` when it does not. The default fit is 50k
   steps, not the 300k quoted above. Everything the gate decides before the fit
-  — the episode split, the chunk windows, the standardizer — is plain array
-  work, and each of those is silent when it is wrong, so `tests/qc/test_bc_gate.py`
+  is plain array work: the episode split, the chunk windows, the standardizer.
+  Each of those is silent when it is wrong, so `tests/qc/test_bc_gate.py`
   unit-tests them without JAX.
 - The gate cannot tell you whether a policy will succeed. A fit 400 times
   better than the actor still scored 0 successes in 20 rollouts. It tells you

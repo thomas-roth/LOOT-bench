@@ -27,8 +27,8 @@ class TestEpisodeStats:
     def test_success_latches(self):
         """The case that makes the latch worth having.
 
-        A success gate can unlatch -- a block settles a hair and the at-rest
-        test stops holding -- while the episode ends a step later on the
+        A success gate can unlatch: a block settles a hair and the at-rest
+        test stops holding, while the episode ends a step later on the
         termination that already fired. Reading the final step alone would
         score that episode a failure.
         """

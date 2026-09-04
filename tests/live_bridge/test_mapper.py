@@ -38,7 +38,7 @@ class TestAbsoluteCtrl:
 class TestRawAction:
     """The teleop half of the shared action convention.
 
-    ``tests/tasks/test_actions.py`` pins the other half -- what the simulator
+    ``tests/tasks/test_actions.py`` pins the other half: what the simulator
     does with the action. Together they say a recorded pose and a replayed
     pose are the same pose.
     """

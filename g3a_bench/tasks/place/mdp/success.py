@@ -5,9 +5,9 @@ Plain tensor math, no mjlab or environment imports: the command term
 so the success semantics live (and are unit-tested in
 ``tests/tasks/test_success.py``) in exactly one place.
 
-Success is *position only* -- no orientation term at all, unlike domino's
-row-yaw-aligned upright check even for a lone tile: this is "move to a
-location," not "move and orient."
+Success is *position only*: no orientation term, unlike domino's
+row-yaw-aligned upright check. This is "move to a location," not
+"move and orient."
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ def place_progress(
 
     1.0 exactly at the target, decreasing linearly to 0.0 at
     ``max_travel_dist`` away and clamped beyond it. Genuinely continuous even
-    for a single object -- contrast domino's ``slot_at_goal.mean(dim=1)``,
+    for a single object. Contrast domino's ``slot_at_goal.mean(dim=1)``,
     which only reads as continuous because there are several tiles.
 
     Args:

@@ -73,8 +73,7 @@ def make_stack_env_cfg(
             debug_vis=True,
         ),
         task_obs_terms=task_obs_terms,
-        # The target height is a per-task constant; the raw command would be
-        # a constant observation.
+        # Target height is constant, so hide the command observation.
         command_obs=False,
         task_rewards=task_rewards,
         task_terminations=task_terminations,
@@ -82,10 +81,7 @@ def make_stack_env_cfg(
         env_spacing=1.5,
         episode_length_s=10.0 * variant.target_blocks * (variant.two_stacks + 1),
         nconmax=100 + 120 * num_blocks,
-        # nativeccd is disabled for better box-to-box collisions, which raises
-        # the constraint count for multi-block contacts; give njmax headroom.
-        # Block sets now carry more material (2n / 2n+2, see variants.py), so
-        # this needs more headroom than the old n-block formula provided.
+        # Extra headroom for multi-block contacts with nativeccd disabled.
         njmax=1200 + (400 if variant.two_stacks else 300) * num_blocks,
         play=play,
     )

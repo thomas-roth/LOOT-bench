@@ -1,15 +1,4 @@
-"""Environment configuration for the place task category.
-
-The actor observation carries the last action, as every category's does. This
-category once dropped it: diagnostics on a QC-FQL policy trained under the old
-pipeline showed it keyed on the previous action about twice as strongly as on
-the cube position, and reached on momentum with an empty gripper. That policy
-was trained in the action space step 5 retired, where no action could carry the
-gripper to the cube and momentum was the only signal left, so the finding does
-not carry over unexamined. Re-read it on a fresh dataset instead of assuming
-either way -- fit ``tests/qc/bc_gate.py`` twice, once on the full observation
-and once with the last-action columns dropped.
-"""
+"""Environment configuration for the place task category."""
 
 from mjlab.entity import EntityCfg
 from mjlab.envs import ManagerBasedRlEnvCfg
@@ -30,15 +19,7 @@ from g3a_bench.tasks.place.variants import CUBE_COLOR, PlaceVariantCfg
 
 COMMAND_NAME = "task"
 
-# Half-width [rad] of the start-pose sample, applied to every arm joint at
-# reset. It lives on the task, not on a launcher flag, so the demo recorder and
-# the training run read the same number without either passing an override.
-# 0.0 gives a bit-identical start every episode: the arm begins at the home
-# pose alone, which is the state the demonstrations were aligned to. Raise it
-# to give a policy more than one start state to generalize from, but keep any
-# value well under the recorder's 0.2 rad alignment gate
-# (live_bridge/recording_mixin.RESET_THRESHOLD_RAD), which is measured against
-# the nominal pose: a wider sample and the gate fight each other.
+# Start-pose sample half-width. Shared by recorder and training.
 START_POSE_NOISE = 0.0
 
 
@@ -81,13 +62,7 @@ def make_place_env_cfg(
             primary=ContactMatch(mode="geom", pattern="", entity="robot"),
             fields=("force",),
         ),
-        # Same pads, filtered to the cube. Telemetry only -- no gate reads it.
-        # The unfiltered sensor above cannot answer "did the policy touch the
-        # cube": a gripper closed on empty air reports its own two pads
-        # pressing together, which is what a failing policy does all episode.
-        # `secondary_policy="error"` rather than "first": the cube has exactly
-        # one geom today, and a future cube with two should fail at build time
-        # instead of silently measuring one of them.
+        # Filtered to the cube. Telemetry only, no gate reads it.
         ContactSensorCfg(
             name=OBJECT_CONTACT_SENSOR_NAME,
             primary=ContactMatch(mode="geom", pattern="", entity="robot"),
@@ -108,7 +83,7 @@ def make_place_env_cfg(
             debug_vis=True,
         ),
         task_obs_terms=task_obs_terms,
-        command_obs=True,  # Target varies every episode, unlike stack's constant height.
+        command_obs=True,  # Target varies per episode, unlike stack.
         task_rewards=task_rewards,
         task_terminations=task_terminations,
         sensors=sensors,

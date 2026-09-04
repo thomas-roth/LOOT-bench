@@ -1,17 +1,9 @@
-"""The seam between ``g3a-bench`` and the ``qc`` training code.
+"""Seam between g3a-bench and qc training code.
 
-``qc`` reaches this package by ``PYTHONPATH``, never by installing
-``g3a-bench`` into its venv: the install pulls a cu130 torch that makes JAX
-abort at import.
-
-Import order matters in the other direction too. Anything that touches
-``lerobot`` must import it *before* mjlab, or the native import order
-segfaults. This package imports mjlab, so a script that needs both has to
-import lerobot first -- see ``g3a_bench/qc/convert.py``, which does.
-
-Only ``convert`` needs lerobot at all. Reading a dataset back lives in
-``g3a_bench/qc/dataset.py``, which does not, because the ``qc`` venv loads
-datasets and has no lerobot in it.
+qc reaches this package by PYTHONPATH (installing g3a-bench into qc's venv pulls
+cu130 torch, making JAX abort at import).
+Import lerobot before mjlab where both are needed to avoid segfault; only
+convert needs lerobot.
 """
 
 from g3a_bench.qc.dataset import STAMP_KEYS as STAMP_KEYS

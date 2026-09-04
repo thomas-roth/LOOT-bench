@@ -16,9 +16,9 @@ if TYPE_CHECKING:
 def cube_pose(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
     """The sorter cube's pose in the env-local world frame (E, 7).
 
-    A single pose for the whole rigid cube/hole assembly -- every hole's
-    position and orientation is a fixed, learnable offset from it, so no
-    per-hole target observation is added.
+    A single pose for the whole rigid cube/hole assembly. Every hole's
+    position and orientation is a fixed, learnable offset, so no per-hole
+    target observation is added.
     """
     command = _command(env, command_name)
     return flatten_pose(command.cube_pos_w, command.cube_quat_w, env.scene.env_origins)

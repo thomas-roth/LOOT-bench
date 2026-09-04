@@ -4,13 +4,13 @@
 observation the operator acted from, the leader arm's pose, and the reward that
 step returned. ``qc`` wants transition arrays. :func:`convert` bridges the two.
 
-The episode-structure rules -- what is absorbing, which rows survive, where an
-episode ends -- all live in :mod:`g3a_bench.qc.transitions` and are tested
+The episode-structure rules, what is absorbing, which rows survive, where an
+episode ends, all live in :mod:`g3a_bench.qc.transitions` and are tested
 without a simulator. This module adds the three things around them:
 
 * **The action.** The recording stores the *leader arm's* joint positions, not
   the action the simulator was stepped with. ``_LivePolicy`` converted one to
-  the other at record time, and this repeats that conversion exactly -- same
+  the other at record time, and this repeats that conversion exactly, same
   function, same gravity compensation. Anything else records one trajectory and
   trains on another.
 * **The order.** Episode structure is read off row order, so rows are sorted by
@@ -26,8 +26,8 @@ lerobot: the ``qc`` venv has to load a dataset and must not carry the recording
 stack.
 
 Observations are copied through untouched. They are the task's ``actor`` group,
-which carries no noise on either side -- no task declares any, and the adapter
-sets the flag as well -- so the offline and online observations come from one
+which carries no noise on either side, no task declares any, and the adapter
+sets the flag as well, so the offline and online observations come from one
 distribution.
 """
 
@@ -37,20 +37,9 @@ import argparse
 from collections.abc import Sequence
 from pathlib import Path
 
-# Imported here because the module needs lerobot, and for no stronger reason.
-#
-# There is a standing warning that lerobot must load before mjlab or the native
-# import order segfaults. **No module inside this package can honour it**:
-# importing any g3a_bench submodule runs g3a_bench/__init__.py first, which
-# registers the tasks and therefore imports mjlab before a line of this file
-# runs. Only the first import of the whole process can order the two, which is
-# what tests/qc/conftest.py does for the test run.
-#
-# Measured on 2026-08-14: importing mjlab first, then lerobot, then compiling
-# the DK1 and reading a dataset raised nothing. That is not proof the warning
-# is stale -- it may need the camera or codec paths this converter never
-# touches -- so treat a segfault here as a real possibility and move the
-# ordering to the entry point if one appears.
+# Importing any g3a_bench submodule pulls in mjlab first via
+# g3a_bench/__init__.py, so only the process entry point can order lerobot
+# before mjlab. If a segfault appears here, move the ordering there.
 import lerobot.datasets.lerobot_dataset  # noqa: F401
 import numpy as np
 from numpy.typing import NDArray
@@ -92,8 +81,8 @@ def _action_scale_offset_from_task(
 def _task_from_meta(dataset: object, root: Path) -> str | None:
     """The single task id registered in one LeRobot root, or None.
 
-    lerobot 0.6 keeps the task id out of the frame data -- the frames carry a
-    ``task_index`` -- and in ``meta/tasks.parquet`` instead, which
+    lerobot 0.6 keeps the task id out of the frame data, the frames carry a
+    ``task_index``, and in ``meta/tasks.parquet`` instead, which
     ``dataset.meta.tasks`` exposes as a DataFrame indexed by task id. The
     metadata loads with the dataset, so this costs nothing beyond the open
     the columns already need.
@@ -132,7 +121,7 @@ def build_dataset(
         episode_index: which episode each row belongs to.
         frame_index: position of each row inside its episode.
         observations: the task's ``actor`` observation, one row per step.
-        leader_actions: the leader arm's joint pose, as recorded -- radians for
+        leader_actions: the leader arm's joint pose, as recorded, radians for
             the arm, normalized ``[0, 1]`` for the gripper.
         rewards: the reward that step returned.
         gravity_compensate: repeat the record-time gravity compensation.
@@ -184,10 +173,7 @@ def build_dataset(
         ],
         dtype=np.float32,
     )
-    # The same clamp the action term applies, so the stored action is the one
-    # the simulator acted on. Gravity compensation can push a pose near a joint
-    # limit a little outside the box; storing that unclamped would put actions
-    # in the dataset that a bounded policy can never emit.
+    # Clamp to the action box: the stored action must match what the sim applied.
     np.clip(actions, -1.0, 1.0, out=actions)
 
     out: dict[str, NDArray] = {
@@ -201,9 +187,7 @@ def build_dataset(
         "action_offset": offset,
         "start_pose_noise": np.array(float(start_pose_noise), dtype=np.float32),
     }
-    # Task stamp: the identity check in dataset.py compares it against the
-    # environment's task id. Absent on synthetic builds (no task given), which
-    # the check treats as "predates the stamp" and warns about.
+    # Task stamp checked by dataset.py. Missing on synthetic builds (warns, no errors).
     if task is not None:
         out["task"] = np.array(task, dtype=np.str_)
     return out
@@ -226,9 +210,8 @@ def load_columns(
     """
     from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
-    # Checked before opening, because of how lerobot fails otherwise: when the
-    # local metadata is missing or unfinished it falls back to the Hugging Face
-    # Hub and reports a 401 against the repo id below, burying the real cause.
+    # Check before opening: lerobot falls back to the HuggingFace Hub with a 401
+    # when local metadata is missing, hiding the real cause.
     # A recording is unfinished until Recorder.close() calls finalize().
     root = Path(dataset_root)
     if not (root / "meta").is_dir():
@@ -322,14 +305,14 @@ def convert(
 
     Several sessions go in one call rather than through a separate merge step.
     A merge tool would have to know the file layout as well as this module
-    does, and the two would then have to be kept in agreement -- for a job that
+    does, and the two would then have to be kept in agreement, for a job that
     is one concatenation.
 
     Args:
         success_dirs: the sessions' success roots.
         output_path: where to write the ``.npz``.
         failure_dirs: the sibling failure roots. Include them to train on
-            failed attempts too -- they carry the only evidence of what not to
+            failed attempts too, they carry the only evidence of what not to
             do, and :mod:`~g3a_bench.qc.transitions` treats them correctly: a
             failed episode ends without reaching an absorbing state, so its
             last row is dropped rather than bootstrapped through.
@@ -348,9 +331,7 @@ def convert(
         raise ValueError(f"task {task!r} but datasets carry task {inferred!r}")
     if task is None:
         task = inferred
-    # build_dataset resolves the action stamp from the task itself (or the
-    # legacy DK1 path when no task is known) and stamps the task id into the
-    # output, which the minimal-breakage gate in dataset.py checks.
+    # build_dataset resolves and stamps scale/offset/task; dataset.py checks them.
     data = build_dataset(
         **columns,  # type: ignore[arg-type]
         start_pose_noise=start_pose_noise,

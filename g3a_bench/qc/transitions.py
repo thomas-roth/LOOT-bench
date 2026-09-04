@@ -17,13 +17,13 @@ Two columns carry the meaning, and they are **not** the same column:
   (``0``). Only an absorbing state gets ``0``.
 
 Every episode end is a boundary; only a success is absorbing. Collapsing the
-two -- as ``live_bridge/lerobot_to_qc.py`` did, writing ``masks = 1 -
-terminals`` -- tells the learner that running out of time is worth exactly as
+two, as ``live_bridge/lerobot_to_qc.py`` did, writing ``masks = 1 -
+terminals``, tells the learner that running out of time is worth exactly as
 much as reaching the goal, which is the one lie an offline critic cannot
 recover from.
 
 The timeout case is why this is not a one-liner. Its final row is a boundary
-that is *not* absorbing, so it needs an ``s'`` to bootstrap into -- and the
+that is *not* absorbing, so it needs an ``s'`` to bootstrap into, and the
 recorder never stored one. The old converter zero-filled it and set
 ``masks = 0``, so two faults hid each other: the zeros were never read because
 the mask was wrong. Here the unusable row is **dropped**, and the row before it
@@ -65,7 +65,7 @@ def assemble_transitions(
             must be contiguous and in time order; the caller sorts.
         observations: ``(N, obs_dim)``, the state each action was chosen from.
         actions: ``(N, action_dim)``, as the policy will emit them.
-        rewards: ``(N,)``, following ``tasks/common/rewards.py`` -- inside
+        rewards: ``(N,)``, following ``tasks/common/rewards.py``, inside
             ``[-1, 0]``, and exactly ``0`` only on the success step.
 
     Returns:
@@ -96,10 +96,8 @@ def assemble_transitions(
     starts, stops = _episode_bounds(episode_index)
     _check_rewards(rewards, stops)
 
-    # The successor of row i is row i + 1 -- true everywhere except the final
-    # row of an absorbing episode, patched below. Rows that would run off an
-    # episode's end are dropped rather than redirected, so this never points
-    # across a boundary in the kept output.
+    # Successor is row i+1; rows running off an episode end are dropped, never
+    # redirected across a boundary.
     successor = np.minimum(np.arange(n) + 1, n - 1)
     keep = np.zeros(n, dtype=bool)
     terminals = np.zeros(n, dtype=np.float32)
@@ -109,17 +107,12 @@ def assemble_transitions(
         absorbing = bool(rewards[stop - 1] == SUCCESS_REWARD)
         if absorbing:
             last = stop - 1
-            # An absorbing state's successor is never bootstrapped (masks = 0),
-            # but qc still feeds it through the critic network before
-            # multiplying by the mask. Point it at its own observation rather
-            # than at zeros: same cost, and nothing out-of-distribution reaches
-            # the network.
+            # Never bootstrapped (masks = 0), but still passed through the critic:
+            # point at self, not zeros, to stay in distribution.
             successor[last] = last
             masks[last] = 0.0
         else:
-            # The recorder stored no state after this episode's last action, so
-            # that row cannot become a transition. Drop it; the row before it
-            # bootstraps into its observation.
+            # No stored successor for this row; drop it.
             last = stop - 2
             if last < start:
                 # A one-row non-absorbing episode is entirely unusable.
@@ -139,7 +132,7 @@ def assemble_transitions(
         "rewards": rewards[keep],
         "terminals": terminals[keep],
         "masks": masks[keep],
-        # Metadata. Strip before Dataset.create() -- see QC_KEYS.
+        # Metadata. Strip before Dataset.create(), see QC_KEYS.
         "episode_index": episode_index[keep],
     }
 
@@ -154,7 +147,7 @@ def _episode_bounds(
     if len(np.unique(episode_index)) != len(starts):
         raise ValueError(
             "each episode's rows must be contiguous, but at least one episode "
-            "index appears in more than one run -- sort by (episode, frame) "
+            "index appears in more than one run, sort by (episode, frame) "
             "first"
         )
     return starts, stops
@@ -179,9 +172,7 @@ def _check_rewards(rewards: NDArray[np.floating], stops: NDArray[np.intp]) -> No
             "reward is in [-1, 0]"
         )
 
-    # Success terminates the episode, so a zero anywhere else means the
-    # recording and the task disagree about what ends an episode. It also
-    # breaks qc's --sparse, which reads every non-zero reward as a failure.
+    # Success ends the episode, so zero elsewhere means a bad recording.
     is_success = rewards == SUCCESS_REWARD
     is_success[stops - 1] = False
     if np.any(is_success):
