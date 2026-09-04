@@ -1,18 +1,10 @@
 #!/usr/bin/env bash
-# Full-critic (best-of-32 + Q-steering) run of G3A-Place-RandS-RandT-Dk1_uni on QC-FQL.
+# Best-of-32 plus Q-steering on G3A-Place-RandS-RandT-Dk1_uni: the critic does
+# both jobs. distill-ddpg-select keeps the full actor loss (bc_flow +
+# alpha * distill + q_loss) and still lets the critic argmax over 32 sampled
+# chunks at every decision.
 #
-# A/B goal: critic used for BOTH selection and steering.
-# Stock agents/acfql.py with actor_type=distill-ddpg-select and
-# actor_num_samples=32: the actor loss is bc_flow + alpha*distill + q_loss
-# (so the critic gradient-steers the actor toward high-Q chunks), and at every
-# decision point the agent samples 32 action chunks and the critic (TD-trained
-# each step, argmax over its Q ensemble) selects which chunk to execute.
-#
-# This contrasts the two single-role arms:
-#   critic-steering_*.sh   (distill-ddpg:   steering only)
-#   critic-selection_*.sh  (best-of-n, n=32: selection only)
-#
-# Any extra arguments are passed through to train_qc.sh.
+# Extra arguments pass through to train_qc.sh.
 
 set -euo pipefail
 

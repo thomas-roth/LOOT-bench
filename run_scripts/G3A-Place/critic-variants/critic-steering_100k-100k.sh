@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
-# Real (non-BC) run of G3A-Place-RandS-RandT-Dk1_uni on the QC-FQL A/B config.
+# Stock QC-FQL on G3A-Place-RandS-RandT-Dk1_uni: distill-ddpg trains the actor
+# with bc_flow + alpha * distill + q_loss, so the critic steers the actor's
+# gradient but does not pick the action.
 #
-# A/B goal: baseline against the pure-BC runs (critic-off_*.sh).
-# The stock agents/acfql.py config trains the actor with distill-ddpg
-# (bc_flow + alpha * distill + q loss); the critic steers the actor.
-#
-# Any extra arguments are passed through to train_qc.sh.
+# Extra arguments pass through to train_qc.sh.
 
 set -euo pipefail
 

@@ -1,19 +1,10 @@
 #!/usr/bin/env bash
-# Best-of-32 run of G3A-Place-RandS-RandT-Dk1_uni on QC-FQL.
+# Stock QC on G3A-Place-RandS-RandT-Dk1_uni: the critic picks the action and
+# does nothing else. The actor is a pure BC flow, and each decision samples 32
+# chunks for the critic to argmax over its Q ensemble. alpha is inert here,
+# because best-of-n zeroes the distill and Q terms in acfql.actor_loss.
 #
-# A/B goal: the closed-loop critic arm — the critic picks the action.
-# Stock agents/acfql.py, with actor_type=best-of-n and actor_num_samples=32:
-# the actor is trained as a pure BC flow (best-of-n zeroes the distill and Q
-# terms in acfql.actor_loss), and at every decision point the agent samples
-# 32 action chunks and the critic (TD-trained each step, argmax over its Q
-# ensemble) selects which chunk to execute. The critic steers behaviour only
-# through selection, never through the actor's gradient.
-#
-# This contrasts the two existing arms:
-#   critic-steering_*.sh  (distill-ddpg: critic steers the actor's gradient)
-#   critic-off_*.sh       (best-of-n, n=1: critic never selects anything)
-#
-# Any extra arguments are passed through to train_qc.sh.
+# Extra arguments pass through to train_qc.sh.
 
 set -euo pipefail
 

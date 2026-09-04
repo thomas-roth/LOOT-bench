@@ -1,15 +1,9 @@
 #!/usr/bin/env bash
-# Pure-BC-flow run of G3A-Place-RandS-RandT-Dk1_uni on the QC-FQL A/B config.
+# Pure BC flow on G3A-Place-RandS-RandT-Dk1_uni: the critic trains but never
+# acts. best-of-n zeroes the distill and Q terms in acfql.actor_loss, and with
+# actor_num_samples=1 the argmax has nothing to pick between.
 #
-# A/B goal: isolate the effect of the critic/distill losses on the actor.
-# Stock agents/acfql.py with actor_type=best-of-n and actor_num_samples=1:
-# the actor loss is pure bc_flow (best-of-n zeroes the distill and Q terms
-# in acfql.actor_loss), and the single-sample selection makes the critic
-# argmax a no-op, so the critic is trained but never used. The smoke run
-# showed this no longer drifts the cube away from its start pose, unlike
-# the stock distill-ddpg.
-#
-# Any extra arguments are passed through to train_qc.sh.
+# Extra arguments pass through to train_qc.sh.
 
 set -euo pipefail
 
