@@ -49,26 +49,20 @@ class ManipulatorInterface:
     """[rad] how far differential IK's joint target may sit ahead of the
     measured joint position. Becomes the term's ``max_dq``.
 
-    **This is a torque cap, not a rate limit**, and that is not obvious.
-    mjlab's ``DifferentialIKAction.apply_actions`` commands
-    ``q_target = q_current + dq`` afresh on *every physics substep*, so ``dq``
-    never accumulates into a trajectory -- it is the instantaneous PD position
-    error, and the actuator therefore delivers at most ``kp * max_dq``.
+    Torque cap, not a rate limit: ``DifferentialIKAction.apply_actions``
+    commands ``q_target = q_current + dq`` fresh every physics substep, so
+    ``dq`` is the instantaneous PD error and the actuator delivers at most
+    ``kp * max_dq``. ADR-016's original ``velocity_limit * timestep`` reading
+    (0.04 rad on the DK1) caps joint2 at 4 Nm against a 28 Nm effort limit --
+    below the 5.84 Nm needed just to hold the start pose, so the arm sags.
+    Velocity limit is the wrong quantity for a term that re-anchors every
+    substep; it would be right if the target were integrated instead.
 
-    ADR-016 specifies ``velocity_limit * timestep`` (0.04 rad on the DK1) on
-    the reading that ``max_dq`` rate-limits the target. Measured, that value
-    caps joint2 at ``100 * 0.04`` = 4 Nm against its 28 Nm effort limit --
-    below the 5.84 Nm it takes to hold the arm at the start pose, so the arm
-    cannot stand up. The velocity limit is simply the wrong quantity for a
-    term that re-anchors to the measurement each substep; it would be the
-    right one if the target were integrated.
-
-    Derive it instead as the smallest ``effort_limit / stiffness`` over the
-    arm actuators: the position error past which the motor is already
-    saturated, so letting the target sit further ahead buys no more force.
-    It still has to arrive through this interface -- mjlab's
-    ``BuiltinPositionActuatorCfg`` values do not reach the compiled model in a
-    form the term could read back."""
+    Derive it as the smallest ``effort_limit / stiffness`` over the arm
+    actuators: the position error past which the motor is already saturated,
+    so letting the target sit further ahead buys no more force. Must arrive
+    through this interface -- mjlab's ``BuiltinPositionActuatorCfg`` values
+    don't reach the compiled model in a form the term can read back."""
     gripper_joints: tuple[str, ...]
     """Gripper joint(s) gating task success: all must exceed
     ``gripper_open_threshold`` for the object to count as released."""

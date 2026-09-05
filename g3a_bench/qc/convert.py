@@ -41,25 +41,24 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-# Imported here because the module needs lerobot, and for no stronger reason.
+# Imported here only because this module needs lerobot.
 #
-# There is a standing warning that lerobot must load before mjlab or the native
-# import order segfaults. **No module inside this package can honour it**:
-# importing any g3a_bench submodule runs g3a_bench/__init__.py first, which
-# registers the tasks and therefore imports mjlab before a line of this file
-# runs. Only the first import of the whole process can order the two, which is
-# what tests/qc/conftest.py does for the test run.
+# A standing warning says lerobot must load before mjlab or the native import
+# order segfaults. No module here can honour it: importing any g3a_bench
+# submodule runs g3a_bench/__init__.py first, which imports mjlab before this
+# line runs. Only the process's first import can order the two --
+# tests/qc/conftest.py does it for the test run.
 #
-# Measured on 2026-08-14: importing mjlab first, then lerobot, then compiling
-# the DK1 and reading a dataset raised nothing. That is not proof the warning
-# is stale -- it may need the camera or codec paths this converter never
-# touches -- so treat a segfault here as a real possibility and move the
-# ordering to the entry point if one appears.
+# Measured 2026-08-14: mjlab first, then lerobot, then compiling the DK1 and
+# reading a dataset raised nothing. Not proof the warning is stale (it may
+# need camera/codec paths this converter never touches) -- treat a segfault
+# here as possible and move the ordering to the entry point if one appears.
 import lerobot.datasets.lerobot_dataset  # noqa: F401
 import numpy as np
 from numpy.typing import NDArray
 
 from g3a_bench.qc.dataset import CONVENTION_NAME
+from g3a_bench.qc.dataset import NUMERIC_STAMP_FIELDS as NUMERIC_STAMP_FIELDS
 from g3a_bench.qc.dataset import STAMP_KEYS as STAMP_KEYS
 from g3a_bench.qc.dataset import check_dataset_matches_env as check_dataset_matches_env
 from g3a_bench.qc.dataset import load_dataset as load_dataset
@@ -243,7 +242,14 @@ def convert(
             f"recordings span {len(task_ids)} tasks ({sorted(task_ids)}); a "
             "dataset stamps one task id, so convert them separately"
         )
-    data = build_dataset(task_id=task_ids.pop(), **columns)  # type: ignore[arg-type]
+    data = build_dataset(
+        episode_index=columns["episode_index"],
+        frame_index=columns["frame_index"],
+        observations=columns["observations"],
+        actions=columns["actions"],
+        rewards=columns["rewards"],
+        task_id=task_ids.pop(),
+    )
 
     # The splat hides savez's own keyword arguments from the type checker,
     # which then reads an array as a candidate for allow_pickle.

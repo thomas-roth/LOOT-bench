@@ -33,17 +33,22 @@ convention says *that* rather than reporting whichever number happens to
 differ.
 """
 
-STAMP_KEYS = frozenset(
-    {
-        "convention",
-        "delta_pos_scale",
-        "delta_ori_scale",
-        "gripper_scale",
-        "gripper_offset",
-        "control_step_s",
-        "task_id",
-    }
+NUMERIC_STAMP_FIELDS = (
+    "delta_pos_scale",
+    "delta_ori_scale",
+    "gripper_scale",
+    "gripper_offset",
+    "control_step_s",
 )
+"""The stamp fields compared with a tolerance rather than by equality."""
+
+_STAMP_FIELD_ORDER = ("convention", *NUMERIC_STAMP_FIELDS, "task_id")
+"""Every stamp field, ``convention`` first so a stale dataset names itself
+before any number below is compared. The single source both
+:func:`check_dataset_matches_env` and :data:`STAMP_KEYS` derive from --
+add a field here and it is checked, not just stamped."""
+
+STAMP_KEYS = frozenset(_STAMP_FIELD_ORDER)
 """Keys recording the MDP the dataset was built under.
 
 * ``convention`` — the name above. Catches every change at once.
@@ -62,14 +67,6 @@ Metadata, like ``episode_index`` — strip everything outside :data:`QC_KEYS`
 before ``Dataset.create``, or qc's replay buffer will demand these keys from
 every online transition too.
 """
-
-_NUMERIC_FIELDS = (
-    "delta_pos_scale",
-    "delta_ori_scale",
-    "gripper_scale",
-    "gripper_offset",
-    "control_step_s",
-)
 
 
 class _Env(Protocol):
@@ -130,7 +127,7 @@ def check_dataset_matches_env(data: dict[str, NDArray], env: _Env) -> None:
 
     # Name first: a dataset from an older convention should say so, rather
     # than reporting whichever of the numbers below happens to differ.
-    for field in ("convention", *_NUMERIC_FIELDS, "task_id"):
+    for field in _STAMP_FIELD_ORDER:
         if field not in data:
             raise ValueError(
                 f"dataset carries no {field!r}; it predates the current action "
@@ -141,7 +138,7 @@ def check_dataset_matches_env(data: dict[str, NDArray], env: _Env) -> None:
         expected = _as_scalar(convention[field])
         same = (
             bool(np.isclose(stamped, expected, atol=1e-6))
-            if field in _NUMERIC_FIELDS
+            if field in NUMERIC_STAMP_FIELDS
             else stamped == expected
         )
         if not same:

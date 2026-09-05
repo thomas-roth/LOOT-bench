@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 
 from g3a_bench.qc.convert import (
+    NUMERIC_STAMP_FIELDS,
     STAMP_KEYS,
     action_convention,
     build_dataset,
@@ -23,15 +24,6 @@ from g3a_bench.qc.transitions import QC_KEYS
 OBS_DIM = 5
 ACTION_DIM = 7
 TASK_ID = "G3A-Stack-Low-Dk1_uni"
-
-NUMERIC_STAMP_FIELDS = (
-    "delta_pos_scale",
-    "delta_ori_scale",
-    "gripper_scale",
-    "gripper_offset",
-    "control_step_s",
-)
-"""The stamp fields compared with a tolerance rather than by equality."""
 
 
 def _action(value: float) -> list[float]:

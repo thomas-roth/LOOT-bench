@@ -1,42 +1,30 @@
 """The action convention shared by every task category.
 
-**An action is a relative end-effector delta, commanded at 20 Hz.** The first
-six channels are a pose delta on the robot's grasp site -- ``±1`` is
+An action is a relative end-effector delta at 20 Hz, 7 wide. The first six
+channels are a pose delta on the grasp site -- ``±1`` is
 :data:`DELTA_POS_SCALE` metres per axis and :data:`DELTA_ORI_SCALE` radians per
 axis -- solved into joint targets by mjlab's differential IK. The seventh is
-the gripper, an absolute normalized stroke where ``-1`` is the closed limit and
-``+1`` the open one. Total width 7.
-
-This is the control envelope both QC-validated reference domains use
-(robomimic ``can``, OGBench ``cube-*``): ±5 cm at 20 Hz. See
+the gripper, an absolute normalized stroke (``-1`` closed, ``+1`` open).
+Replaces absolute joint positions, which made a fixed action error a
+pose-dependent Cartesian one; see
 ``docs/adr/016-control-at-20hz-through-a-5cm-end-effector-delta.md`` for the
-measurements. What it replaces -- absolute normalized joint positions at
-50 Hz -- made a fixed action error a *pose-dependent* Cartesian error, so the
-policy had to invert the arm's kinematics itself: an action error of 0.0766
-moved the end-effector 0.0719 m against a 0.02 m success tolerance.
+measurements.
 
-**The box is per-channel, not a norm.** ``±1`` on every position channel at
-once is 0.087 m of travel, not 0.05 m, and the rotation corner is 0.87 rad.
-Both reference domains bound their channels the same way, so this matches
-them; the number to quote is "±5 cm per axis", never "≤5 cm per step".
+The box is per-channel, not a norm: ``±1`` on all three position channels at
+once is 0.087 m, not 0.05 m. Say "±5 cm per axis", never "≤5 cm per step".
 
-**The clamp is the convention, not a safety net.** mjlab's
-:class:`~mjlab.envs.mdp.actions.differential_ik.DifferentialIKAction` applies
-``delta_pos_scale`` to whatever it is handed, so without the clamp in
-:class:`EndEffectorDeltaAction` the scale would be a *unit* rather than a
-*bound*, and an action of 3.0 would honestly ask for 15 cm. Two things depend
-on the bound being real: every stored action has to be one a tanh-squashed
-policy can emit, and the recorder's mapping has to clamp identically to the
-term or the two disagree on exactly the fast frames. (mjlab's
-``ActionTermCfg.clip`` is not this: it is implemented only in ``JointAction``,
-and it clips the *processed joint target* rather than the raw action.)
+The clamp in :class:`EndEffectorDeltaAction` is the convention, not a safety
+net -- mjlab's ``DifferentialIKAction`` scales whatever it is handed, so
+without it ``delta_pos_scale`` is a unit, not a bound. (mjlab's
+``ActionTermCfg.clip`` is not this: it exists only on ``JointAction`` and
+clips the solved joint target, not the raw action.) Every stored action must
+be one a tanh-squashed policy can emit, and the recorder's mapping must clamp
+identically or the two disagree on fast frames.
 
-:func:`delta_action_from_poses` is the other half of that agreement. It is the
-exact inverse of what :class:`EndEffectorDeltaAction` applies -- mjlab's
-``compute_pose_error`` and ``apply_delta_pose`` invert each other -- and it is
-the only place a delta action is built anywhere in this repo. Teleoperation
-calls it through ``live_bridge/mapper.py``, so a recorded action and a policy
-action cannot mean different things.
+:func:`delta_action_from_poses` is the exact inverse of what
+:class:`EndEffectorDeltaAction` applies, and the only place a delta action is
+built. Teleoperation calls it through ``live_bridge/mapper.py``, so a recorded
+action and a policy action mean the same thing.
 """
 
 from __future__ import annotations
@@ -67,11 +55,9 @@ GRIPPER_ACTION_NAME = "gripper"
 DELTA_POS_SCALE = 0.05
 """[m] end-effector travel one action unit asks for, per position axis.
 
-Matches robomimic ``can``'s ``OSC_POSE`` ``output_max`` and OGBench
-``cube-*``'s ``action_range`` exactly. ADR-016 measured the 99 recorded
-``place`` demos at 20 Hz: p99 per-step displacement is 2.7 cm, so the box is
-fitted rather than lucky, and it also sets a *floor* on the control rate --
-at 10 Hz 3 % of demo steps no longer fit inside it.
+Matches robomimic ``can`` and OGBench ``cube-*`` exactly. ADR-016 fitted it to
+the 99 recorded ``place`` demos at 20 Hz (p99 per-step displacement 2.7 cm);
+it also floors the control rate -- at 10 Hz 3 % of demo steps no longer fit.
 """
 
 DELTA_ORI_SCALE = 0.5
@@ -89,13 +75,11 @@ IK_JOINT_LIMIT_WEIGHT = 1.0
 """Weight of differential IK's joint-limit residual.
 
 Positive so the solver pushes back out of a limit instead of grinding into it.
-Note what this does and does not buy: the residual is exactly zero strictly
-inside the limits, so it acts *at* the wall rather than decelerating before
-it. Preemptive avoidance would need the soft limits shrunk below the hard
-ones, which is what ADR-005 refused -- the outer slice of every joint is
-teleoperated through, and shrinking it would make demonstrated poses
-uncommandable. The robots therefore set ``soft_joint_pos_limit_factor`` to
-1.0; differential IK is the only path in this repo that reads the soft limits.
+The residual is zero strictly inside the limits, so it acts at the wall rather
+than decelerating before it -- preemptive avoidance would need soft limits
+shrunk below the hard ones, which ADR-005 refused (it would make teleoperated
+poses near the joint edge uncommandable). DK1 sets ``soft_joint_pos_limit_factor``
+to 1.0 for this reason; differential IK is the only path here that reads it.
 """
 
 IK_POSTURE_WEIGHT = 0.0
@@ -230,9 +214,10 @@ class EndEffectorDeltaActionCfg(DifferentialIKActionCfg):
 
     ``actuator_names``, ``frame_name`` and ``max_dq`` are placeholders filled
     per-robot by ``manipulator_wiring.wire_manipulator_into_env`` -- the arm's
-    actuator split, its grasp site, and its velocity limit over one physics
-    step. A task file never names any of them, and a robot that declares no
-    split fails here rather than reaching a training run.
+    actuator split, its grasp site, and its torque cap (see
+    ``ManipulatorInterface.ik_max_dq``). A task file never names any of them,
+    and a robot that declares no split fails here rather than reaching a
+    training run.
     """
 
     actuator_names: tuple[str, ...] = ()
@@ -262,8 +247,8 @@ class EndEffectorDeltaActionCfg(DifferentialIKActionCfg):
         if self.max_dq <= 0.0:
             raise ValueError(
                 f"max_dq must be positive, got {self.max_dq}; "
-                "wire_manipulator_into_env derives it from the robot's arm "
-                "velocity limit and the physics timestep"
+                "wire_manipulator_into_env fills it from the robot's "
+                "ManipulatorInterface.ik_max_dq"
             )
         return EndEffectorDeltaAction(self, env)
 

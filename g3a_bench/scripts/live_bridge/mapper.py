@@ -1,30 +1,24 @@
 """The teleop half of the shared action convention.
 
-A leader-arm pose is a set of joint angles; an action is an end-effector delta
-(``tasks/common/actions.py``). :func:`leader_to_delta_action` is the bridge:
-forward-kinematics the leader pose to the grasp-site pose it is asking for,
-then ask :func:`~g3a_bench.tasks.common.actions.delta_action_from_poses` for
-the action that reaches it from where the simulated arm currently is.
+A leader-arm pose is joint angles; an action is an end-effector delta
+(``tasks/common/actions.py``). :func:`leader_to_delta_action` bridges them:
+forward-kinematics the leader pose to the grasp-site pose it asks for, then
+ask :func:`~g3a_bench.tasks.common.actions.delta_action_from_poses` for the
+action that reaches it from where the simulated arm currently is.
 
-**The mapping and the action term cannot disagree**, because neither owns the
-arithmetic. Both call into ``tasks/common/actions.py``: the term applies
-mjlab's ``apply_delta_pose``, this module inverts it through mjlab's
-``compute_pose_error``, and the two scales are read from one pair of
-constants. That is the seam where a demonstration and an evaluation otherwise
-stop describing the same task, silently.
+The mapping and the action term cannot disagree, because neither owns the
+arithmetic: both call into ``tasks/common/actions.py`` (the term applies
+mjlab's ``apply_delta_pose``, this module inverts it through
+``compute_pose_error``), and the two scales come from one pair of constants.
 
-Gravity compensation is gone **from here**. It pushed the commanded joint
-target past an open-loop PD sag, and there is no longer an open-loop joint
-target to push: an action names a pose delta, so the compensation has nothing
-left to invert -- and the out-of-box case it caused near a joint limit
-(measured 1.014 on joint5) goes with it.
-
-It did not stop being necessary. Differential IK does *not* correct the sag:
-mjlab's term re-anchors ``q_target = q_current + dq`` to the measured position
-every substep, so the sag compounds instead (0.168 m of drift over 100 zero
-actions). The correction lives in the simulator now, as per-body ``gravcomp``
--- once, for every caller, rather than only along the operator's trajectory.
-See ``robots/trlc_dk1/dk1_constants._compensate_arm_gravity`` and ADR-016's
+Gravity compensation is gone from here: an action now names a pose delta, so
+there is no open-loop joint target left for the sag to push past (it used to
+cause an out-of-box case near a joint limit, measured 1.014 on joint5). It did
+not stop being necessary -- differential IK re-anchors to the measured
+position every substep rather than integrating a target, so the sag compounds
+instead (0.168 m of drift over 100 zero actions). The correction lives in the
+simulator now, as per-body ``gravcomp``, once for every caller. See
+``robots/trlc_dk1/dk1_constants._compensate_arm_gravity`` and ADR-016's
 amended consequence.
 """
 

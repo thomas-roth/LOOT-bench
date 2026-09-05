@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 
 from g3a_bench.qc import G3aEnv, is_g3a_task
+from g3a_bench.qc.dataset import STAMP_KEYS
 from g3a_bench.qc.episode import CONTACT_THRESHOLD
 from g3a_bench.tasks.common.actions import (
     EE_DELTA_ACTION_NAME,
@@ -126,6 +127,12 @@ class TestSpaces:
         assert env.action_space.shape == (7,)
         assert np.all(env.action_space.low == -1.0)
         assert np.all(env.action_space.high == 1.0)
+
+    def test_action_convention_reports_every_stamp_key(self, env):
+        # Guards convert.action_convention against drifting from
+        # dataset.STAMP_KEYS: both build the same dict shape from different
+        # sources, so nothing but a test catches a field added to one side.
+        assert set(env.action_convention()) == STAMP_KEYS
 
     def test_observation_space_matches_what_reset_returns(self, env):
         obs, _ = env.reset()

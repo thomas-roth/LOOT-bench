@@ -25,12 +25,13 @@ YAM_GRIPPER_OPEN_THRESHOLD = gripper_open_threshold(_GRIPPER_MECHANICAL_RANGE)
 # building; no task is registered against it (ADR-016 scopes it out).
 YAM_ARM_ACTUATORS = ("joint1", "joint2", "joint3", "joint4", "joint5", "joint6")
 YAM_GRIPPER_ACTUATORS = ("left_finger",)
-YAM_IK_MAX_DQ = 0.28
+YAM_IK_MAX_DQ = 0.0
 """[rad] differential IK's max_dq: the arm's PD saturation error.
 
-A placeholder equal to the DK1's. mjlab tunes YAM's stiffness per joint from
-effective inertias, so the honest derivation (min effort_limit / stiffness
-over ARM_ACTUATORS) needs numbers this file would have to reach into mjlab's
-asset zoo for. No task is registered against YAM, so it is enough to keep the
-interface building -- derive it properly before wiring YAM to a task. See
-``ManipulatorInterface.ik_max_dq``."""
+Not yet derived -- mjlab tunes YAM's stiffness per joint from effective
+inertias, so the honest derivation (min effort_limit / stiffness over
+ARM_ACTUATORS) needs numbers this file would have to reach into mjlab's asset
+zoo for. 0.0 rather than a borrowed guess: EndEffectorDeltaActionCfg.build
+rejects it, so wiring YAM to a task fails loud instead of quietly running
+under the DK1's torque cap. No task is registered against YAM today
+(ADR-016 scopes it out). See ``ManipulatorInterface.ik_max_dq``."""

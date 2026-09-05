@@ -8,7 +8,7 @@ export G3A_RUN_SCRIPT="$(basename "${BASH_SOURCE[0]}" .sh)"
 exec "$HERE/../../sweep.sh" \
   place_rand-s_fixed-t_50k-600k \
   G3A-Place-RandS-FixedT-Dk1_uni \
-  dataset/qc/place_eef_rand-s_fixed-t_99-demos_2026-08-30_11-08-25.npz \
+  dataset/qc/place_rand-s_fixed-t_99-demos_2026-08-30_11-08-25.npz \
   "$@" \
   -- \
   --agent=agents/acfql.py \

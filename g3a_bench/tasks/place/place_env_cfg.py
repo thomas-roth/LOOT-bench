@@ -31,9 +31,8 @@ COMMAND_NAME = "task"
 # 0.0 gives a bit-identical start every episode: the arm begins at the home
 # pose alone, which is the state the demonstrations were aligned to. Raise it
 # to give a policy more than one start state to generalize from, but keep any
-# value well under the recorder's 0.2 rad alignment gate
-# (live_bridge/recording_mixin.RESET_THRESHOLD_RAD), which is measured against
-# the nominal pose: a wider sample and the gate fight each other.
+# value well inside the box mapper.leader_is_aligned gates the recorder on, or
+# the sample and the gate fight each other.
 START_POSE_NOISE = 0.0
 
 

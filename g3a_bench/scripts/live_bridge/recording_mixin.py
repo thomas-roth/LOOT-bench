@@ -332,17 +332,10 @@ class RecordingViewerMixin:
                     self.env.step(actions)
                     self._step_count += 1
                     self._stats_steps += 1
-                    # Gate on the leader's pose, not the sim arm's: the env
-                    # reset inside _enter_reset_phase yanked the arm to the
-                    # start pose, which would satisfy a sim-based gate before
-                    # the operator has aligned the leader. The leader must
-                    # reach the start pose itself before recording resumes.
-                    #
-                    # The gate is one action box wide (leader_is_aligned), not
-                    # a joint-space tolerance: that is exactly the condition
-                    # under which the episode's opening action does not clamp,
-                    # so every stored action stays one the simulator took and
-                    # a bounded policy could emit.
+                    # Gate on the leader's pose, not the sim arm's -- the env
+                    # reset already yanked the sim arm to the start pose. See
+                    # mapper.leader_is_aligned for why the gate is one action
+                    # box wide rather than a joint-space tolerance.
                     leader_action = getattr(self.policy, "latest_leader_action", None)
                     if leader_action is not None and leader_is_aligned(leader_action):
                         self._exit_reset_phase()

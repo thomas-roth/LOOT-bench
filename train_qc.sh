@@ -38,7 +38,9 @@ die() {
 }
 
 usage() {
-  sed -n '2,22p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'
+  # Header comment block, shebang excluded: self-adjusting, so it can't drift
+  # from a hardcoded line range when the header above is edited.
+  awk '/^#!/{next} /^#/{print; next} {exit}' "${BASH_SOURCE[0]}" | sed 's/^# \?//'
   exit 1
 }
 
@@ -72,9 +74,16 @@ esac
 # Only the dataset is tagged here, because only the shell knows it. main.py
 # tags what its own flags say (`task-`, `script-`), so sending those too would
 # tag the run twice with one fact. A caller with its own --wandb_tags
-# (run_scripts/sweep.sh) owns the list.
-
-TAGS=(--wandb_tags "data-$(basename "$DATASET" .npz)")
+# (run_scripts/sweep.sh) owns the list and this build is skipped below.
+#
+# wandb caps a tag at 64 characters and rejects the run otherwise, and
+# main.py splits --wandb_tags on `,` -- so a dataset stem is clamped and
+# stripped of both before it reaches either, same as sweep.sh's own tags.
+DATA_TAG="data-$(basename "$DATASET" .npz)"
+DATA_TAG="${DATA_TAG//=/-}"
+DATA_TAG="${DATA_TAG// /-}"
+DATA_TAG="${DATA_TAG//,/-}"
+TAGS=(--wandb_tags "${DATA_TAG:0:64}")
 for arg in "$@"; do
   case "$arg" in
   --wandb_tags | --wandb_tags=*)

@@ -59,7 +59,9 @@ die() {
 }
 
 usage() {
-  sed -n '2,41p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'
+  # Header comment block, shebang excluded: self-adjusting, so it can't drift
+  # from a hardcoded line range when the header above is edited.
+  awk '/^#!/{next} /^#/{print; next} {exit}' "${BASH_SOURCE[0]}" | sed 's/^# \?//'
   exit "${1:-1}" # asked for it: 0; got the arguments wrong: 1
 }
 
@@ -153,7 +155,7 @@ while [ $# -gt 0 ]; do
     shift
     ;;
   --num-seeds)
-    [ $# -ge 2 ] || die "--num-seeds needs a number"
+    is_value "${2-}" || die "--num-seeds needs a number"
     NUM_SEEDS="$2"
     shift 2
     ;;
@@ -162,7 +164,7 @@ while [ $# -gt 0 ]; do
     shift
     ;;
   --seeds)
-    [ $# -ge 2 ] || die "--seeds needs a comma-separated list"
+    is_value "${2-}" || die "--seeds needs a comma-separated list"
     SEEDS="$2"
     shift 2
     ;;
@@ -171,7 +173,7 @@ while [ $# -gt 0 ]; do
     shift
     ;;
   --alphas)
-    [ $# -ge 2 ] || die "--alphas needs a comma-separated list"
+    is_value "${2-}" || die "--alphas needs a comma-separated list"
     ALPHAS="$2"
     shift 2
     ;;
@@ -180,7 +182,7 @@ while [ $# -gt 0 ]; do
     shift
     ;;
   --max-parallel)
-    [ $# -ge 2 ] || die "--max-parallel needs a number"
+    is_value "${2-}" || die "--max-parallel needs a number"
     MAX_PARALLEL="$2"
     shift 2
     ;;
@@ -435,9 +437,10 @@ start_run() {
 
   mkdir -p "$log_dir"
   "$REPO/train_qc.sh" "$@" >"$log_dir/train.log" 2>&1 &
-  pids+=("$!")
-  cell_of["$!"]="alpha-$alpha seed-$seed"
-  echo "[sweep] alpha $alpha seed $seed started, pid $!, log $log_dir/train.log"
+  LAST_PID="$!" # the caller's handle on the run just started
+  pids+=("$LAST_PID")
+  cell_of["$LAST_PID"]="alpha-$alpha seed-$seed"
+  echo "[sweep] alpha $alpha seed $seed started, pid $LAST_PID, log $log_dir/train.log"
 }
 
 # Alpha-major, so the first alpha is finished first if the sweep is cut short.
@@ -461,6 +464,7 @@ pids=()
 declare -A cell_of=()
 running=()
 failed=()
+LAST_PID="" # set by start_run, read by its caller right after
 
 # Ctrl-C stops every run of the sweep.
 stop_rest() {
@@ -496,7 +500,7 @@ while [ "$next" -lt "${#queue[@]}" ] || [ "${#running[@]}" -gt 0 ]; do
   while [ "$next" -lt "${#queue[@]}" ] && [ "${#running[@]}" -lt "$MAX_PARALLEL" ]; do
     # shellcheck disable=SC2086  # a queue entry is "<alpha> <seed>", split on purpose
     start_run ${queue[$next]}
-    running+=("${pids[-1]}")
+    running+=("$LAST_PID")
     next=$((next + 1))
   done
   reap_one
