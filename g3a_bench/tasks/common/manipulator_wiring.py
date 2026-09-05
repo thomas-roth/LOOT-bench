@@ -72,23 +72,15 @@ def wire_manipulator_into_env(
             command.gripper_joints = manipulator.gripper_joints
             command.gripper_open_threshold = manipulator.gripper_open_threshold
 
-    if ee_contact_sensors:
-        assert cfg.scene.sensors is not None
-        for sensor in cfg.scene.sensors:
-            if sensor.name in ee_contact_sensors:
-                assert isinstance(sensor, ContactSensorCfg)
-                sensor.primary.pattern = manipulator.ee_subtree
-
-    pad_sensors = {
-        name
-        for name in (grip_contact_sensor, object_contact_sensor)
-        if name is not None
-    }
-    if pad_sensors:
-        assert cfg.scene.sensors is not None
-        for sensor in cfg.scene.sensors:
-            if sensor.name in pad_sensors:
-                assert isinstance(sensor, ContactSensorCfg)
-                sensor.primary.pattern = manipulator.pad_geoms
+    pad_sensors = (grip_contact_sensor, object_contact_sensor)
+    for sensor in cfg.scene.sensors:
+        if sensor.name in ee_contact_sensors:
+            pattern = manipulator.ee_subtree
+        elif sensor.name in pad_sensors:
+            pattern = manipulator.pad_geoms
+        else:
+            continue
+        assert isinstance(sensor, ContactSensorCfg)
+        sensor.primary.pattern = pattern
 
     cfg.viewer.body_name = manipulator.viewer_body

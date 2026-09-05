@@ -4,16 +4,7 @@
 reaches exactly ``0`` only at success. Categories with a progress signal shape
 the interval; categories without one (ball) sit at ``-1`` until they score.
 
-Two reasons it is signed this way rather than the obvious ``progress +
-success`` in ``[0, 2]``:
-
-* Every task terminates on success. With a positive per-step reward, ending
-  the episode costs the agent its income, so the best policy is to hover near
-  the goal and never touch it. With a reward in ``[-1, 0]``, every extra step
-  costs, and reaching the goal is the only way to stop paying.
-* It makes ``--sparse`` safe. QC maps ``(rewards != 0.0) * -1.0``, which is
-  correct only if nothing but success reads exactly zero, hence
-  :data:`MIN_SHORTFALL`.
+Why the sign, and why exactly zero: see ``ADR-006``.
 
 **The reward lags the observation by one step, on purpose.** mjlab's ``step()``
 runs the termination and reward managers *before* the command manager, so both
@@ -74,10 +65,7 @@ def command_task_reward(
 ) -> torch.Tensor:
     """The whole reward for a category that reports progress."""
     command = get_command(env, command_name)
-    return shaped_task_reward(
-        command.progress,  # type: ignore[attr-defined]
-        command.success,  # type: ignore[attr-defined]
-    )
+    return shaped_task_reward(command.progress, command.success)
 
 
 def command_sparse_task_reward(
@@ -89,5 +77,5 @@ def command_sparse_task_reward(
 
     ``-1`` every step until the success gate latches, then ``0``.
     """
-    success = get_command(env, command_name).success  # type: ignore[attr-defined]
+    success = get_command(env, command_name).success
     return shaped_task_reward(torch.zeros_like(success, dtype=torch.float), success)

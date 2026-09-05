@@ -43,13 +43,13 @@ def ee_pose_w(env: ManagerBasedRlEnv, asset_cfg: SceneEntityCfg) -> torch.Tensor
     ``asset_cfg.site_names`` is set to the robot's grasp site by
     ``manipulator_wiring.wire_manipulator_into_env``.
 
-    Publishing a quaternion here would be a bug, not a style choice. Site
-    orientation reaches the entity as a rotation matrix, and ``site_quat_w``
-    converts it with a sign-unstable branch (see :func:`rot6d_from_matrix`).
-    The DK1 grasp site sits right on the unstable region: measured on
-    ``G3A-Stack-Low-Dk1_uni``, the sign flipped on 14 of 120 consecutive steps,
-    a jump of 2.0 against a median step change of 0.005. The same physical
-    state would reach the policy as two different observations.
+    Publishing a quaternion here would be a bug. Site orientation reaches the
+    entity as a rotation matrix, and ``site_quat_w`` converts it with a sign-
+    unstable branch (see :func:`rot6d_from_matrix`). The DK1 grasp site sits
+    right on the unstable region: measured on ``G3A-Stack-Low-Dk1_uni``, the
+    sign flipped on 14 of 120 consecutive steps, a jump of 2.0 against a median
+    step change of 0.005. The same physical state would reach the policy as two
+    different observations.
 
     Going back through ``matrix_from_quat`` removes the flip rather than
     hiding it: a quaternion and its negation name the same rotation, so the
