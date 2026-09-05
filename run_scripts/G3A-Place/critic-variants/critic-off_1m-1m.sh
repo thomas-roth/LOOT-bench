@@ -3,9 +3,8 @@
 # acts. best-of-n zeroes the distill and Q terms in acfql.actor_loss, and with
 # actor_num_samples=1 the argmax has nothing to pick between.
 #
-# Nothing reads the critic here, so it is shrunk to cut the offline step cost:
-# one hidden layer of 32 units (value_hidden_dims) and an ensemble of one
-# (num_qs).
+# Nothing reads the critic here, so it is shrunk to one hidden layer of 32 units
+# (value_hidden_dims) to cut the offline step cost.
 #
 # Extra arguments pass through to train_qc.sh.
 
@@ -19,7 +18,6 @@ exec "$REPO/train_qc.sh" G3A-Place-RandS-RandT-Dk1_uni \
   --agent=agents/acfql.py \
   --agent.actor_type=best-of-n \
   --agent.actor_num_samples=1 \
-  --agent.num_qs=1 \
   --agent.value_hidden_dims="(32,)" \
   --agent.normalize_q_loss=True \
   --start_pose_noise=0.05 \
