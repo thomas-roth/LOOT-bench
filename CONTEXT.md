@@ -6,7 +6,7 @@ mjlab. Training is QC-FQL (offline-to-online RL), which runs from a separate
 upstream `qc` checkout; this repo holds only the seam to it, in
 `g3a_bench/qc/`. mjlab's registry also requires a PPO cfg per task, but that
 RSL-RL PPO cfg is only a registration requirement, not the training path used.
-See `docs/TaskCategories.md` and each category's `README.md` for the
+See `docs/task_categories.md` and each category's `README.md` for the
 per-category deep dives.
 
 ## Language
@@ -61,7 +61,9 @@ would use. See ADR-008.
 
 **Start-pose noise**:
 Half-width of the uniform sample added around the home pose at reset
-(`start_pose_noise`, default `0.0`). A task fact, not a launcher flag.
+(`start_pose_noise`, default `0.0`). A task fact first; `train_qc.sh
+--start_pose_noise` (or `G3A_START_POSE_NOISE`) can override it for a run,
+and the dataset stamp then has to agree or the load aborts.
 
 ### Success semantics
 
@@ -74,7 +76,9 @@ the gating)
 
 **SuccessGate**:
 The universal success gating: success criterion met AND scored objects at
-rest AND released, latched per episode.
+rest AND released, latched per episode. The at-rest threshold is per
+category: the shape sorter sets it to infinity, because a piece that has
+crossed its hole is scored while it still tumbles inside the cube.
 
 **Released**:
 The robot has let go of the scored object. Gripper-joint opening for
@@ -83,6 +87,15 @@ cube/insertion; ball-to-grasp-site distance for ball.
 **Episode success**:
 Success latched since the last reset — once achieved it stays set for the
 episode's metrics even if the state later degrades.
+
+**Row slot**:
+One of the fixed target poses a domino must be placed at, spaced closer than
+a domino's height so a topple runs down the line. The row itself is at the
+same workspace-centred pose every reset; only the `RandomRow` variants draw
+its start position and yaw. The domino at index *i* carries its own identity
+color, so a teleoperator can read which piece belongs to which slot. The
+`KnockOver` variants add a `phase` observation, `0` while the line is being
+built and `1` once the topple is required.
 
 **SorterLatch**:
 The shape sorter's scoring rule: a piece scores the moment it crosses the
@@ -107,7 +120,8 @@ each jittered by less than the half-cell size.
 **Keep-out**:
 Grid cells a `ScatterGrid` may not spawn into because they sit within a
 clearance of a goal position — an object dropped on its own target is
-awkward to align from there. Used by the domino row (`blocked_near`).
+awkward to align from there. Used by the domino row (`blocked_near`, whose
+`keep_free` argument holds back enough cells to still place every object).
 
 **Distractor**:
 An extra free body with no goal slot/socket, present only to make the task
@@ -164,4 +178,6 @@ name and with no version pin. No success rule reads them.
 **Session**:
 One teleop recording run, written to `out/demos/success|failure/<task>/<stamp>/`
 and kept, when it is worth keeping, as `dataset/demos/<task>/<stamp>/` plus the
-sibling `<stamp>_failure/`.
+sibling `<stamp>_failure/`. The `.npz` converted from one or more sessions
+lands in `out/qc/`, and is kept in `dataset/qc/` once a run script points at
+it.

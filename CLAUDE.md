@@ -13,10 +13,13 @@ training is QC-FQL (offline-to-online RL), which lives in a **separate `qc`
 checkout** reached by `PYTHONPATH` — this repo holds only the seam to it, in
 `g3a_bench/qc/`.
 
-Five task categories, 44 tasks total, currently registered for one robot
+Five task categories, 47 tasks total, currently registered for one robot
 (`-Dk1_uni`) → task ids look like `G3A-<Category>-<Task>[-<Variation>]-<Robot>`:
 `tasks/stack` (stack blocks to a target height, registered as `Stack`),
-`tasks/domino` (place and optionally knock over a row of dominoes),
+`tasks/domino` (place and optionally knock over a row of dominoes; the row is
+at a **fixed** pose every reset, because a teleoperator needs a layout that
+does not move between takes — the `RandomRow` variant is the one that opts
+back into a sampled row, and the domino *spawns* stay random in all of them),
 `tasks/shape_sorter` (insert shapes into a sorter board, registered as
 `Sorter`), `tasks/ball` (minigolf / throw a ball to a target), and
 `tasks/place` (carry one cube to a sampled target spot, registered as
@@ -30,7 +33,12 @@ for reference (see its README).
 **Read `docs/adr/` before changing anything it touches.** Those records are the
 ground truth for *why* the repo is shaped this way; `CONTEXT.md` is the glossary
 that names the concepts. If your work contradicts a record, say so and reopen
-the decision — do not overturn it in silence.
+the decision — do not overturn it in silence. The rest of `docs/` is
+descriptive, not authoritative: `task_categories.md` (per-category overview),
+`sim_settings.md`, and `rl_settings.md` — the last one is **stale on rewards
+and observation noise** (it describes two reward terms and actor-side noise;
+ADR-006 and ADR-015 govern, and the code has one reward term and no
+corruption).
 
 ## Commands
 
@@ -73,8 +81,8 @@ uv run python tests/viewer/check_viewer_shutdown.py
 PYTHONPATH=<g3a-bench>:<qc> <qc>/.venv/bin/python tests/qc/bc_gate.py out/qc/demos.npz
 
 # Launch a QC-FQL run in the separate qc checkout (must run inside tmux)
-./train_qc.sh G3A-Place-FixedS-FixedT-Dk1_uni out/qc/demos.npz --offline_steps 100000
-run_scripts/G3A-Place/fixed-variants/fixed-s_fixed-t_100k-0.sh   # a 3-seed sweep
+./train_qc.sh G3A-Place-FixedS-FixedT-Dk1_uni out/qc/demos.npz --offline_steps=100000
+run_scripts/G3A-Place/critic-variants/critic-off_100k-100k.sh   # one critic variant
 ```
 
 The pytest suite (`uv run pytest tests/`) unit-tests the pure kernels in
@@ -82,10 +90,10 @@ The pytest suite (`uv run pytest tests/`) unit-tests the pure kernels in
 (`tests/qc/`: the converter, the transition assembly, the gym adapter, the
 BC gate), the teleop bridge (`tests/live_bridge/`, no hardware needed), and
 the DK1 collision contract on the compiled model (`tests/trlc_dk1/`). See
-`tests/tasks/README.md` and `tests/live_bridge/README.md` for what each
-script covers; all verification scripts accept `--cpu` to force CPU-only
-execution. `tests/viewer/` holds the manual native-viewer checks (FPS cap,
-shutdown segfault).
+`tests/tasks/README.md`, `tests/qc/README.md` and
+`tests/live_bridge/README.md` for what each script covers; all verification
+scripts accept `--cpu` to force CPU-only execution. `tests/viewer/` holds the
+manual native-viewer checks (FPS cap, shutdown segfault).
 
 ## Architecture
 
@@ -141,7 +149,11 @@ that combines a category's success criterion with the at-rest + released
 conditions), the `GripperGateCommandCfg`/`GripperOpenGate` "gripper released"
 success gate (`commands.py`; the joints/threshold are robot-specific and
 injected by the manipulator wiring), the `ScatterGrid` spawn sampler
-(`tiling`/`sample_poses`, seed-prefix safe), the shared `colors.py` palette,
+(`tiling`/`sample_poses`, seed-prefix safe; `blocked_near` builds the goal
+keep-out mask, and its `keep_free` argument is what stops a keep-out from
+leaving an env fewer cells than objects; `write_upright_spawn` sits the entities
+upright on the sampled cells and zeros their velocity), the shared
+`colors.py` palette,
 the table asset, and the debug markers.
 
 **Registration is automatic via discovery**: `tasks/__init__.py` calls mjlab's
@@ -166,10 +178,12 @@ copy of the trainer is deleted; do not bring one back.
   as mjlab reports them, and observations are **copied** out of simulator
   memory (mjlab returns a view the next step overwrites).
 - `episode.py` — per-episode bookkeeping and the `info` dict `qc` reads.
-  Success is **latched** over the episode, keyed off `reward == 0.0`. Contact
+  Success is **latched** over the episode, keyed off the reward reaching
+  `SUCCESS_REWARD` (`0.0`). Contact
   telemetry is published under **flat** keys (`pad_contact_force`,
-  `object_contact_force`); `qc/evaluation.py` consumes them by name, so the key
-  names are a cross-repo contract with no version pin. After changing either
+  `object_contact_force`); `qc/evaluation.py` consumes them by name and
+  imports `CONTACT_THRESHOLD` from here, so both are a cross-repo contract with
+  no version pin. After changing either
   side, run a short eval and check `eval/pad_contact_runs` is non-zero.
 - `transitions.py` — recorded rows → `(s, a, r, s', done)`. `terminals` marks an
   **episode boundary**, `masks` marks whether to **bootstrap**; they are not the
@@ -191,8 +205,11 @@ copy of the trainer is deleted; do not bring one back.
 code and cost a whole run when wrong (ADR-004): `g3a-bench` reached by
 `PYTHONPATH` and never pip-installed in the `qc` venv, a CUDA-12 torch,
 `XLA_PYTHON_CLIENT_PREALLOCATE=false`, a run directory off NFS, a wandb login,
-and a tmux session. `run_scripts/<task>/` holds the per-experiment sweep
-launchers that call it.
+and a tmux session. `run_scripts/<task>/` holds the per-experiment launchers
+that call it; each one is a single run (one seed) and tags its wandb run with
+its own file name through `G3A_RUN_SCRIPT`. The eight surviving scripts are the
+`G3A-Place/critic-variants/` set, which vary how much the critic acts
+(off / selection / steering) at two step budgets.
 
 Two documents govern what to run: **ADR-012** says to gate a new demonstration
 set with `tests/qc/bc_gate.py` before spending a training run, and **ADR-014**
@@ -293,8 +310,12 @@ actuated).
   `reset_joints_by_offset` resets relative to the MJCF keyframe, 1.7 rad away
   on joints 2 and 3 — a policy trained on demos and evaluated from a state it
   had never seen. Sampled positions clamp to the **hard** joint limits, and the
-  gripper is never sampled. `place` keeps the seam at
-  `place_env_cfg.START_POSE_NOISE`; keep any value well under the recorder's
+  gripper is never sampled. Only `place` passes a value explicitly
+  (`place_env_cfg.py`, currently `0.0`); every other category takes
+  `make_manipulation_env_cfg`'s `0.0` default. A run can override the task
+  value with `train_qc.sh --start_pose_noise` or `G3A_START_POSE_NOISE`, but
+  the dataset stamp then has to agree (ADR-011). Keep any value well under the
+  recorder's
   0.2 rad alignment gate. Measure start-state variety with peak-to-peak range,
   never standard deviation.
 - **Fixed props (boards, fields) are fixed-base entities** — a `MjSpec` body with
@@ -319,6 +340,13 @@ actuated).
   top (mujoco ships no stubs for the compiled `MjSpec`).
 - ruff line-length is 88; format with double quotes. Lint+format+pyright run as
   pre-commit hooks on commit.
+- **A run's `--agent.num_qs` must stay at 2 or more.** qc's
+  `utils/networks.Value` ensemblizes only for `num_ensembles > 1`, so
+  `num_qs=1` returns a critic output with no ensemble axis, and every
+  `axis=0` q aggregation in `agents/acfql.py` then reduces over the batch
+  instead. With `actor_type=best-of-n` that collapses the selected action to
+  a single row and the first update dies on a concatenate shape error. Shrink
+  a critic nothing reads with `value_hidden_dims` instead.
 - Test renders are written to `out/render/<domain>/`; training logs to `logs/` and
   `wandb/`. The `examples/` dir holds reference mjlab code, not part of the package.
 - **`out/` is scratch, `dataset/` is kept.** `out/` is gitignored: the teleop
@@ -327,7 +355,9 @@ actuated).
   keeping is moved into `dataset/demos/<task>/<stamp>/`, which is committed, with
   the failure half of the same session as the sibling
   `dataset/demos/<task>/<stamp>_failure/` (the `success/`+`failure/` split becomes a
-  suffix there). Read demos from `dataset/demos/`; record new ones into `out/demos/`.
+  suffix there). A converted `.npz` that a run script points at is kept the same
+  way, in `dataset/qc/`. Read demos from `dataset/demos/`; record new ones into
+  `out/demos/`.
 
 ## Agent skills
 
