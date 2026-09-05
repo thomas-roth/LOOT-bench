@@ -12,12 +12,6 @@ fresh every reset ("Rand") or pinned to a constant pose ("Fixed"), giving
 the four combinations below. Pinning one or both removes a source of
 generalization the policy would otherwise have to cover, which is what makes
 ``FixedS-FixedT`` the smallest learnable version of the task.
-
-The category once carried a second, "Dense" variant that added progress
-shaping on top of a sparse outcome bonus. That axis is gone:
-``tasks/common/rewards.py`` now gives every category one reward in
-``[-1, 0]`` with the progress signal already inside it, so there is no
-sparse mode left to shape.
 """
 
 from dataclasses import dataclass

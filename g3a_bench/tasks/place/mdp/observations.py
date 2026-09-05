@@ -16,4 +16,7 @@ if TYPE_CHECKING:
 def cube_pose(env: ManagerBasedRlEnv, command_name: str) -> torch.Tensor:
     """Cube pose in the env-local world frame (E, 7)."""
     command = _command(env, command_name)
-    return flatten_pose(command.cube_pos_w, command.cube_quat_w, env.scene.env_origins)
+    flattened_pose = flatten_pose(
+        command.cube_pos_w, command.cube_quat_w, env.scene.env_origins
+    )
+    return flattened_pose

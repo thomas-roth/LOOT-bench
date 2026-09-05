@@ -114,12 +114,12 @@ class PlaceCommand(CommandTerm):
             _midpoint(cfg.target_x_range),
             _midpoint(cfg.target_y_range),
         )
-        sx0, sx1 = cfg.spawn_x_range
-        sy0, sy1 = cfg.spawn_y_range
-        tx0, tx1 = cfg.target_x_range
-        ty0, ty1 = cfg.target_y_range
-        dx = max(abs(tx1 - sx0), abs(tx0 - sx1))
-        dy = max(abs(ty1 - sy0), abs(ty0 - sy1))
+        spawn_x0, spawn_x1 = cfg.spawn_x_range
+        spawn_y0, spawn_y1 = cfg.spawn_y_range
+        target_x0, target_x1 = cfg.target_x_range
+        target_y0, target_y1 = cfg.target_y_range
+        dx = max(abs(target_x1 - spawn_x0), abs(target_x0 - spawn_x1))
+        dy = max(abs(target_y1 - spawn_y0), abs(target_y0 - spawn_y1))
         self._max_travel_dist = math.hypot(dx, dy)
 
         self.metrics["dist_to_target"] = torch.zeros(E, device=dev)
@@ -168,8 +168,8 @@ class PlaceCommand(CommandTerm):
         self.metrics["episode_success"] = self.episode_success
 
     def _resample_command(self, env_ids: torch.Tensor) -> None:
-        n = len(env_ids)
-        if n == 0:
+        env_ids_len = len(env_ids)
+        if env_ids_len == 0:
             return
         dev = self.device
         origins = self._env.scene.env_origins[env_ids]
@@ -178,10 +178,12 @@ class PlaceCommand(CommandTerm):
 
         # Cube spawn: scatter draw, or the pinned pose if spawn is fixed.
         if self.variant.random_spawn:
-            xy, spawn_yaw = self._scatter.sample_poses(n, 1)
+            xy, spawn_yaw = self._scatter.sample_poses(env_ids_len, 1)
         else:
-            xy = torch.tensor(self._fixed_spawn_xy, device=dev).expand(n, 1, 2)
-            spawn_yaw = torch.full((n, 1), FIXED_SPAWN_YAW, device=dev)
+            xy = torch.tensor(self._fixed_spawn_xy, device=dev).expand(
+                env_ids_len, 1, 2
+            )
+            spawn_yaw = torch.full((env_ids_len, 1), FIXED_SPAWN_YAW, device=dev)
         write_upright_spawn(
             [self.cube],
             xy,
@@ -195,14 +197,16 @@ class PlaceCommand(CommandTerm):
         if self.variant.random_target:
             x0, x1 = self.cfg.target_x_range
             y0, y1 = self.cfg.target_y_range
-            u = torch.rand(n, 2, device=dev)
-            tx = x0 + u[:, 0] * (x1 - x0)
-            ty = y0 + u[:, 1] * (y1 - y0)
+            u = torch.rand(env_ids_len, 2, device=dev)
+            x_tensor = x0 + u[:, 0] * (x1 - x0)
+            y_tensor = y0 + u[:, 1] * (y1 - y0)
         else:
-            tx = torch.full((n,), self._fixed_target_xy[0], device=dev)
-            ty = torch.full((n,), self._fixed_target_xy[1], device=dev)
-        tz = torch.full((n,), self._half_h, device=dev)
-        self.target_pos_w[env_ids] = torch.stack([tx, ty, tz], dim=-1) + origins
+            x_tensor = torch.full((env_ids_len,), self._fixed_target_xy[0], device=dev)
+            y_tensor = torch.full((env_ids_len,), self._fixed_target_xy[1], device=dev)
+        z_tensor = torch.full((env_ids_len,), self._half_h, device=dev)
+        self.target_pos_w[env_ids] = (
+            torch.stack([x_tensor, y_tensor, z_tensor], dim=-1) + origins
+        )
 
     def _update_command(self) -> None:
         pass

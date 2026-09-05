@@ -19,9 +19,6 @@ from g3a_bench.tasks.place.variants import CUBE_COLOR, PlaceVariantCfg
 
 COMMAND_NAME = "task"
 
-# Start-pose sample half-width. Shared by recorder and training.
-START_POSE_NOISE = 0.0
-
 
 def make_place_env_cfg(
     variant: PlaceVariantCfg,
@@ -89,7 +86,7 @@ def make_place_env_cfg(
         sensors=sensors,
         env_spacing=1.5,
         episode_length_s=10.0,
-        start_pose_noise=START_POSE_NOISE,
+        start_pose_noise=0.0,
         nconmax=120,
         njmax=700,
         play=play,
