@@ -40,10 +40,11 @@ from pathlib import Path
 # Importing any g3a_bench submodule pulls in mjlab first via
 # g3a_bench/__init__.py, so only the process entry point can order lerobot
 # before mjlab. If a segfault appears here, move the ordering there.
-import lerobot.datasets.lerobot_dataset  # noqa: F401
+import lerobot.datasets.lerobot_dataset  # noqa: F401  # pyright: ignore[reportMissingImports]
 import numpy as np
 from numpy.typing import NDArray
 
+from g3a_bench.qc.dataset import tensor_or_array_to_float32_vector
 from g3a_bench.qc.transitions import QC_KEYS, assemble_transitions
 from g3a_bench.scripts.live_bridge.dataset_extra_info import load_extra_info
 from g3a_bench.scripts.live_bridge.mapper import (
@@ -65,14 +66,8 @@ def _action_scale_offset_from_task(
     env = G3aEnv(task, device=device)
     try:
         term = env.action_term()
-        scale = term.scale  # type: ignore[attr-defined]
-        offset = term.offset  # type: ignore[attr-defined]
-        if hasattr(scale, "detach"):
-            scale = scale.detach().cpu().numpy()  # type: ignore[union-attr]
-        if hasattr(offset, "detach"):
-            offset = offset.detach().cpu().numpy()  # type: ignore[union-attr]
-        scale = np.asarray(scale, dtype=np.float32).reshape(-1)
-        offset = np.asarray(offset, dtype=np.float32).reshape(-1)
+        scale = tensor_or_array_to_float32_vector(term.scale)
+        offset = tensor_or_array_to_float32_vector(term.offset)
         return scale, offset
     finally:
         env.close()
@@ -151,49 +146,54 @@ def build_dataset(
     if (action_scale is None) != (action_offset is None):
         raise ValueError("action_scale and action_offset must be given together")
     if action_scale is not None and action_offset is not None:
-        scale = np.asarray(action_scale, dtype=np.float32).reshape(-1)
-        offset = np.asarray(action_offset, dtype=np.float32).reshape(-1)
+        action_scale = tensor_or_array_to_float32_vector(action_scale)
+        action_offset = tensor_or_array_to_float32_vector(action_offset)
     elif task is not None:
-        scale, offset = _action_scale_offset_from_task(task, device=device)
+        action_scale, action_offset = _action_scale_offset_from_task(
+            task, device=device
+        )
     else:
-        scale, offset = action_scale_offset()
+        action_scale, action_offset = action_scale_offset()
 
-    order = np.lexsort((np.asarray(frame_index), np.asarray(episode_index)))
-    leader_sorted = np.asarray(leader_actions, dtype=np.float32)[order]
+    row_order = np.lexsort((np.asarray(frame_index), np.asarray(episode_index)))
+    leader_actions_sorted = np.asarray(leader_actions, dtype=np.float32)[row_order]
 
     actions = np.array(
         [
             lerobot_to_mjlab_raw_action(
-                pose,
+                action,
                 gravity_compensate=gravity_compensate,
-                scale=scale,
-                offset=offset,
+                scale=action_scale,
+                offset=action_offset,
             )
-            for pose in leader_sorted
+            for action in leader_actions_sorted
         ],
         dtype=np.float32,
     )
     # Clamp to the action box: the stored action must match what the sim applied.
     np.clip(actions, -1.0, 1.0, out=actions)
 
-    out: dict[str, NDArray] = {
-        **assemble_transitions(
-            episode_index=np.asarray(episode_index)[order],
-            observations=np.asarray(observations, dtype=np.float32)[order],
-            actions=actions,
-            rewards=np.asarray(rewards, dtype=np.float32).reshape(-1)[order],
-        ),
-        "action_scale": scale,
-        "action_offset": offset,
+    transitions = assemble_transitions(
+        episode_index=np.asarray(episode_index)[row_order],
+        observations=np.asarray(observations, dtype=np.float32)[row_order],
+        actions=actions,
+        rewards=np.asarray(rewards, dtype=np.float32).reshape(-1)[row_order],
+    )
+
+    dataset: dict[str, NDArray] = {
+        **transitions,
+        "action_scale": action_scale,
+        "action_offset": action_offset,
         "start_pose_noise": np.array(float(start_pose_noise), dtype=np.float32),
     }
     # Task stamp checked by dataset.py. Missing on synthetic builds (warns, no errors).
     if task is not None:
-        out["task"] = np.array(task, dtype=np.str_)
-    return out
+        dataset["task"] = np.array(task, dtype=np.str_)
+
+    return dataset
 
 
-def load_columns(
+def _load_columns(
     dataset_root: str | Path, episode_offset: int = 0
 ) -> tuple[dict[str, NDArray], str | None]:
     """Read one LeRobot dataset root into plain arrays.
@@ -201,26 +201,22 @@ def load_columns(
     Returns the columns and the task id the root was recorded with (``None``
     when it registered none). Both come off the one open below, so a root is
     read from disk once.
-
-    Args:
-        dataset_root: a root written by ``live_record.py``.
-        episode_offset: added to every episode index. The success and failure
-            roots of one session are each numbered from zero, so the second one
-            has to be pushed past the first or their episodes merge into one.
     """
-    from lerobot.datasets.lerobot_dataset import LeRobotDataset
+    from lerobot.datasets.lerobot_dataset import (  # pyright: ignore[reportMissingImports]
+        LeRobotDataset,
+    )
 
     # Check before opening: lerobot falls back to the HuggingFace Hub with a 401
     # when local metadata is missing, hiding the real cause.
     # A recording is unfinished until Recorder.close() calls finalize().
-    root = Path(dataset_root)
-    if not (root / "meta").is_dir():
+    dataset_root = Path(dataset_root)
+    if not (dataset_root / "meta").is_dir():
         raise FileNotFoundError(
-            f"{root} is not a LeRobot dataset root: no meta/ directory. A "
-            "session is only readable once the recorder has closed it."
+            f"{dataset_root} is not a LeRobot dataset root: no meta/ directory. "
+            "A session is only readable once the recorder has closed it."
         )
 
-    dataset = LeRobotDataset("live_record", root=str(root))
+    dataset = LeRobotDataset("live_record", root=str(dataset_root))
     frames = dataset.hf_dataset
     columns = {
         "episode_index": np.array(frames["episode_index"]) + episode_offset,
@@ -229,11 +225,15 @@ def load_columns(
         "leader_actions": np.array(frames["action"], dtype=np.float32),
         "rewards": np.array(frames["next.reward"], dtype=np.float32).reshape(-1),
     }
-    return columns, _task_from_meta(dataset, root)
+    task = _task_from_meta(dataset, dataset_root)
+
+    return columns, task
 
 
-def load_many(roots: Sequence[str | Path]) -> tuple[dict[str, NDArray], str | None]:
-    """Read several LeRobot roots into one set of columns.
+def _load_many(
+    dataset_roots: Sequence[str | Path],
+) -> tuple[dict[str, NDArray], str | None]:
+    """Read several LeRobot dataset roots into one set of columns.
 
     Returns the concatenated columns and the task id all the roots carry
     (``None`` when none of them carries one). Each root is numbered from
@@ -244,26 +244,38 @@ def load_many(roots: Sequence[str | Path]) -> tuple[dict[str, NDArray], str | No
     Raises:
         ValueError: if the roots disagree on the task id.
     """
-    parts: list[dict[str, NDArray]] = []
-    tasks: list[str | None] = []
-    offset = 0
-    for root in roots:
-        part, task = load_columns(root, episode_offset=offset)
-        if len(part["episode_index"]) == 0:
-            raise ValueError(f"{root} holds no frames")
-        offset = int(part["episode_index"].max()) + 1
-        parts.append(part)
-        tasks.append(task)
-    if not parts:
+    per_root_columns: list[dict[str, NDArray]] = []
+    recorded_tasks: list[str] = []
+    episode_offset = 0
+    for dataset_root in dataset_roots:
+        root_columns, task = _load_columns(dataset_root, episode_offset=episode_offset)
+        if len(root_columns["episode_index"]) == 0:
+            raise ValueError(f"{dataset_root} holds no frames")
+        episode_offset = int(root_columns["episode_index"].max()) + 1
+
+        per_root_columns.append(root_columns)
+
+        if (
+            task is not None
+        ):  # A root that registered no task adds nothing to the agreement check.
+            recorded_tasks.append(task)
+
+    if not per_root_columns:
         raise ValueError("no recording roots given")
-    present = [t for t in tasks if t is not None]
-    if present and any(t != present[0] for t in present):
-        raise ValueError(f"mixed tasks across roots: {present} from {roots}")
-    columns = {key: np.concatenate([part[key] for part in parts]) for key in parts[0]}
-    return columns, (present[0] if present else None)
+
+    if len(set(recorded_tasks)) > 1:
+        raise ValueError(
+            f"mixed tasks across dataset roots: {recorded_tasks} from {dataset_roots}"
+        )
+
+    columns = {
+        key: np.concatenate([root_columns[key] for root_columns in per_root_columns])
+        for key in per_root_columns[0]
+    }
+    return columns, (recorded_tasks[0] if recorded_tasks else None)
 
 
-def _read_start_pose_noise(roots: Sequence[str | Path]) -> float:
+def _read_start_pose_noise(dataset_roots: Sequence[str | Path]) -> float:
     """Half-width [rad] the roots were recorded under.
 
     Every root's ``g3a_extra_info.json`` must agree; merging a ``0.0`` session
@@ -274,24 +286,28 @@ def _read_start_pose_noise(roots: Sequence[str | Path]) -> float:
     Raises:
         ValueError: on a missing key or on disagreement across roots.
     """
-    noises: list[float] = []
-    for root in roots:
-        info = load_extra_info(root)
-        if not info:
-            noises.append(0.0)
+    start_pose_noises: list[float] = []
+    for dataset_root in dataset_roots:
+        extra_info = load_extra_info(dataset_root)
+        if not extra_info:
+            start_pose_noises.append(0.0)
             continue
-        if "start_pose_noise" not in info:
+        if "start_pose_noise" not in extra_info:
             raise ValueError(
-                f"{root} has a g3a_extra_info.json but no start_pose_noise; "
+                f"{dataset_root} has a g3a_extra_info.json but no start_pose_noise; "
                 "was it written before this stamp existed?"
             )
-        noises.append(float(info["start_pose_noise"]))
-    if not noises:
+        start_pose_noises.append(float(extra_info["start_pose_noise"]))
+
+    if not start_pose_noises:
         return 0.0
-    first = noises[0]
-    if any(n != first for n in noises):
-        raise ValueError(f"mixed start_pose_noise across roots: {noises}")
-    return first
+
+    if len(set(start_pose_noises)) > 1:
+        raise ValueError(
+            f"mixed start_pose_noise across dataset roots: {start_pose_noises}"
+        )
+
+    return start_pose_noises[0]
 
 
 def convert(
@@ -303,19 +319,10 @@ def convert(
 ) -> dict[str, NDArray]:
     """Convert one or more recording sessions to a ``.npz``.
 
-    Several sessions go in one call rather than through a separate merge step.
-    A merge tool would have to know the file layout as well as this module
-    does, and the two would then have to be kept in agreement, for a job that
-    is one concatenation.
-
     Args:
         success_dirs: the sessions' success roots.
         output_path: where to write the ``.npz``.
-        failure_dirs: the sibling failure roots. Include them to train on
-            failed attempts too, they carry the only evidence of what not to
-            do, and :mod:`~g3a_bench.qc.transitions` treats them correctly: a
-            failed episode ends without reaching an absorbing state, so its
-            last row is dropped rather than bootstrapped through.
+        failure_dirs: the sibling failure roots.
         task: task id the recordings were made with. When given, the action
             stamp is read off that task's built action term (robot-agnostic).
             When omitted, the task is inferred from the task id the datasets
@@ -324,35 +331,37 @@ def convert(
     """
     all_roots = [*success_dirs, *failure_dirs]
     start_pose_noise = _read_start_pose_noise(all_roots)
-    # The task id comes off the same open as the columns, so a root is read
-    # from disk once.
-    columns, inferred = load_many(all_roots)
-    if task is not None and inferred is not None and inferred != task:
-        raise ValueError(f"task {task!r} but datasets carry task {inferred!r}")
+    columns, inferred_task = _load_many(all_roots)
+
+    if task is not None and inferred_task is not None and inferred_task != task:
+        raise ValueError(f"task {task!r} but datasets carry task {inferred_task!r}")
     if task is None:
-        task = inferred
-    # build_dataset resolves and stamps scale/offset/task; dataset.py checks them.
+        task = inferred_task
+
     data = build_dataset(
-        **columns,  # type: ignore[arg-type]
+        **columns,  # pyright: ignore[reportArgumentType]
         start_pose_noise=start_pose_noise,
         task=task,
         device=device,
     )
 
-    # The splat hides savez's own keyword arguments from the type checker,
-    # which then reads an array as a candidate for allow_pickle.
-    np.savez(output_path, **data)  # type: ignore[arg-type]
-    _report(data, output_path)
+    # allow_pickle=False matches np.load's default: an object array written here
+    # would be unloadable by dataset.py, so fail at write time instead.
+    np.savez(output_path, allow_pickle=False, **data)
+
+    _report_dataset_stats(data, output_path)
+
     return data
 
 
-def _report(data: dict[str, NDArray], output_path: str | Path) -> None:
+def _report_dataset_stats(data: dict[str, NDArray], output_path: str | Path) -> None:
     rewards = data["rewards"]
     episodes = np.unique(data["episode_index"])
-    successes = int((data["masks"] == 0.0).sum())
+    success_count = int((data["masks"] == 0.0).sum())
+
     print(f"[INFO] wrote {output_path}")
     print(f"       transitions: {len(rewards)} over {len(episodes)} episodes")
-    print(f"       successes:   {successes} of {len(episodes)}")
+    print(f"       successes:   {success_count} of {len(episodes)}")
     print(f"       observations {data['observations'].shape}")
     print(
         f"       actions      {data['actions'].shape} "
@@ -375,7 +384,7 @@ def main() -> None:
         "--failure-dir",
         nargs="*",
         default=(),
-        help="Sibling roots holding the failed episodes. Included when given.",
+        help="Sibling dataset roots holding the failed episodes. Included when given.",
     )
     parser.add_argument("--output", required=True, help="Output .npz path.")
     parser.add_argument(
@@ -391,6 +400,7 @@ def main() -> None:
         help="Device to build the task on when resolving --task (default: cpu).",
     )
     args = parser.parse_args()
+
     convert(
         args.success_dir,
         args.output,

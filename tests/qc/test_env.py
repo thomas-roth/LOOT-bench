@@ -47,7 +47,7 @@ def _term_slices(env: G3aEnv) -> dict[str, slice]:
     shift every index and turn these tests into assertions about the wrong
     numbers, silently.
     """
-    manager = env.unwrapped_env.observation_manager
+    manager = env.mjlab_env.observation_manager
     names = manager.active_terms["actor"]
     dims = manager.group_obs_term_dim["actor"]
     out: dict[str, slice] = {}
@@ -244,7 +244,7 @@ class TestEpisodeBoundaries:
         """
         env = G3aEnv(TASK_ID, device="cpu", seed=1, start_pose_noise=0.0)
         try:
-            assert env.unwrapped_env.cfg.auto_reset is False
+            assert env.mjlab_env.cfg.auto_reset is False
         finally:
             env.close()
 

@@ -147,20 +147,15 @@ class TestStamp:
     def test_stamp_matches_the_action_term(self):
         # Stamp must be read off the built term, not a second DK1-only compile.
         # For DK1 they agree, but the term is the authority.
+        from g3a_bench.qc.dataset import tensor_or_array_to_float32_vector
         from g3a_bench.qc.env import G3aEnv
 
         task = "G3A-Stack-Low-Dk1_uni"
         env = G3aEnv(task, device="cpu")
         try:
             term = env.action_term()
-            scale = term.scale
-            offset = term.offset
-            if hasattr(scale, "detach"):
-                scale = scale.detach().cpu().numpy()  # type: ignore[union-attr]
-            if hasattr(offset, "detach"):
-                offset = offset.detach().cpu().numpy()  # type: ignore[union-attr]
-            scale = np.asarray(scale, dtype=np.float32).reshape(-1)
-            offset = np.asarray(offset, dtype=np.float32).reshape(-1)
+            scale = tensor_or_array_to_float32_vector(term.scale)
+            offset = tensor_or_array_to_float32_vector(term.offset)
         finally:
             env.close()
         # Legacy path (no task) still matches DK1 term
@@ -181,23 +176,14 @@ class TestStamp:
         scale, offset = _action_scale_offset_from_task(task_dk1, device="cpu")
         assert scale.shape[0] == 7
         # The task-resolved stamp must equal the term's stamp
+        from g3a_bench.qc.dataset import tensor_or_array_to_float32_vector
         from g3a_bench.qc.env import G3aEnv
 
         env = G3aEnv(task_dk1, device="cpu")
         try:
             term = env.action_term()
-            env_scale = np.asarray(
-                term.scale.detach().cpu().numpy()
-                if hasattr(term.scale, "detach")
-                else term.scale,
-                dtype=np.float32,
-            ).reshape(-1)
-            env_offset = np.asarray(
-                term.offset.detach().cpu().numpy()
-                if hasattr(term.offset, "detach")
-                else term.offset,
-                dtype=np.float32,
-            ).reshape(-1)
+            env_scale = tensor_or_array_to_float32_vector(term.scale)
+            env_offset = tensor_or_array_to_float32_vector(term.offset)
         finally:
             env.close()
         np.testing.assert_array_almost_equal(scale, env_scale)
@@ -375,7 +361,7 @@ class TestEnvStartPoseNoise:
                 "Term", (), {"params": {"position_range": (-0.05, 0.05)}}
             )()
         }
-        env = self._env(unwrapped_env=self._cfg_env(events))
+        env = self._env(mjlab_env=self._cfg_env(events))
         assert _env_start_pose_noise(env) == pytest.approx(0.05)
 
     def test_a_higher_source_beats_the_cfg(self):
@@ -384,17 +370,17 @@ class TestEnvStartPoseNoise:
                 "Term", (), {"params": {"position_range": (-0.05, 0.05)}}
             )()
         }
-        env = self._env(start_pose_noise=0.1, unwrapped_env=self._cfg_env(events))
+        env = self._env(start_pose_noise=0.1, mjlab_env=self._cfg_env(events))
         assert _env_start_pose_noise(env) == pytest.approx(0.1)
 
     def test_a_cfg_without_the_event_names_the_missing_term(self):
-        env = self._env(unwrapped_env=self._cfg_env({}))
+        env = self._env(mjlab_env=self._cfg_env({}))
         with pytest.raises(ValueError, match="reset_robot_joints"):
             _env_start_pose_noise(env)
 
     def test_a_cfg_without_the_param_names_the_missing_param(self):
         events = {"reset_robot_joints": type("Term", (), {"params": {}})()}
-        env = self._env(unwrapped_env=self._cfg_env(events))
+        env = self._env(mjlab_env=self._cfg_env(events))
         with pytest.raises(ValueError, match="position_range"):
             _env_start_pose_noise(env)
 
@@ -412,7 +398,7 @@ class TestSessionOffsetting:
     """Two sessions are each numbered from episode zero."""
 
     def test_colliding_indices_join_two_episodes_silently(self):
-        """Why load_many offsets. Two failed sessions, each numbered from zero,
+        """Why _load_many offsets. Two failed sessions, each numbered from zero,
         concatenate into one long episode. Nothing raises, and the transition
         across the join is built from two unrelated frames."""
         session = _columns({0: [-0.5, -0.4]})
@@ -523,7 +509,7 @@ class TestReadingARecording:
             task="G3A-Place-FixedS-FixedT-Dk1_uni",
         )
         second = self._write(tmp_path / "b", [[-0.5, 0.0]])
-        with pytest.raises(ValueError, match="mixed tasks across roots"):
+        with pytest.raises(ValueError, match="mixed tasks across dataset roots"):
             convert([first, second], tmp_path / "demos.npz")
 
     def test_mixed_tasks_inside_one_root_are_rejected(self, tmp_path):

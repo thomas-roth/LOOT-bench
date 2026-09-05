@@ -9,8 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-# Success is exactly reward 0.0 per the task reward convention.
-SUCCESS_REWARD = 0.0
+from g3a_bench.qc.transitions import SUCCESS_REWARD
 
 CONTACT_THRESHOLD = 0.1
 """[N] force above which a step counts as touching the object.
@@ -41,18 +40,16 @@ class EpisodeStats:
     """[N] the latest **unfiltered** finger-pad contact force, or ``None`` if
     the task has no ``grip_contact`` sensor. Not a running total: ``qc``
     thresholds it once per step to count grips, so it has to carry this step's
-    reading. Counts the pads touching each other, see
-    :attr:`object_contact_force` for the number that answers "touched the
-    object". Named for the sensor's *reduction* (the pads), not for the sensor,
-    which is still called ``grip_contact``."""
+    reading."""
     object_contact_force: float | None = None
     """[N] the latest finger-pad contact force **against the scored object**,
-    or ``None`` if the task has no ``object_contact`` sensor."""
+    or ``None`` if the task has no ``object_contact`` sensor. Not a running
+    total."""
     object_contact_steps: int = 0
     """Steps so far whose :attr:`object_contact_force` was above
-    :data:`CONTACT_THRESHOLD`. Accumulated, unlike the two forces: ``qc``
-    averages the final step of each episode, so a per-episode total is the only
-    shape in which "how long did it hold the cube" survives into ``eval.csv``.
+    :data:`CONTACT_THRESHOLD`. Accumulated: ``qc`` averages the final step of
+    each episode, so a per-episode total is the only shape in which "how long
+    did it hold the cube" survives into ``eval.csv``.
     """
     _rewards: list[float] = field(default_factory=list)
 
@@ -92,29 +89,26 @@ class EpisodeStats:
         ``qc/evaluation.py`` stops matching, which is silent, the counters
         read 0.0 for every policy rather than raising.
 
-        A task with no ``grip_contact`` sensor leaves the key out entirely,
-        which is safe too: ``qc`` tests for it before reading it, and drops to
-        ``pad_force = None``. That is deliberate, emitting 0.0 for a task
-        that cannot measure contact would put a number in ``eval.csv`` that
-        looks like "never touched it" and means "never asked".
+        A task with no such sensor leaves the key out entirely, rather than
+        emitting a 0.0 that reads as "never touched it" and means "never
+        asked". ``qc`` tests for the key before reading it.
 
-        ``object_contact_force`` and its two derived keys are the ones to read
-        for "did the policy touch the object". ``pad_contact_force`` is
-        unfiltered and a closed gripper reports its own pads, so ``qc``'s
-        ``pad_contact_runs`` counts those too. ``object_contact_steps`` and
-        ``object_touched`` are per-episode totals, so they mean something
-        after ``qc`` averages the final step over episodes: mean steps in
-        contact, and the fraction of episodes with any contact at all.
+        ``object_touched`` is :attr:`object_contact_steps` ``> 0``, so once
+        ``qc`` averages the final step over episodes it reads as the fraction
+        of episodes with any contact at all.
         """
         info = {
             "success": float(self.success),
             "episode_length": float(self.length),
             "episode_return": float(self.total_reward),
         }
+
         if self.pad_contact_force is not None:
             info["pad_contact_force"] = self.pad_contact_force
+
         if self.object_contact_force is not None:
             info["object_contact_force"] = self.object_contact_force
             info["object_contact_steps"] = float(self.object_contact_steps)
             info["object_touched"] = float(self.object_contact_steps > 0)
+
         return info

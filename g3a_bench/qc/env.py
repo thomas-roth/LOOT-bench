@@ -7,9 +7,7 @@ This module is the seam between the two, and nothing more: no reward
 shaping, no observation rewriting, no action remapping. Anything that changes
 the MDP belongs in the task definition, where the recorder sees it too.
 
-Use :class:`G3aEnv`.
-
-Three things here are load-bearing rather than stylistic:
+Four things here are load-bearing rather than stylistic:
 
 * **Auto-reset is off.** ``qc``'s evaluation and online loops both call
   ``reset()`` themselves and read the final transition of each episode. With
@@ -19,26 +17,18 @@ Three things here are load-bearing rather than stylistic:
   metric is read from.
 * **Observation corruption is off.** The offline and online observations have
   to come from one distribution, and the demos are recorded through the
-  uncorrupted observation. No task declares observation noise any more (see
-  ``tasks/common/env_cfg``), so this now costs nothing; the adapter still sets
-  the flag, because a cfg that arrives with corruption on must not reach a
-  training run.
+  uncorrupted observation (``ADR-015``).
 * **Terminated and truncated are kept apart.** ``terminated`` means the task
   reached an absorbing state, and offline RL uses it to decide whether to
   bootstrap past the final transition. A timeout is not absorbing: the
   episode was cut short, and the value of the state it was cut at is not
   zero. Collapsing the two is the single easiest way to teach an agent that
   running out of time is as good as finishing.
-* **Contact forces are published flat.** ``qc``'s evaluation counts grips out
-  of ``info["pad_contact_force"]``, and the contact sensors are the only way it
-  can see whether a policy ever touched anything. Two are published:
-  ``pad_contact_force`` (unfiltered, what ``qc`` counts, and a closed gripper
-  reports its own pads) and ``object_contact_force`` (filtered to the scored
-  object), with the per-episode totals ``object_contact_steps`` and
-  ``object_touched`` beside it. All of it is telemetry, not part of the MDP:
-  the numbers go into ``eval.csv``, never into the observation. See
-  :meth:`EpisodeStats.info` for why the flat key is the only safe shape, and
-  :meth:`G3aEnv._pad_force` for what each one means.
+* **Contact forces are telemetry, never part of the MDP.** The numbers go
+  into ``eval.csv``, never into the observation, and their key names are a
+  cross-repo contract that ``qc/evaluation.py`` matches on. See
+  :meth:`EpisodeStats.info` for the key shape and :meth:`G3aEnv._pad_force`
+  for what each sensor measures.
 """
 
 from __future__ import annotations
@@ -118,18 +108,19 @@ class G3aEnv(gymnasium.Env):
             )
 
         self.task_id = task_id
-        # Stored for the dataset-vs-env check in qc.dataset.
         self._start_pose_noise = float(
             cfg.events["reset_robot_joints"].params["position_range"][1]
         )
-        self._env = ManagerBasedRlEnv(cfg=cfg, device=device, render_mode=render_mode)
+        self._mjlab_env = ManagerBasedRlEnv(
+            cfg=cfg, device=device, render_mode=render_mode
+        )
         self.render_mode = render_mode
         if seed is not None:
-            self._env.seed(seed)
+            self._mjlab_env.seed(seed)
 
-        group_dim = self._env.observation_manager.group_obs_dim["actor"]
+        group_dim = self._mjlab_env.observation_manager.group_obs_dim["actor"]
         obs_dim = int(np.prod(group_dim))
-        action_dim = int(self._env.action_manager.total_action_dim)
+        action_dim = int(self._mjlab_env.action_manager.total_action_dim)
         self.observation_space = Box(-np.inf, np.inf, (obs_dim,), dtype=np.float32)
         self.action_space = Box(-1.0, 1.0, (action_dim,), dtype=np.float32)
 
@@ -140,9 +131,12 @@ class G3aEnv(gymnasium.Env):
         self._stats = EpisodeStats()
 
     @property
-    def unwrapped_env(self) -> ManagerBasedRlEnv:
-        """The mjlab env underneath, for tools that need the simulator."""
-        return self._env
+    def mjlab_env(self) -> ManagerBasedRlEnv:
+        """The mjlab env underneath, for tools that need the simulator.
+
+        Read-only: the handle owns a MuJoCo context and must not be swapped.
+        """
+        return self._mjlab_env
 
     def action_term(self):
         """The joint action term, which owns the scale and offset.
@@ -151,7 +145,7 @@ class G3aEnv(gymnasium.Env):
         actually runs (``qc.dataset.check_dataset_matches_env``) rather than
         against a copy of it.
         """
-        return self._env.action_manager.get_term("joint_pos")
+        return self._mjlab_env.action_manager.get_term("joint_pos")
 
     def start_pose_noise(self) -> float:
         """Half-width [rad] of the start-pose sample this env was built with.
@@ -176,7 +170,7 @@ class G3aEnv(gymnasium.Env):
 
     def _contact_sensor(self, name: str) -> ContactSensor | None:
         """The named contact sensor, or ``None`` if the task declares none."""
-        sensor = self._env.scene.sensors.get(name)
+        sensor = self._mjlab_env.scene.sensors.get(name)
         return sensor if isinstance(sensor, ContactSensor) else None
 
     def _pad_force(self, sensor: ContactSensor | None) -> float | None:
@@ -186,19 +180,12 @@ class G3aEnv(gymnasium.Env):
         out of ``info`` entirely rather than reporting a 0.0 that was never
         measured.
 
-        The two sensors differ only in their filter, and the difference
-        matters. ``grip_contact`` has no secondary match, so it counts contact
-        with **anything, the other pad included**: on the DK1 the pad faces
-        meet at gripper joint -0.038 m while the joint travels to -0.045 m, so
-        a gripper closed on empty air reads 1.6 to 2.5 N. ``object_contact``
-        is filtered to the scored object and answers the question that one
-        cannot.
-
-        The sensor names and the published key names differ on purpose: sensor
-        ``grip_contact`` is published as ``pad_contact_force``, sensor
-        ``object_contact`` as ``object_contact_force``. The keys say what was
-        measured (a force, reduced over the pads); the sensors keep the names
-        the task cfgs register them under.
+        The two sensors differ only in their filter. ``grip_contact`` has no
+        secondary match, so it counts contact with **anything, the other pad
+        included**: on the DK1 the pad faces meet at gripper joint -0.038 m
+        while the joint travels to -0.045 m, so a gripper closed on empty air
+        reads 1.6 to 2.5 N. ``object_contact`` is filtered to the scored object
+        and answers the question that one cannot.
         """
         if sensor is None:
             return None
@@ -208,7 +195,7 @@ class G3aEnv(gymnasium.Env):
         self, *, seed: int | None = None, options: dict[str, Any] | None = None
     ) -> tuple[np.ndarray, dict[str, float]]:
         del options  # Unused.
-        obs, _ = self._env.reset(seed=seed)
+        obs, _ = self._mjlab_env.reset(seed=seed)
         self._stats = EpisodeStats(
             pad_contact_force=self._pad_force(self._grip_sensor),
             object_contact_force=self._pad_force(self._object_sensor),
@@ -218,12 +205,12 @@ class G3aEnv(gymnasium.Env):
     def step(
         self, action: np.ndarray
     ) -> tuple[np.ndarray, float, bool, bool, dict[str, float]]:
-        clipped = np.clip(np.asarray(action, dtype=np.float32), -1.0, 1.0)
-        tensor = torch.as_tensor(
-            clipped, dtype=torch.float32, device=self._env.device
+        action_clipped = np.clip(np.asarray(action, dtype=np.float32), -1.0, 1.0)
+        action_tensor = torch.as_tensor(
+            action_clipped, dtype=torch.float32, device=self._mjlab_env.device
         ).reshape(1, -1)
 
-        obs, reward, terminated, truncated, _ = self._env.step(tensor)
+        obs, reward, terminated, truncated, _ = self._mjlab_env.step(action_tensor)
 
         reward_f = float(reward[0].item())
         # Pass through as reported; both can be true when success lands on the
@@ -236,6 +223,7 @@ class G3aEnv(gymnasium.Env):
             self._pad_force(self._grip_sensor),
             self._pad_force(self._object_sensor),
         )
+
         return (
             self._observation(obs),
             reward_f,
@@ -245,7 +233,7 @@ class G3aEnv(gymnasium.Env):
         )
 
     def render(self) -> np.ndarray | None:
-        return self._env.render()
+        return self._mjlab_env.render()
 
     def close(self) -> None:
-        self._env.close()
+        self._mjlab_env.close()
