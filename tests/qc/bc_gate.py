@@ -2,44 +2,22 @@
 """Behaviour-cloning gate: do these demonstrations generalize?
 
 A training run costs hours. This costs about two minutes and answers the one
-question that decides whether the run is worth starting: **fit the recorded
+question that decides whether the run is worth starting: fit the recorded
 actions with a plain regressor, and see how well the fit transfers to episodes
-it never saw.** Nothing here is pipeline code, and nothing here trains a
-policy. It is a measurement instrument.
+it never saw. It trains no policy; it is a measurement instrument.
 
 The regressor gets exactly what the flow actor gets: the same observation,
 action chunk, ``valid`` mask, and MLP body. No flow noise, critic, or
-sampling. So a poor read reflects the data, not the agent.
+sampling, so a poor read reflects the data, not the agent.
 
-Read the two numbers together:
-
-* **held-out error near the trained error**: the mapping generalizes. The
-  data is fine and a run is worth starting.
-* **trained error low, held-out error high**: the regressor memorized the
-  demonstrations. More of the same demonstrations will not help.
-* **both high**: the observation does not determine the action. Look at the
-  observation layout or at how the demonstrations were recorded.
-
-**The bar is 0.0766**, and it is measured, not inherited. It is what this gate
-reads on the old 100-demonstration set: the pre-rebuild export
-``G3A-Place-Easy-Dk1_uni_qc_physical.npz`` with ten episodes held out, fitted
-to 0.0075 on the episodes it saw. That is a single legacy file, *not* the
-committed sessions under ``dataset/demos/G3A-Place-RandS-RandT-Dk1_uni``,
-which has since grown past the set the number was read on.
-
-Two numbers survive from the old pipeline for that same file: 0.166 from the
-lost repository tool and 0.118 from ``probes/probe17_regressor.py``. Neither
-is the bar here. They were read differently: holdout from the front, read
-stopped at frame 500, constant learning rate, 25k steps. This gate reproduces
-none of them, so its number is not theirs and cannot be compared to them. It
-holds out at random,
-because the first attempts of a session are the clumsy ones, and it reads the
-whole body of every held-out episode.
-
-Beat 0.0766. Do not read a pass as a promise: **the set that reads 0.0766 scored
-0 successes in 20 evaluation episodes.** A dataset the regressor cannot transfer
-is certainly not worth a run. A dataset it can transfer has cleared the cheapest
+Read the held-out error against the fitted one. The verdict printed at the end
+names which of the three outcomes the run hit. Do not read a pass as a
+promise: the set that set the default ``--target`` scored 0 successes in 20
+evaluation episodes. A dataset that clears this gate has cleared the cheapest
 of the reasons a run fails, and no more.
+
+Provenance of the bar, and why the old 0.166 and 0.118 readings cannot be
+compared with it: ``docs/adr/012-gate-a-demo-set-with-a-bc-fit.md``.
 
 Runs from the qc venv (it needs JAX), with both checkouts on the path::
 
@@ -73,8 +51,9 @@ TARGET = 0.0766
 """Held-out interior error of the old 100-demonstration set, read by this gate.
 
 Measured on the legacy ``G3A-Place-Easy-Dk1_uni_qc_physical.npz`` with
-``--holdout 10`` and defaults elsewhere. See this module docstring for why
-that file, not today's demo directory, owns the number.
+``--holdout 10`` and defaults elsewhere. See
+``docs/adr/012-gate-a-demo-set-with-a-bc-fit.md`` for why that file, not
+today's demo directory, owns the number.
 """
 
 INTERIOR_SKIP = 5
@@ -530,7 +509,6 @@ def run_fit(
 
 
 def print_verdict(
-    final: dict[str, float],
     train_interior: float,
     held_interior: float,
     target: float,
@@ -582,7 +560,7 @@ def main() -> None:
     history, final = run_fit(data, cfg, columns)
     held_interior = final[f"held t>={INTERIOR_SKIP}"]
     train_interior = final[f"train t>={INTERIOR_SKIP}"]
-    print_verdict(final, train_interior, held_interior, args.target, args.out, history)
+    print_verdict(train_interior, held_interior, args.target, args.out, history)
 
 
 if __name__ == "__main__":
