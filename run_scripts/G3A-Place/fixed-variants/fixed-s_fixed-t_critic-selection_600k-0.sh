@@ -44,11 +44,8 @@ exec "$HERE/../../sweep.sh" \
   --seeds 864194177,195836927,628594327 \
   "$@" \
   -- \
-  --agent=agents/acfql.py \
   --agent.actor_type=best-of-n \
   --agent.actor_num_samples=32 \
   --offline_steps 600000 \
   --online_steps 0 \
-  --eval_interval 50000 \
-  --eval_episodes 50 \
-  --video_episodes 6
+  --eval_interval 50000

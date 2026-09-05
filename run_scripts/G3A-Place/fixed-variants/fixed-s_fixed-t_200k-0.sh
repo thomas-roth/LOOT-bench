@@ -12,9 +12,6 @@ exec "$HERE/../../sweep.sh" \
   dataset/qc/place_fixed-s_fixed-t_99-demos_2026-08-30_10-46-36.npz \
   "$@" \
   -- \
-  --agent=agents/acfql.py \
   --offline_steps 200000 \
   --online_steps 0 \
-  --eval_interval 30000 \
-  --eval_episodes 50 \
-  --video_episodes 6
+  --eval_interval 30000

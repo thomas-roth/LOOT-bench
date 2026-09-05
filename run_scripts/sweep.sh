@@ -24,6 +24,9 @@
 # wrapper puts its fixed configuration. Flags before `--` are placed after it on
 # the command line, so they win.
 #
+# Every run trains QC-FQL, evaluated over 50 episodes with 6 recorded as
+# video, unless a wrapper or flag overrides it.
+#
 # One sweep is one wandb group; the alphas in it are told apart by their
 # alpha-<a> tag. The log goes into the folder main.py writes the run itself to:
 #
@@ -415,11 +418,12 @@ start_run() {
     echo "${SWEEP_TAGS[*]},alpha-$alpha,seed-$seed"
   )"
 
-  # The wrapper's flags come first and the flags typed on top of it second, so
-  # a flag given on the command line beats the wrapper's default (absl takes
-  # the last occurrence). The sweep's own flags come last: --seed, the alpha
+  # The defaults come first, then the wrapper's flags, then the flags typed on
+  # top of it, so each stage can override the one before it (absl takes the
+  # last occurrence). The sweep's own flags come last: --seed, the alpha
   # and the group are what the sweep *is*, and are not overridable from either.
   set -- "$TASK_ID" "$DATASET" \
+    --agent=agents/acfql.py --eval_episodes 50 --video_episodes 6 \
     ${BASE_FLAGS[@]+"${BASE_FLAGS[@]}"} \
     ${USER_FLAGS[@]+"${USER_FLAGS[@]}"} \
     --seed="$seed" \

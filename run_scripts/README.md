@@ -43,7 +43,6 @@ exec "$HERE/../sweep.sh" \
   <group-name> <TASK_ID> dataset/qc/<demos>.npz \
   "$@" \
   -- \
-  --agent=agents/acfql.py \
   --offline_steps 100000
 ```
 
@@ -54,8 +53,12 @@ exec "$HERE/../sweep.sh" \
   fixed configuration — passed to `main.py` and neither tagged nor named.
   Without the split, the wrapper's own six lines would end up in every group
   name. Your flags are re-emitted *after* the wrapper's block, so they win.
-- `sweep.sh` adds no training defaults of its own: whatever the wrapper does not
-  set falls back to `main.py`'s, which are much longer runs with no video.
+- `sweep.sh` trains QC-FQL by default, evaluated over 50 episodes with 6
+  recorded as video, so a wrapper only spells out what makes it different
+  from the others. It adds no other defaults: whatever neither it nor the
+  wrapper sets falls back to `main.py`'s, which are much longer runs with no
+  video. A wrapper overrides a default the same way your flags override the
+  wrapper's.
 
 ## Names and tags
 

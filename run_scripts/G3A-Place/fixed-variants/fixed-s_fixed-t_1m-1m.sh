@@ -10,7 +10,4 @@ exec "$HERE/../../sweep.sh" \
   place_fixed-s_fixed-t_1m-1m \
   G3A-Place-FixedS-FixedT-Dk1_uni \
   dataset/qc/place_fixed-s_fixed-t_99-demos_2026-08-30_10-46-36.npz \
-  "$@" \
-  -- \
-  --agent=agents/acfql.py \
-  --video_episodes 6
+  "$@"
