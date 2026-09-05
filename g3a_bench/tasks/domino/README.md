@@ -72,10 +72,13 @@ brighter green once the whole task succeeds (unchanged from the shared
 
 ## Rewards
 
-- `progress`: placement fraction while building; for KnockOver, half the
-  placement fraction during the build phase plus half the toppled fraction
-  during the topple phase
-- `success`: bonus while the success criterion holds
+One term, in `[-1, 0]`, exactly `0` only at success
+(`docs/adr/006-one-task-reward-in-minus-one-to-zero.md`). It is shaped by the
+placement fraction while building. For KnockOver it is shaped by half the
+placement fraction during the build phase, then by half the placement
+fraction plus half the toppled fraction during the topple phase. It is
+floored at `-MIN_SHORTFALL` so that no non-success step can read a true
+zero.
 
 ## Variants
 

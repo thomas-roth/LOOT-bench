@@ -16,7 +16,7 @@ Each fixes the block set and the target height:
 Block lists are *tail-extending* across the difficulty axis within each
 family (Stack3's blocks are blocks 0..2 of Stack4, etc.) so demos for easier
 tasks can be cut from the hardest task's recordings (see
-``docs/TaskCategories.md`` "General").
+``docs/task_categories.md`` "General").
 """
 
 from dataclasses import dataclass

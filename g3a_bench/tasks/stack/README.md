@@ -30,7 +30,7 @@ multiple of 0.04 m) exactly:
 Block lists tail-extend across the difficulty axis within each family
 (Low's blocks are blocks 0..2 of Medium) and resets draw per-block
 randomness in index order, so demos for easier tasks can be cut from the
-hardest task's recordings (see `docs/TaskCategories.md`).
+hardest task's recordings (see `docs/task_categories.md`).
 
 ## Observations (state-based)
 
@@ -39,9 +39,11 @@ hardest task's recordings (see `docs/TaskCategories.md`).
 
 ## Rewards
 
-- `progress`: fraction of the target height reached by the tallest block
-  (mean over the two best-separated leaders for TwoStacks), in [0, 1]
-- `success`: bonus while the success criterion holds
+One term, in `[-1, 0]`, exactly `0` only at success
+(`docs/adr/006-one-task-reward-in-minus-one-to-zero.md`). It is shaped by the
+fraction of the target height that the tallest block reaches (the mean over
+the two best-separated leaders for TwoStacks), and floored at
+`-MIN_SHORTFALL` so that no non-success step can read a true zero.
 
 ## Variants
 

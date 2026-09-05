@@ -15,7 +15,7 @@ Each fixes the shape set and cube spawn mode:
 
 Shapes tail-extend across the difficulty axis (3 = the first 3 of the 5-shape
 list) so demos for easier tasks can be cut from the hardest task's
-recordings (see ``docs/TaskCategories.md`` "General").
+recordings (see ``docs/task_categories.md`` "General").
 """
 
 from __future__ import annotations

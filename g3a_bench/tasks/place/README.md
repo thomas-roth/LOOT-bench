@@ -51,12 +51,14 @@ task because the demo recorder and the training run must read one number.
 No term carries noise, and `actor` and `critic` read the same terms
 (`docs/adr/015-observations-carry-no-noise.md`).
 
-Two contact sensors are declared, and both are **telemetry only** — no gate
-reads them. `grip_contact` is the unfiltered gripper pads, and
-`object_contact` is the same pads filtered to the cube. The unfiltered sensor
-alone cannot answer "did the policy touch the cube", because a gripper closed
-on empty air reports its own two pads pressing together, which is what a
-failing policy does all episode.
+Two contact sensors are declared. `grip_contact` is the unfiltered gripper
+pads, and the success gate reads it: `ContactReleaseGate` requires the pad
+force at or below `MIN_GRIP_FORCE` before the cube counts as released.
+`object_contact` is the same pads filtered to the cube, and it is
+**telemetry only** — no gate reads it. The unfiltered sensor alone cannot
+answer "did the policy touch the cube", because a gripper closed on empty air
+reports its own two pads pressing together, which is what a failing policy
+does all episode. That is why the telemetry uses the filtered sensor.
 
 ## Rewards
 

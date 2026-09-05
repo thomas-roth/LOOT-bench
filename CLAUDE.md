@@ -35,10 +35,8 @@ ground truth for *why* the repo is shaped this way; `CONTEXT.md` is the glossary
 that names the concepts. If your work contradicts a record, say so and reopen
 the decision — do not overturn it in silence. The rest of `docs/` is
 descriptive, not authoritative: `task_categories.md` (per-category overview),
-`sim_settings.md`, and `rl_settings.md` — the last one is **stale on rewards
-and observation noise** (it describes two reward terms and actor-side noise;
-ADR-006 and ADR-015 govern, and the code has one reward term and no
-corruption).
+`sim_settings.md`, and `rl_settings.md`. A record always wins over them: they
+summarize the current code, and only `docs/adr/` states why.
 
 ## Commands
 

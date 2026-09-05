@@ -7,7 +7,7 @@ Fisher-Yates shuffle: object ``i`` consumes exactly one ``rand(E, 4)`` draw
 (cell pick among the cells left by objects ``0..i-1``, jitter x/y, yaw), in
 index order. Fixed draws per object, independent of the total object count,
 so a task's resets are a seed-prefix of a harder task's (see
-``docs/TaskCategories.md`` "General": demos for easier tasks are cut from
+``docs/task_categories.md`` "General": demos for easier tasks are cut from
 the hardest task's recordings). Pass explicit ``cells``/``jitter`` for
 irregular layouts.
 

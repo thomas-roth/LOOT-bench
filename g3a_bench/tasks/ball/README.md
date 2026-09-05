@@ -34,7 +34,7 @@ pose rather than a constant offset.
 The ball is *at target* when it is within the target radius and on the
 surface (for minigolf, when it has dropped below the pit's local surface).
 Success also requires the ball to be at rest and released from the gripper —
-the termination, the `success` reward, and the `episode_success` metric all
+the termination, the `task` reward, and the `episode_success` metric all
 use this same condition. The episode also terminates if the ball leaves the
 workspace, falls off the platform (minigolf — the perimeter railing normally
 prevents this; the termination is a safety net for balls that bounce over
@@ -53,8 +53,11 @@ it), or hits the wall instead of clearing it (throw).
 
 ## Rewards
 
-Sparse by design: the only task reward term is `success` (the ball is at the
-target, at rest, and released) — no shaping, penalties, or regularization.
+One term, in `[-1, 0]`, exactly `0` only at success
+(`docs/adr/006-one-task-reward-in-minus-one-to-zero.md`). Ball is the sparse
+member of the convention: it has no progress signal, so the term is `-1`
+every step until the ball scores (at the target, at rest, and released).
+There is no shaping, no penalty and no regularization.
 
 ## Variants
 

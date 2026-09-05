@@ -51,8 +51,11 @@ settling/tumbling after latching).
 
 ## Rewards
 
-- `progress`: fraction of pieces latched into their own hole, in [0, 1]
-- `success`: bonus while every piece is latched and the gripper is open
+One term, in `[-1, 0]`, exactly `0` only at success
+(`docs/adr/006-one-task-reward-in-minus-one-to-zero.md`). It is shaped by the
+fraction of the pieces latched into their own hole, and floored at
+`-MIN_SHORTFALL` so that no non-success step can read a true zero. It reads
+zero when every piece is latched and the gripper is open.
 
 ## Variants
 
