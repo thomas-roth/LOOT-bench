@@ -1,6 +1,4 @@
-"""Viewer-agnostic recording state machine (record → provisional failure →
-reset phase). Only viewer-specific drawing differs; everything else here to
-avoid drift."""
+"""Viewer-agnostic recording state machine (record, fail-grace, reset)."""
 
 import copy
 import time
@@ -11,6 +9,8 @@ import numpy as np
 import torch
 from mjlab.viewer.base import VerbosityLevel
 
+from g3a_bench.scripts.live_bridge.debug_panel import LiveDebugPanel
+
 GHOST_ROBOT_ENTITY = "robot"  # scene entity key whose geoms get ghosted
 GHOST_COLOR = (0.5, 0.6, 0.9, 0.5)  # translucent blue, the neutral/reset-target color
 GHOST_COLOR_SUCCESS = (0.3, 0.9, 0.3, 0.8)  # bright green for success feedback
@@ -20,9 +20,7 @@ RESET_THRESHOLD_RAD = 0.2  # all 6 arm joints must be within this many rad of ho
 
 
 class RecordingViewerMixin:
-    """Multi-episode recording + reset phase. States: RECORDING → (non-success
-    termination: PROVISIONAL_FAILURE, auto-saves after a 2s grace period unless
-    discarded) → RESET_PHASE → next episode."""
+    """Multi-episode recording with 2 s failure grace and reset phase."""
 
     def _init_recording(
         self,
@@ -30,19 +28,33 @@ class RecordingViewerMixin:
         robot_obs_list: list,
         hw_failed: list,
         mj_model: "_mujoco.MjModel | None",
-        live_rest_pose_rel: np.ndarray,
+        live_start_pose_rel: np.ndarray,
         task: str,
         num_episodes: int,
         debug_timing: bool,
-        sim_rest_pose: dict,
+        sim_start_pose: dict,
         home_joint_pos: dict,
+        env=None,
+        debug_obs_append: bool = False,
     ) -> None:
         """Set up recording state; call from subclass __init__."""
         self._recorder = recorder
         self._robot_obs_list = robot_obs_list
         self._hw_failed = hw_failed
         self._debug_timing = debug_timing
-        self._live_rest_pose_rel = live_rest_pose_rel
+        self._debug_panel = LiveDebugPanel(env, append_only=debug_obs_append)
+        self._live_start_pose_rel = live_start_pose_rel
+        # Reset gate reads the leader pose (sim arm is already reset).
+        if live_start_pose_rel is not None and home_joint_pos:
+            home_arm = np.array(
+                [home_joint_pos[f"joint{i}"] for i in range(1, 7)],
+                dtype=np.float32,
+            )
+            self._leader_reset_pose = home_arm + np.asarray(
+                live_start_pose_rel, dtype=np.float32
+            )
+        else:
+            self._leader_reset_pose = None
         self._spike_ms = 35.0
         self._worst_step_ms = 0.0
         self._ghost_model: _mujoco.MjModel | None = None
@@ -51,7 +63,7 @@ class RecordingViewerMixin:
         self._ghost_model_cache: dict[tuple, _mujoco.MjModel] = {}
         if mj_model is not None:
             self._ghost_model, self._ghost_qpos = build_ghost_model_and_qpos(
-                mj_model, sim_rest_pose, home_joint_pos
+                mj_model, sim_start_pose, home_joint_pos
             )
         self._task = task
         self._num_episodes = num_episodes
@@ -71,10 +83,7 @@ class RecordingViewerMixin:
     # Ghost arm helpers
 
     def _get_ghost_color(self) -> tuple[float, float, float, float]:
-        """Orange during the provisional-failure save-or-discard window;
-        success/failure color persists until the arm is realigned to the
-        reset position (_exit_reset_phase clears it); otherwise the neutral
-        reset-target color."""
+        """Ghost color for prompt, feedback, or neutral reset target."""
         if self._provisional_failure:
             return GHOST_COLOR_PROMPT
         if self._feedback_color is None:
@@ -126,7 +135,7 @@ class RecordingViewerMixin:
         # Suppress verbose per-tick spam during arm alignment
         self.verbosity = VerbosityLevel.INFO
         print(
-            f"[INFO] Reset phase — move the arm in the sim to the ghost position "
+            f"[INFO] Reset phase — move the leader arm to the ghost position "
             f"(within {RESET_THRESHOLD_RAD:.2f} rad per joint) to start next episode"
         )
 
@@ -134,6 +143,7 @@ class RecordingViewerMixin:
         self._in_reset_phase = False
         self._feedback_color = None
         self.verbosity = VerbosityLevel.DEBUG
+        self._debug_panel.reset_episode()
 
     # Custom actions (GUI buttons / keys)
 
@@ -151,6 +161,8 @@ class RecordingViewerMixin:
             frames = self._recorder.num_frames_in_episode
             self._recorder.discard_episode()
             print(f"[INFO] Episode discarded ({frames} frames dropped)")
+            if frames > 0:
+                self._debug_panel.finish_episode("DISCARDED")
             self._feedback_color = GHOST_COLOR_FAILURE
             self._enter_reset_phase()
         elif payload == "undo":
@@ -169,7 +181,7 @@ class RecordingViewerMixin:
         return True
 
     def _undo_last_save(self) -> None:
-        """Drop the last saved (still staged) episode — single-level undo."""
+        """Drop last staged episode; single-level undo."""
         label = self._recorder.undo_last_save()
         if label is None:
             print("[INFO] Nothing to undo (no episode staged)")
@@ -198,6 +210,7 @@ class RecordingViewerMixin:
         print(
             f"[INFO] Episode {self.episodes_saved} saved as {label} ({frames} frames)"
         )
+        self._debug_panel.finish_episode(label)
 
         self._feedback_color = GHOST_COLOR_SUCCESS if success else GHOST_COLOR_FAILURE
 
@@ -217,16 +230,14 @@ class RecordingViewerMixin:
 
     @staticmethod
     def _read_success_from_extras(extras: dict) -> bool:
-        """Read whether the success termination fired from the extras dict
-        returned by env.step().  This is reliable because extras is populated
-        during the auto-reset inside step() and is a fresh snapshot."""
+        """Whether the success termination fired; extras is a fresh snapshot
+        taken during the auto-reset inside env.step()."""
         log = RecordingViewerMixin._get_termination_log(extras)
         return bool(log.get("Episode_Termination/success", 0) > 0)
 
     @staticmethod
     def _read_fired_from_extras(extras: dict) -> str:
-        """Names of the termination terms that fired, read from the extras
-        dict returned by env.step() (populated during auto-reset)."""
+        """Names of the termination terms that fired, read from step() extras."""
         log = RecordingViewerMixin._get_termination_log(extras)
         fired = [
             k.removeprefix("Episode_Termination/")
@@ -236,9 +247,7 @@ class RecordingViewerMixin:
         return ", ".join(fired) or "unknown"
 
     def _handle_done(self, is_success: bool, extras: dict) -> None:
-        """Episode label = which termination fired: success termination saves
-        as success; any other termination enters PROVISIONAL_FAILURE (auto-saves
-        as failure after the grace period unless F saves now or D discards)."""
+        """Success saves at once; other dones get a 2 s failure grace."""
         if is_success:
             print("[INFO] Task succeeded — auto-saving as success")
             self._end_episode(success=True)
@@ -260,8 +269,7 @@ class RecordingViewerMixin:
     # HUD
 
     def _hud_text(self) -> tuple[str, str]:
-        """Two-column HUD text (labels, values) for the viewer's text overlay:
-        state, saved counts, staged/undo info, and the currently valid keys."""
+        """Two-column HUD text: state, counts, and valid keys."""
         if self._provisional_failure:
             state = "SAVE OR DISCARD?"
             keys = "V save success   F save failure   D discard   C wrist cam"
@@ -324,10 +332,17 @@ class RecordingViewerMixin:
                     self.env.step(actions)
                     self._step_count += 1
                     self._stats_steps += 1
-                    joint_pos_rel = obs["actor"][0, :6].cpu().numpy()
-                    if np.all(
-                        np.abs(joint_pos_rel - self._live_rest_pose_rel)
-                        < RESET_THRESHOLD_RAD
+                    # Gate on leader pose; sim arm was reset already.
+                    leader_action = getattr(self.policy, "latest_leader_action", None)
+                    if (
+                        leader_action is not None
+                        and self._leader_reset_pose is not None
+                        and np.all(
+                            np.abs(
+                                np.asarray(leader_action)[:6] - self._leader_reset_pose
+                            )
+                            < RESET_THRESHOLD_RAD
+                        )
                     ):
                         self._exit_reset_phase()
                         print(
@@ -359,14 +374,10 @@ class RecordingViewerMixin:
                 leader_action = getattr(self.policy, "latest_leader_action", None)
                 robot_obs = self._robot_obs_list[0]
                 if leader_action is not None and robot_obs is not None:
-                    # Ground-truth sim state. Cloned because the qpos buffer is
-                    # overwritten next step, and kept on-device — the GPU→CPU
-                    # copy is deferred to save time so this loop pays no extra
-                    # CUDA sync (that stall dropped live fps from 60 to 45).
+                    # Clone sim state; buffer is overwritten next step.
                     qpos_t = self.env.env.sim.data.qpos[0].clone()
                     qvel_t = self.env.env.sim.data.qvel[0].clone()
-                    # rew[0] and dones[0] are GPU tensors — defer .item() to
-                    # save_episode() to avoid per-step CUDA syncs.
+                    # rew/dones stay on GPU; .item() deferred to save time.
                     self._recorder.add_frame(
                         {"actor": obs["actor"]},
                         leader_action,
@@ -376,6 +387,18 @@ class RecordingViewerMixin:
                         robot_obs=robot_obs,
                         qpos=qpos_t,
                         qvel=qvel_t,
+                    )
+                    # Show exactly what was recorded; status is already cached.
+                    get_status = getattr(self, "get_status", None)
+                    self._debug_panel.update(
+                        obs["actor"][0],
+                        leader_action,
+                        rew[0],
+                        dones[0],
+                        robot_state=robot_obs,
+                        qpos=qpos_t,
+                        qvel=qvel_t,
+                        status=get_status() if get_status is not None else None,
                     )
                 t4 = time.perf_counter()
 
@@ -402,10 +425,10 @@ class RecordingViewerMixin:
 
 def build_ghost_model_and_qpos(
     mj_model: "_mujoco.MjModel",
-    sim_rest_pose: dict,
+    sim_start_pose: dict,
     home_joint_pos: dict,
 ) -> "tuple[_mujoco.MjModel, np.ndarray]":
-    """Build ghost model: robot visual geoms only, colored, at rest pose."""
+    """Build ghost model: robot visual geoms only, colored, at the start pose."""
     ghost_model = copy.deepcopy(mj_model)
     prefix = f"{GHOST_ROBOT_ENTITY}/"
     for gi in range(ghost_model.ngeom):
@@ -425,7 +448,7 @@ def build_ghost_model_and_qpos(
             ghost_model.geom_rgba[gi, 3] = 0
 
     qpos = ghost_model.qpos0.copy()
-    ghost_pose = {**home_joint_pos, **sim_rest_pose}
+    ghost_pose = {**home_joint_pos, **sim_start_pose}
     for joint_name, value in ghost_pose.items():
         jid = _mujoco.mj_name2id(
             ghost_model, _mujoco.mjtObj.mjOBJ_JOINT, f"{prefix}{joint_name}"

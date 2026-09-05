@@ -1,15 +1,4 @@
-"""MjSpec builders and board layout for the peg-insertion task category.
-
-ARCHIVED (unregistered): see ``README.md``/``variants.py``.
-
-Boards are *fixed-base* entities: a body with no free joint, which mjlab
-auto-wraps as a mocap body pinned to the env origin. Pegs (and the movable
-top sheet of the two-sheet variant) are free bodies.
-
-The same ``socket_layout`` is used both to build the bore geometry and by the
-command term to compute goal poses and insertion success, so geometry and
-success metric can never drift apart.
-"""
+"""MjSpec builders for archived peg-insertion. See README and variants."""
 # pyright: reportAttributeAccessIssue=false
 # (mujoco ships no type stubs for the compiled MjSpec module)
 
@@ -52,10 +41,7 @@ SHEET_HALF_Z = 0.008
 # Vertical clearance between the fixed bottom sheet and the movable top
 # sheet resting on it.
 SHEET_GAP = 0.001
-# Root (body-origin) height of the movable top sheet once it rests on the
-# fixed bottom sheet, and the height of the resulting through-hole's mouth
-# (its top surface) -- shared by socket_layout() and the reset placement in
-# InsertionCommand._resample_command so they can't drift apart.
+# Root height of the top sheet on the bottom sheet, and mouth height.
 SHEET_TOP_ROOT_Z = 3 * SHEET_HALF_Z + SHEET_GAP
 SHEET_MOUTH_Z = SHEET_TOP_ROOT_Z + SHEET_HALF_Z
 
@@ -75,11 +61,7 @@ def _normalize(v: np.ndarray) -> np.ndarray:
 
 
 def frame_axes(axis_out: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Right-handed basis (c0, c1, axis_out) spanning the bore cross section.
-
-    Public because the command's debug visualization orients its box markers
-    with the same basis as the bore walls built here.
-    """
+    """Right-handed basis (c0, c1, axis_out) for the bore cross section."""
     a = _normalize(axis_out)
     t = np.array([0.0, 0.0, 1.0]) if abs(a[2]) < 0.9 else np.array([1.0, 0.0, 0.0])
     c0 = _normalize(np.cross(t, a))
@@ -161,9 +143,7 @@ def socket_layout(variant: InsertionVariantCfg) -> list[SocketFrame]:
         return frames
 
     if variant.kind == "two_sheet":
-        # The through-hole's mouth is the top surface of the movable sheet
-        # once it rests on the fixed bottom sheet -- see get_sheet_board_spec
-        # / get_sheet_spec and the SHEET_MOUTH_Z derivation above.
+        # Mouth is the top surface of the resting top sheet.
         s = variant.sockets[0]
         mouth = np.array([0.0, 0.0, SHEET_MOUTH_Z])
         frames.append(SocketFrame(mouth, np.array([0.0, 0.0, 1.0]), s.shape, s.color))
@@ -249,8 +229,7 @@ def _add_walls(body, frame: SocketFrame, bore_depth: float, rgba) -> None:
 def get_board_spec(variant: InsertionVariantCfg, name: str = "board") -> mujoco.MjSpec:
     """Fixed-base board: base structure plus one bore per socket."""
     spec = mujoco.MjSpec()
-    # Body stays at the origin; placement is via EntityCfg.init_state.pos
-    # (mjlab overwrites a fixed-base root body's pose from init_state).
+    # Body stays at origin. Placement comes from init_state.pos.
     board = spec.worldbody.add_body(name=name)
     frames = socket_layout(variant)
 

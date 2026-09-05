@@ -24,6 +24,7 @@ from g3a_bench.tasks.domino.mdp.success import (
     domino_fallen_along_row,
     domino_upright_aligned,
 )
+from g3a_bench.tasks.place.mdp.success import place_progress, place_reached
 from g3a_bench.tasks.shape_sorter.mdp.success import SorterLatch
 from g3a_bench.tasks.shape_sorter.variants import SHAPE_SORTER_VARIANTS, allowed_faces
 from g3a_bench.tasks.stack.mdp.success import (
@@ -132,6 +133,48 @@ class TestBallInTargetZone:
 
     def test_outside_radius_fails(self):
         assert not self._at([0.6, 0.0, 0.1], hole=False)[0]
+
+
+# ---------------------------------------------------------------------------
+# place_reached / place_progress
+# ---------------------------------------------------------------------------
+
+
+class TestPlaceReached:
+    def _at(self, dist: float, threshold: float = 0.02) -> bool:
+        return bool(place_reached(torch.tensor([dist]), threshold)[0])
+
+    def test_inside_threshold(self):
+        assert self._at(0.019)
+
+    def test_threshold_is_exclusive(self):
+        assert not self._at(0.02)
+
+    def test_outside_threshold(self):
+        assert not self._at(0.05)
+
+    def test_margin_widens_the_tolerance(self):
+        assert not self._at(0.03)
+        assert self._at(0.03, threshold=0.02 * 2.0)
+
+
+class TestPlaceProgress:
+    def _p(self, dist: float, max_dist: float = 0.4) -> float:
+        return float(place_progress(torch.tensor([dist]), max_dist)[0])
+
+    def test_one_at_the_target(self):
+        assert self._p(0.0) == pytest.approx(1.0)
+
+    def test_zero_at_max_travel(self):
+        assert self._p(0.4) == pytest.approx(0.0)
+
+    def test_linear_between(self):
+        assert self._p(0.1) == pytest.approx(0.75)
+
+    def test_clamped_beyond_max_travel(self):
+        # A cube knocked outside the workspace cannot score negative progress,
+        # which would drive the reward below -1.
+        assert self._p(1.0) == pytest.approx(0.0)
 
 
 # ---------------------------------------------------------------------------

@@ -47,11 +47,10 @@ def ball_off_platform(
 ) -> torch.Tensor:
     """Ball dropped below the platform's base level outside the pit.
 
-    ``spawn_z`` is the platform's base elevation -- constant across every
-    minigolf layout, including Ramp's raised target section -- so a ball
-    anywhere on the platform (low section, incline, or raised section) stays
-    at or above it; the Chebyshev distance to the (possibly elevated) target
-    keeps the pit itself, which legitimately drops below this level, exempt.
+    ``spawn_z`` is the platform base elevation, constant across minigolf
+    layouts. A ball on the platform stays at or above it. The Chebyshev
+    distance to the (possibly elevated) target keeps the pit itself, which
+    legitimately drops below this level, exempt.
     """
     command = _command(env, command_name)
     below = command.ball_pos_w[:, 2] < command.spawn_z
@@ -73,7 +72,7 @@ def ball_hits_wall(
     Uses the command's live ``wall_pos_w``: for ThrowWallVariation the wall
     is a separately-moving fixed entity; for the other throw variants it's
     baked into the field, offset by the field's own live pose. The wall box
-    is inflated by the ball radius on every side — on contact the ball's
+    is inflated by the ball radius on every side. On contact the ball's
     *center* stays a radius away from the wall surface.
     """
     command = _command(env, command_name)

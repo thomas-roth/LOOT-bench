@@ -14,10 +14,7 @@ from g3a_bench.tasks.shape_sorter.mdp.observations import (
     socket_inserted as socket_inserted,
 )
 from g3a_bench.tasks.shape_sorter.mdp.rewards import (
-    progress_reward as progress_reward,
-)
-from g3a_bench.tasks.shape_sorter.mdp.rewards import (
-    success_reward as success_reward,
+    task_reward as task_reward,
 )
 from g3a_bench.tasks.shape_sorter.mdp.terminations import (
     sorter_complete as sorter_complete,

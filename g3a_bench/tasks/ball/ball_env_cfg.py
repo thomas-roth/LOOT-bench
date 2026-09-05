@@ -6,7 +6,6 @@ from mjlab.managers.observation_manager import ObservationTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.managers.termination_manager import TerminationTermCfg
-from mjlab.utils.noise import UniformNoiseCfg as Unoise
 
 from g3a_bench.tasks.ball import mdp as ball_mdp
 from g3a_bench.tasks.ball.assets import get_ball_spec, get_field_spec, get_wall_spec
@@ -16,8 +15,7 @@ from g3a_bench.tasks.common.table import table_entity_cfg
 
 COMMAND_NAME = "task"
 
-# Goal randomization: the field (and, for ThrowWallVariation, the wall) is
-# perturbed around its init pose every reset instead of pinned exactly.
+# Field and wall are perturbed around init pose each reset.
 _FIELD_POSE_RANGE = {"x": (-0.02, 0.02), "y": (-0.03, 0.03)}
 _WALL_POSE_RANGE = {"x": (-0.06, 0.06), "z": (-0.08, 0.0)}
 
@@ -49,29 +47,25 @@ def make_ball_env_cfg(
         "ball_pose": ObservationTermCfg(
             func=ball_mdp.ball_pose,
             params={"command_name": COMMAND_NAME},
-            noise=Unoise(n_min=-0.01, n_max=0.01),
         ),
         "field_pose": ObservationTermCfg(
             func=ball_mdp.field_pose,
             params={"command_name": COMMAND_NAME},
-            noise=Unoise(n_min=-0.01, n_max=0.01),
         ),
         "ball_velocity": ObservationTermCfg(
             func=ball_mdp.ball_velocity,
             params={"command_name": COMMAND_NAME},
-            noise=Unoise(n_min=-0.05, n_max=0.05),
         ),
     }
     if wall_name is not None:
         task_obs_terms["wall_pose"] = ObservationTermCfg(
             func=ball_mdp.wall_pose,
             params={"command_name": COMMAND_NAME},
-            noise=Unoise(n_min=-0.01, n_max=0.01),
         )
 
     task_rewards = {
-        "success": RewardTermCfg(
-            func=ball_mdp.success_reward,
+        "task": RewardTermCfg(
+            func=ball_mdp.task_reward,
             weight=1.0,
             params={"command_name": COMMAND_NAME},
         ),
@@ -112,9 +106,7 @@ def make_ball_env_cfg(
             grasp_cfg=grasp_cfg,
         ),
         task_obs_terms=task_obs_terms,
-        # The target position is per-episode random (the field is
-        # randomized each reset); command now carries the raw env-local
-        # target position (fixed from a ball-relative delta - see spec).
+        # Target varies per episode, so expose the command observation.
         command_obs=True,
         task_rewards=task_rewards,
         task_terminations=task_terminations,

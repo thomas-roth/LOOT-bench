@@ -1,4 +1,4 @@
-"""Teleport-based success-reward check for the four task categories.
+"""Teleport-based success-reward check for the five task categories.
 
 See tests/tasks/README.md.
 """
@@ -28,6 +28,7 @@ from g3a_bench.tasks.ball.variants import (
     TARGET_X,
 )
 from g3a_bench.tasks.domino.mdp.commands import DominoCommand
+from g3a_bench.tasks.place.mdp.commands import PlaceCommand
 from g3a_bench.tasks.shape_sorter.assets import BOARD_POS, load_sorter_layout
 from g3a_bench.tasks.shape_sorter.mdp.commands import ShapeSorterCommand
 from g3a_bench.tasks.stack.mdp.commands import StackCommand
@@ -37,7 +38,7 @@ _NUM_ENVS = 8
 _STEPS = 10
 _KNOCKOVER_STEPS = 100
 """Control dt = timestep(0.005) * decimation(4) = 0.02 s, so 100 steps is
-~2.0 s -- enough for a 3-domino chain reaction to propagate and settle."""
+~2.0 s. Enough for a 3-domino chain reaction to propagate and settle."""
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -64,6 +65,44 @@ def _zeros(env: ManagerBasedRlEnv, device: str) -> torch.Tensor:
 def _upright_quat(n: int, device: str) -> torch.Tensor:
     z = torch.zeros(n, device=device)
     return quat_from_euler_xyz(z, z, z)
+
+
+def _reward_convention_error(env: ManagerBasedRlEnv, zeros: torch.Tensor) -> str | None:
+    """Check the reward convention on a live env holding a scored state.
+
+    ``tasks/common/rewards.py`` promises a reward in ``[-1, 0]`` that reads
+    exactly ``0`` only at success. ``tests/tasks/test_rewards.py`` pins the
+    kernel; this pins the wiring, which is the half a unit test cannot reach:
+    that each category's command really does feed its own success and progress
+    buffers to that kernel, and that the reward manager publishes the result
+    unscaled.
+
+    Takes one step of its own, because the reward lags the command by exactly
+    one step. Mjlab runs the reward manager before the command manager, so
+    the reward a step returns was computed from the success buffer as it stood
+    *before* that step. Snapshotting success first and then stepping is what
+    makes the comparison line up. Reading both after the same step instead
+    looks correct on a settled scene and silently disagrees on a moving one,
+    which is how a stale-by-one reward hides.
+
+    ``_make_env`` pops the success termination, so a scored env stays scored
+    instead of resetting out from under the read.
+    """
+    command = env.command_manager.get_term("task")
+    success = command.success.bool().clone()  # type: ignore[attr-defined]
+    env.step(zeros)
+    reward = env.reward_buf
+
+    lo, hi = float(reward.min()), float(reward.max())
+    if hi > 0.0 or lo < -1.0:
+        return f"reward {lo:.4f}..{hi:.4f} outside [-1, 0]"
+    scored = reward == 0.0
+    if not bool((scored == success).all()):
+        return (
+            f"reward==0 on {int(scored.sum())} envs but success on "
+            f"{int(success.sum())} of {reward.numel()}"
+        )
+    return None
 
 
 def _render_goal(env: ManagerBasedRlEnv, task_id: str, render: bool) -> None:
@@ -145,9 +184,10 @@ def _check_stack_low(device: str, *, render: bool = False) -> str | None:
     for _ in range(_STEPS):
         env.step(zeros)
     frac = cmd.progress.mean().item()
+    reward_err = _reward_convention_error(env, zeros)
     _render_goal(env, task_id, render)
     env.close()
-    return None if frac > 0.9 else f"progress={frac:.3f} (expected >0.9)"
+    return f"progress={frac:.3f} (expected >0.9)" if frac <= 0.9 else reward_err
 
 
 def _check_stack_low_two_stacks(device: str, *, render: bool = False) -> str | None:
@@ -160,9 +200,42 @@ def _check_stack_low_two_stacks(device: str, *, render: bool = False) -> str | N
     for _ in range(_STEPS):
         env.step(zeros)
     frac = cmd.progress.mean().item()
+    reward_err = _reward_convention_error(env, zeros)
     _render_goal(env, task_id, render)
     env.close()
-    return None if frac > 0.9 else f"progress={frac:.3f} (expected >0.9)"
+    return f"progress={frac:.3f} (expected >0.9)" if frac <= 0.9 else reward_err
+
+
+# ---------------------------------------------------------------------------
+# Place
+# ---------------------------------------------------------------------------
+
+
+def _check_place(task_id: str, device: str, *, render: bool = False) -> str | None:
+    """Teleport the cube onto the target.
+
+    Parameterized by task id because the place category's four variants only
+    differ in which of the two draws (cube spawn, target) is pinned. The
+    success criterion is the same for all of them.
+    """
+    env = _make_env(task_id, device)
+    cmd = cast(PlaceCommand, env.command_manager.get_term("task"))
+    zeros = _zeros(env, device)
+    env.step(zeros)
+    # The target already sits at the cube's resting height, so teleporting the
+    # cube onto it needs no z correction.
+    quat = _upright_quat(_NUM_ENVS, device)
+    cmd.cube.write_root_link_pose_to_sim(
+        torch.cat([cmd.target_pos_w, quat], dim=-1),
+    )
+    cmd.cube.write_root_link_velocity_to_sim(torch.zeros(_NUM_ENVS, 6, device=device))
+    for _ in range(_STEPS):
+        env.step(zeros)
+    frac = cmd.reached.float().mean().item()
+    reward_err = _reward_convention_error(env, zeros)
+    _render_goal(env, task_id, render)
+    env.close()
+    return f"reached_fraction={frac:.3f} (expected >0.9)" if frac <= 0.9 else reward_err
 
 
 # ---------------------------------------------------------------------------
@@ -185,16 +258,14 @@ def _teleport_dominoes_upright(cmd: DominoCommand, device: str) -> None:
 def _tip_first_domino(cmd: DominoCommand, env: ManagerBasedRlEnv, device: str) -> None:
     """Tilt only domino 0, ~25 deg toward slot 1, and let physics do the rest.
 
-    The chain criterion (``domino_fallen_along_row`` / ``chain_topple_success``
-    in ``mdp/success.py``) requires the whole row to topple *along the row
-    axis*, all leaning the same way, in row order -- so instead of teleporting
-    every domino into a "fallen" pose (the old, now-invalid semantics), this
-    seeds only the first domino past its tip-over point and simulates the
-    chain reaction through the rest of the row.
+    The chain criterion requires the whole row to topple along the row axis,
+    all leaning the same way, in row order. So instead of teleporting every
+    domino into a "fallen" pose, this seeds only the first domino past its
+    tip-over point and simulates the chain reaction.
 
     A positive pitch about the domino's body y-axis (composed after the
     upright/row-yaw quat, i.e. in the body frame) tips its body z-axis toward
-    its body x-axis -- which, upright, points along the row toward slot 1. A
+    its body x-axis. Upright, it points along the row toward slot 1. A
     domino tips over once past ~atan(hx/hz) =~ 12 deg, so 25 deg guarantees a
     fall without an initial velocity kick.
     """
@@ -226,9 +297,10 @@ def _check_domino_3pieces(device: str, *, render: bool = False) -> str | None:
     for _ in range(_STEPS):
         env.step(zeros)
     frac = cmd.progress.mean().item()
+    reward_err = _reward_convention_error(env, zeros)
     _render_goal(env, task_id, render)
     env.close()
-    return None if frac > 0.9 else f"placed_fraction={frac:.3f} (expected >0.9)"
+    return f"placed_fraction={frac:.3f} (expected >0.9)" if frac <= 0.9 else reward_err
 
 
 def _check_domino_knockover(device: str, *, render: bool = False) -> str | None:
@@ -249,9 +321,10 @@ def _check_domino_knockover(device: str, *, render: bool = False) -> str | None:
     for _ in range(_KNOCKOVER_STEPS):
         env.step(zeros)
     frac = cmd.progress.mean().item()
+    reward_err = _reward_convention_error(env, zeros)
     _render_goal(env, task_id, render)
     env.close()
-    return None if frac > 0.9 else f"progress={frac:.3f} (expected >0.9)"
+    return f"progress={frac:.3f} (expected >0.9)" if frac <= 0.9 else reward_err
 
 
 # ---------------------------------------------------------------------------
@@ -283,8 +356,7 @@ def _check_shape_sorter_full(device: str, *, render: bool = False) -> str | None
     """Per socket: reorient the cube hole-up, two-station insert; all latch.
 
     The cube can only present one hole up at a time, so pieces are latched in
-    sequentially -- the latch is monotonic (never clears except on reset), so
-    an earlier piece stays scored while later sockets are reoriented to.
+    sequence. The latch is monotonic (never clears except on reset).
 
     Each piece is parked out of the cube right after its own crossing is
     registered: three teleported pieces don't all fit in the small hollow
@@ -354,9 +426,10 @@ def _check_shape_sorter_full(device: str, *, render: bool = False) -> str | None
     for _ in range(_STEPS):
         env.step(zeros)
     frac = cmd.progress.mean().item()
+    reward_err = _reward_convention_error(env, zeros)
     _render_goal(env, task_id, render)
     env.close()
-    return None if frac > 0.9 else f"latched_fraction={frac:.3f} (expected >0.9)"
+    return f"latched_fraction={frac:.3f} (expected >0.9)" if frac <= 0.9 else reward_err
 
 
 # ---------------------------------------------------------------------------
@@ -388,9 +461,12 @@ def _check_ball_at_target(
     for _ in range(_STEPS):
         env.step(zeros)
     frac = cmd.at_target.mean().item()
+    reward_err = _reward_convention_error(env, zeros)
     _render_goal(env, task_id, render)
     env.close()
-    return None if frac > 0.9 else f"at_target_fraction={frac:.3f} (expected >0.9)"
+    return (
+        f"at_target_fraction={frac:.3f} (expected >0.9)" if frac <= 0.9 else reward_err
+    )
 
 
 def _segment_intersects_aabb(
@@ -459,7 +535,18 @@ def _check_ball_minigolf_using_wall(device: str, *, render: bool = False) -> str
 # Test table
 # ---------------------------------------------------------------------------
 
+_PLACE_TASK_IDS: dict[str, str] = {
+    "place_rands_randt": "G3A-Place-RandS-RandT-Dk1_uni",
+    "place_rands_fixedt": "G3A-Place-RandS-FixedT-Dk1_uni",
+    "place_fixeds_randt": "G3A-Place-FixedS-RandT-Dk1_uni",
+    "place_fixeds_fixedt": "G3A-Place-FixedS-FixedT-Dk1_uni",
+}
+
 _CHECKS: list[tuple[str, str]] = [
+    ("Place     RandS-RandT  ", "place_rands_randt"),
+    ("Place     RandS-FixedT ", "place_rands_fixedt"),
+    ("Place     FixedS-RandT ", "place_fixeds_randt"),
+    ("Place     FixedS-FixedT", "place_fixeds_fixedt"),
     ("Stack     Low          ", "stack_low"),
     ("Stack     Low-TwoStacks", "stack_low_two_stacks"),
     ("Domino    3Pieces       ", "domino_3pieces"),
@@ -472,6 +559,8 @@ _CHECKS: list[tuple[str, str]] = [
 
 
 def _dispatch(key: str, device: str, *, render: bool = False) -> str | None:
+    if key.startswith("place_"):
+        return _check_place(_PLACE_TASK_IDS[key], device, render=render)
     if key == "stack_low":
         return _check_stack_low(device, render=render)
     if key == "stack_low_two_stacks":

@@ -6,7 +6,6 @@ from mjlab.managers.observation_manager import ObservationTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.termination_manager import TerminationTermCfg
 from mjlab.sensor import ContactMatch, ContactSensorCfg
-from mjlab.utils.noise import UniformNoiseCfg as Unoise
 
 from g3a_bench.tasks.common.commands import GRIP_CONTACT_SENSOR_NAME
 from g3a_bench.tasks.common.env_cfg import make_manipulation_env_cfg
@@ -36,18 +35,12 @@ def make_stack_env_cfg(
         "block_poses": ObservationTermCfg(
             func=stack_mdp.block_poses,
             params={"command_name": COMMAND_NAME},
-            noise=Unoise(n_min=-0.01, n_max=0.01),
         ),
     }
 
     task_rewards = {
-        "progress": RewardTermCfg(
-            func=stack_mdp.progress_reward,
-            weight=1.0,
-            params={"command_name": COMMAND_NAME},
-        ),
-        "success": RewardTermCfg(
-            func=stack_mdp.success_reward,
+        "task": RewardTermCfg(
+            func=stack_mdp.task_reward,
             weight=1.0,
             params={"command_name": COMMAND_NAME},
         ),
@@ -80,8 +73,7 @@ def make_stack_env_cfg(
             debug_vis=True,
         ),
         task_obs_terms=task_obs_terms,
-        # The target height is a per-task constant; the raw command would be
-        # a constant observation.
+        # Target height is constant, so hide the command observation.
         command_obs=False,
         task_rewards=task_rewards,
         task_terminations=task_terminations,
@@ -89,10 +81,7 @@ def make_stack_env_cfg(
         env_spacing=1.5,
         episode_length_s=10.0 * variant.target_blocks * (variant.two_stacks + 1),
         nconmax=100 + 120 * num_blocks,
-        # nativeccd is disabled for better box-to-box collisions, which raises
-        # the constraint count for multi-block contacts; give njmax headroom.
-        # Block sets now carry more material (2n / 2n+2, see variants.py), so
-        # this needs more headroom than the old n-block formula provided.
+        # Extra headroom for multi-block contacts with nativeccd disabled.
         njmax=1200 + (400 if variant.two_stacks else 300) * num_blocks,
         play=play,
     )

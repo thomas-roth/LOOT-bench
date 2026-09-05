@@ -120,6 +120,20 @@ Throw the ball over a wall to reach the target. Evaluate whether reduced gravity
 | `markedArea` | A marked area defines the goal. |
 | `wallVariation` | Vary wall height and the robot-to-wall distance. |
 
+## Category: Place
+
+Carry one cube to a target spot on the table and release it there.
+
+**This is a debug task.** It is the sanity check the QC-FQL training pipeline is brought up
+on: the smallest complete manipulation task, used to prove the pipeline can learn *something*
+before a real category is attempted.
+
+| **Variation** | Description |
+| --- | --- |
+| `randS-randT` | Cube spawn and target both sampled every reset; the real task. |
+| `randS-fixedT` | Cube spawn sampled, target pinned. |
+| `fixedS-randT` | Cube spawn pinned, target sampled. |
+| `fixedS-fixedT` | Both pinned; the smallest learnable version. |
 
 ## Future Work (don't implement for now):
 

@@ -23,11 +23,7 @@ from g3a_bench.robots.trlc_dk1.dk1_collision import (
     GRIPPER_ONLY_WITH_SELF_COLLISION,
 )
 
-##
-# Interface identifiers
-#
-# Consumed by get_unimanual_dk1_interface or get_bimanual_dk1_interface.
-##
+# Interface identifiers.
 
 DK1_NAME_UNIMANUAL = "Dk1_uni"
 DK1_NAME_BIMANUAL = "Dk1_bi"
@@ -38,17 +34,13 @@ DK1_GRIPPER_JOINTS_UNIMANUAL = ("gripper_left",)
 DK1_GRIPPER_JOINTS_BIMANUAL = ("left_gripper_left", "right_gripper_left")
 DK1_GRIPPER_OPEN_THRESHOLD = gripper_open_threshold(GRIPPER_MECHANICAL_RANGE)
 
-##
 # MJCF.
-##
 
 _DK1_XML_PATH: Path = Path(__file__).resolve().parent / "xml" / "dk1.xml"
 assert _DK1_XML_PATH.exists()
 
 
-##
 # Keyframe config.
-##
 
 # Ready pose: gripper pointing straight down (q2 - q3 - q4 = pi/2), grasp site
 # hovering at roughly (0.30, 0.0, 0.20) in the base frame, fingers open.
@@ -64,6 +56,24 @@ HOME_JOINT_POS: dict[str, float] = {
 }
 
 
+# Episode start pose (arm joints). Matches teleop align pose; gripper unsampled.
+# Gripper kept open: 0.046 m stroke would start half-closed if sampled.
+START_JOINT_POS: dict[str, float] = {
+    f"joint{i}": HOME_JOINT_POS[f"joint{i}"] for i in range(1, 7)
+}
+
+
+# Rest pose measured on the physical DK1. Not the start pose; nothing reads it.
+REST_JOINT_POS: dict[str, float] = {
+    "joint1": +0.1565,
+    "joint2": +0.0015,
+    "joint3": +0.0015,
+    "joint4": -0.0153,
+    "joint5": +0.0153,
+    "joint6": +0.0276,
+}
+
+
 def _home_keyframe(prefix: str = "") -> EntityCfg.InitialStateCfg:
     return EntityCfg.InitialStateCfg(
         pos=(0.0, 0.0, 0.0),
@@ -72,17 +82,12 @@ def _home_keyframe(prefix: str = "") -> EntityCfg.InitialStateCfg:
     )
 
 
-##
 # Unimanual config: single DK1 arm.
-##
 
 
 def get_unimanual_spec() -> mujoco.MjSpec:
     spec = mujoco.MjSpec.from_file(str(_DK1_XML_PATH))
-    # base/link1-2 mesh surfaces interpenetrate slightly at rest (joint1's own
-    # axis). MuJoCo's default parent-child contact filter doesn't catch this
-    # pair for some reason, so the resulting contact force fights the joint1
-    # actuator and effectively locks the base rotation. Exclude explicitly.
+    # Exclude base/link1-2: interpenetrating meshes lock joint1 otherwise.
     spec.add_exclude(
         bodyname1="base", bodyname2="link1-2"
     )  # TODO: check if actually needed
@@ -101,9 +106,7 @@ def get_unimanual_dk1_robot_cfg(full_collision: bool = False) -> EntityCfg:
     )
 
 
-##
 # Bimanual config: two DK1 arms on a shared mount, facing +x.
-##
 
 _BIMANUAL_ARM_SEPARATION = 0.4
 "[m], distance between the two base centers."

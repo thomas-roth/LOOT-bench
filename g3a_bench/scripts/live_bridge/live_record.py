@@ -1,17 +1,7 @@
-"""Live teleop + sim mirroring + recording.
+"""Live teleop + sim mirroring + recording for DK1.
 
-Connects to real DK1 hardware (leader + follower), mirrors movements
-in MJLab simulation, records sim and real observations to a LeRobot dataset,
-and shows the sim in a native MuJoCo viewer window.
-
-Architecture (decoupled threads):
-
-  Hardware thread (~200 Hz):
-      leader.get_action() → follower.send_action()
-      → push leader action to shared list (last-writer-wins)
-
-  Main thread (LiveReaderViewer, sim-paced):
-      pop latest action → mapper → env.step() → recorder.add_frame()
+HW thread (~200 Hz) feeds leader actions; main thread steps sim and records.
+Non-success done auto-saves as failure after 2 s grace.
 
 State machine (per episode):
   RECORDING            normal step loop; done=True → _handle_done()
@@ -22,29 +12,13 @@ State machine (per episode):
   RESET_PHASE          ghost arm visible at home; sim live (not recorded)
 
 Key bindings:
-    V  save episode as SUCCESS (also fires automatically on task
-       completion)
+    V  save episode as SUCCESS (also fires automatically on task completion)
     F  save episode as FAILURE  (also fires automatically ~2s after a collision)
     D  discard episode
     U  undo the last saved episode
     Q  stop session and finalize dataset
-    C         toggle viewer between the front camera and the robot's wrist camera
-              (clearer gripper view while teleoperating demos)
-
-    Main-row digit keys are NOT usable here — MuJoCo's native viewer swallows
-    them internally to toggle render-group visibility before they ever reach
-    this script's key handler. An on-screen HUD (bottom-left) shows the state,
-    saved counts and the currently valid keys.
-
-Usage:
-    uv run python g3a_bench/scripts/live_bridge/live_record.py
-
-    With real follower arm:
-    uv run python g3a_bench/scripts/live_bridge/live_record.py --follower
-
-    With explicit ports:
-    uv run python g3a_bench/scripts/live_bridge/live_record.py --follower \\
-        --follower-port /dev/ttyACM1 --leader-port /dev/ttyACM0
+    C  toggle viewer between the front camera and the robot's wrist camera
+       (clearer gripper view while teleoperating demos)
 """
 
 # Load lerobot/HF-datasets native libs before mjlab/mujoco-warp to avoid a
@@ -77,7 +51,7 @@ from mjlab.viewer.native.keys import KEY_C, KEY_D, KEY_F, KEY_Q, KEY_U, KEY_V
 from mjlab.viewer.native.visualizer import MujocoNativeDebugVisualizer
 
 import g3a_bench  # noqa: F401
-from g3a_bench.robots.trlc_dk1.dk1_constants import HOME_JOINT_POS
+from g3a_bench.robots.trlc_dk1.dk1_constants import HOME_JOINT_POS, START_JOINT_POS
 from g3a_bench.scripts.live_bridge.mapper import (
     lerobot_to_mjlab_raw_action,
 )
@@ -104,24 +78,18 @@ DEMOS_DIR = Path(__file__).resolve().parents[3] / "out" / "demos"
 USE_FOLLOWER_STATE_FOR_SIM = (
     False  # True → follower joint obs drives sim instead of leader action
 )
-# Ghost-arm colors, feedback timing, the rest-pose threshold and the recording
+# Ghost-arm colors, feedback timing, the start-pose threshold and the recording
 # state machine all live in recording_mixin (shared with the Viser viewer).
 
-LIVE_REST_POSE: dict[str, float] = {
-    "joint1": +0.1565,
-    "joint2": +0.0015,
-    "joint3": +0.0015,
-    "joint4": -0.0153,
-    "joint5": +0.0153,
-    "joint6": +0.0276,
+# Sourced from the robot constant so the pose the operator aligns to and the
+# pose the env resets to cannot drift apart.
+LIVE_START_POSE: dict[str, float] = dict(START_JOINT_POS)
+# Sim-frame copy of the start pose (same frame as arm and mapper).
+_SIM_START_POSE: dict[str, float] = {
+    **LIVE_START_POSE,
 }
-# Same rest pose mapped into the sim frame — lives in the same frame as
-# the teleop'd arm and the action mapper.
-_SIM_REST_POSE: dict[str, float] = {
-    **LIVE_REST_POSE,
-}
-_LIVE_REST_POSE_REL = np.array(
-    [_SIM_REST_POSE[f"joint{i}"] - HOME_JOINT_POS[f"joint{i}"] for i in range(1, 7)],
+_LIVE_START_POSE_REL = np.array(
+    [_SIM_START_POSE[f"joint{i}"] - HOME_JOINT_POS[f"joint{i}"] for i in range(1, 7)],
     dtype=np.float32,
 )
 
@@ -133,26 +101,21 @@ KEY_UNDO = KEY_U
 KEY_QUIT = KEY_Q
 KEY_WRIST_CAM = KEY_C
 
-# Name of the wrist camera in the DK1 MJCF. The compiled model prefixes entity
-# cameras (e.g. "robot/wrist_camera"), so it is matched by suffix — see
-# _find_camera_id.
+# Wrist camera name; compiled model prefixes it, so match by suffix.
 WRIST_CAMERA_NAME = "wrist_camera"
 
 
 FRONT_CAMERA_NAME = "front_cam"
 
 
-# Fallback free-camera framing, used only if FRONT_CAMERA_NAME isn't found in
-# the model (and as the view C's wrist-cam toggle restores in that case).
+# Fallback orbit framing if FRONT_CAMERA_NAME is missing in the model.
 ORBIT_CAM_LOOKAT = (0.20, 0.0, 0.15)  # world point the camera aims at (≈ workspace)
 ORBIT_CAM_DISTANCE = 1.3
 ORBIT_CAM_AZIMUTH = 200.0
 ORBIT_CAM_ELEVATION = -35.0
 
 GRASP_SITE_NAME = "grasp_site"
-# Compiled-model body-name prefix for the "robot" scene entity (see
-# manipulator_wiring.wire_manipulator_into_env) — used to walk the gripper
-# laser past the robot's own geoms instead of stopping on a fingertip.
+# Robot body prefix; laser ray skips these geoms, stops at first other hit.
 ROBOT_ENTITY_PREFIX = "robot/"
 
 # Bright magenta
@@ -168,7 +131,7 @@ _GRIPPER_RAY_NUDGE = 1e-4  # m, push past a pierced surface before recasting
 
 
 def ask_operator() -> int:
-    """Block until the user enters a valid operator number (1–4)."""
+    """Block until the user enters a valid operator number (1-4)."""
     while True:
         raw = input("Operator ( 1-Minh / 2-Darius / 3-Thomas / 4-Till ): ").strip()
         if raw in ("1", "2", "3", "4"):
@@ -185,24 +148,7 @@ def _hw_loop(
     leader_port: str | None,
     use_follower: bool = False,
 ):
-    """Read leader at ~200 Hz → send to follower → push to shared lists.
-
-    Runs in a background daemon thread.  Uses single-element lists as
-    GIL-safe last-writer-wins storage for both the latest action and
-    the latest robot observation.
-
-    Args:
-        action_list: Single-element list updated with latest (7,) action for sim.
-        robot_obs_list: Single-element list updated with latest (7,) robot obs.
-        shutdown_flag: Single-element list; set [True] to stop the loop.
-        hw_failed: Single-element list; set [True] if the loop crashes so the
-            viewer can abort instead of recording frozen frames.
-        follower_port: Serial port for follower arm.
-        leader_port: Serial port for leader (GELLO) controller.
-        use_follower: If False, never connects to or sends actions to the
-            real follower — only the leader is read, and its own action
-            doubles as the recorded robot state.
-    """
+    """Read leader at ~200 Hz, forward to follower, push latest to lists."""
     from g3a_bench.scripts.live_bridge.reader import LiveReader
 
     reader = LiveReader(
@@ -243,11 +189,7 @@ def _hw_loop(
 
 
 class _LivePolicy:
-    """Viewer policy: returns the latest leader action from the shared list.
-
-    Each time the viewer calls ``__call__(obs)``, the policy reads the
-    most recent action that the HW thread pushed into ``action_list``.
-    """
+    """Viewer policy: returns latest leader action from the shared list."""
 
     def __init__(self, action_list: list, device: str):
         self.action_list = action_list
@@ -270,19 +212,7 @@ class _LivePolicy:
 
 
 class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
-    """NativeViewerWrapper with multi-episode recording and ghost-arm reset phase.
-
-    The per-episode recording state machine (record → decision prompt → reset
-    phase, plus ghost-color feedback and the HUD text) lives in
-    RecordingViewerMixin. This subclass only adds the native-specific rendering
-    of the ghost arm and HUD, and the wrist-camera toggle.
-
-    State machine:
-      RECORDING            → normal step loop
-      PROVISIONAL_FAILURE  → collision fired; stepping paused; auto-saves as
-                             failure after a 2s grace period unless keys F/D
-      RESET_PHASE          → episode ended; ghost visible; waiting for arm at home
-    """
+    """Native viewer with recording; state machine lives in the mixin."""
 
     def __init__(
         self,
@@ -295,6 +225,7 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
         task: str = "",
         num_episodes: int = 0,
         debug_timing: bool = False,
+        debug_obs_append: bool = False,
         wrist_renderer: "_mujoco.Renderer | None" = None,
         wrist_cam_id_pip: int = -1,
         pip_app: "QApplication | None" = None,
@@ -307,45 +238,32 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
             robot_obs_list=robot_obs_list,
             hw_failed=hw_failed,
             mj_model=mj_model,
-            live_rest_pose_rel=_LIVE_REST_POSE_REL,
+            live_start_pose_rel=_LIVE_START_POSE_REL,
             task=task,
             num_episodes=num_episodes,
             debug_timing=debug_timing,
-            sim_rest_pose=_SIM_REST_POSE,
+            sim_start_pose=_SIM_START_POSE,
             home_joint_pos=HOME_JOINT_POS,
+            env=env,
+            debug_obs_append=debug_obs_append,
         )
-        # Wrist-cam toggle (C): resolved lazily once the viewer/model exist.
+        # Wrist PiP renderer is built by the caller before HW start.
+        # Cached visualizers avoid per-frame MjData allocs.
         self._wrist_cam_on = False
         self._wrist_cam_id = -1
         self._saved_cam: tuple | None = None
-        # Snapshot of the intended MjvOption visualization flags
         self._baseline_visflags: np.ndarray | None = None
-        # Cached debug visualizers — constructed once in setup() to avoid
-        # per-frame MjData allocations that caused gradual FPS decay.
         self._vis_task: MujocoNativeDebugVisualizer | None = None
         self._vis_ghost: MujocoNativeDebugVisualizer | None = None
         self._vis_wrist: MujocoNativeDebugVisualizer | None = None
         self._vis_gripper_laser: MujocoNativeDebugVisualizer | None = None
-        # Grasp-site id, resolved once in setup() (see GRASP_SITE_NAME).
         self._grasp_site_id: int = -1
-        # Wrist-camera offscreen renderer (PiP window). Built by the caller
-        # (main(), before the hw thread starts — see _build_wrist_pip) rather
-        # than lazily here in setup()/__init__: constructing mujoco.Renderer's
-        # own GLFW context and the QApplication/QMainWindow are one-time
-        # operations that can block for a long stretch (GLFW context creation
-        # racing the native viewer's own render thread), which was starving
-        # the already-running ~200 Hz hw thread and causing spurious
-        # "no status packet" serial timeouts the instant the session started.
         self._wrist_renderer = wrist_renderer
         self._wrist_cam_id_pip = wrist_cam_id_pip
         self._pip_app = pip_app
         self._pip_window = pip_window
         self._pip_label = pip_label
-        # Throttle: the offscreen render + Qt image conversion + processEvents()
-        # are GIL-holding C calls. Running them at full render frame_rate (up to
-        # 120 Hz) starved the hw thread's ~200 Hz / tight-timeout serial reads of
-        # scheduling time and caused spurious "no status packet" ConnectionErrors.
-        # A human only needs ~15 Hz to judge gripper alignment.
+        # PiP updates throttled to ~15 Hz to protect the HW thread.
         self._wrist_pip_last_update: float = 0.0
         self._WRIST_PIP_INTERVAL: float = 1.0 / 15.0
         super().__init__(
@@ -389,11 +307,7 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
             print(
                 f"[WARN] No '{GRASP_SITE_NAME}' site in model — gripper laser disabled"
             )
-        # The wrist-cam PiP is a *separate* offscreen mujoco.Renderer with its
-        # own internal MjvScene — task-command debug_vis geoms (target marks)
-        # drawn into viewer.user_scn above never reach it. Give it its own
-        # cached visualizer bound to that renderer's scene, re-populated each
-        # PiP frame in _update_debug_visualizers (see there for why cached).
+        # PiP renderer has its own scene; needs its own cached visualizer.
         if self._wrist_renderer is not None and self._wrist_cam_id_pip >= 0:
             self._vis_wrist = MujocoNativeDebugVisualizer(
                 self._wrist_renderer.scene,
@@ -405,33 +319,14 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
     # ── Ghost arm rendering (native-specific) ────────────────────────────────
 
     def _reset_visflags(self) -> None:
-        """Re-assert the visualization-flag baseline (Camera/Equality/Actuator/
-        Static-Body/... toggles that share letters with our recording keys).
-
-        Called from two places because they close different windows:
-        - here, synchronously from _on_key (viewer/render thread) — closes the
-          gap between a keypress and the native render thread's OWN redraws,
-          which run independently of our env-sync cadence. Without this, e.g.
-          Q's built-in Camera-frustum toggle stays visible for a burst of
-          native frames (worse still while frozen in the decision prompt,
-          where env-sync all but stops).
-        - per-frame in _update_debug_visualizers, as a fallback for any toggle
-          that arrives outside our own key handler (mjlab's base key_callback
-          also shares some of these letters, e.g. A/P).
-        """
+        """Restore baseline vis flags (recording keys overlap viewer toggles)."""
         if self.viewer is not None and self._baseline_visflags is not None:
             self.viewer.opt.flags[:] = self._baseline_visflags
 
     def _update_debug_visualizers(self, viewer: "_mujoco.viewer.Handle") -> None:  # type: ignore[name-defined]
-        """Draw the ghost-at-home overlay every frame, on top of whatever the
-        base class / task command terms already draw (e.g. cube task target
-        marks). Uses the same DebugVisualizer.add_ghost_mesh technique as
-        mjlab's own tracking task — see recording_mixin.build_ghost_model_and_qpos.
-        """
+        """Draw ghost-at-home overlay on top of task debug geoms each frame."""
         viewer.user_scn.ngeom = 0
-        # Reuse the cached task visualizer instead of constructing a new one
-        # each frame — constructing MjData is expensive (~21,600 alloc/free
-        # over a 3 min session caused gradual FPS decay from 60 to 46).
+        # Reuse cached visualizer; per-frame MjData allocs caused FPS decay.
         if self._show_debug_vis and hasattr(self.env.unwrapped, "update_visualizers"):
             assert self._vis_task is not None
             self.env.unwrapped.update_visualizers(self._vis_task)
@@ -443,9 +338,7 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
         if self._ghost_model is None or self._ghost_qpos is None:
             return
         assert self.mjm is not None
-        # Use feedback color (success/failure flash) if active, otherwise normal
-        # ghost. The recolored model comes from the mixin's per-color cache — no
-        # per-frame deepcopy (that cost ~5 FPS before).
+        # Feedback color if active, else neutral ghost (cached, no copy).
         current_color = self._get_ghost_color()
         ghost_model = self._get_ghost_model_with_color(current_color)
         ngeom_before = viewer.user_scn.ngeom
@@ -456,10 +349,7 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
         for i in range(ngeom_before, viewer.user_scn.ngeom):
             viewer.user_scn.geoms[i].category = _mujoco.mjtCatBit.mjCAT_DECOR
 
-        # Gripper laser: straight-down raycast from the grasp site to whatever
-        # is actually underneath (table or an object), with a beam + landing
-        # dot. An exact, viewpoint-independent depth cue — unlike a shadow it
-        # can't blur, soften at grazing angles, or duplicate.
+        # Gripper laser: down ray from grasp site, beam plus landing dot.
         if self._grasp_site_id >= 0 and self._vis_gripper_laser is not None:
             assert self.mjd is not None
             grasp_pos = self.mjd.site_xpos[self._grasp_site_id].copy()
@@ -482,8 +372,7 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
                     color=GRIPPER_LASER_COLOR,
                 )
 
-        # PiP: render wrist camera offscreen → show in PyQt window. Throttled
-        # (see _WRIST_PIP_INTERVAL) — this must never run at full frame_rate.
+        # PiP wrist render, throttled (never at full frame rate).
         now = time.perf_counter()
         if (
             self._wrist_renderer is not None
@@ -496,9 +385,7 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
                 self.mjd,
                 camera=self._wrist_cam_id_pip,
             )
-            # update_scene() rebuilds the renderer's scene from the model each
-            # call, so re-add the task's target markers (same debug_vis geoms
-            # drawn into the main viewer above) on top, every PiP frame.
+            # update_scene rebuilds the scene, so re-add target markers.
             if (
                 self._show_debug_vis
                 and self._vis_wrist is not None
@@ -534,19 +421,7 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
     # ── HUD (native-specific) ────────────────────────────────────────────────
 
     def _set_status_overlay(self, viewer: "_mujoco.viewer.Handle") -> None:  # type: ignore[name-defined]
-        """Send the base status overlay AND the recording HUD in one
-        set_texts call — each call replaces all overlays from earlier calls,
-        so sending them separately would drop one of the two.
-
-        The base overlay text is captured through a shim (the base method's
-        only side effect is one ``set_texts(overlay)`` call) instead of being
-        rebuilt here, so it can't drift from mjlab's own status text.
-
-        Overrides the inherited throttle (NativeViewerWrapper) with
-        our own check — we MUST skip set_texts entirely when throttled,
-        otherwise the spin-wait in set_texts keeps the frame loop capped at
-        the monitor refresh rate (~60 Hz) regardless of VIEWER_FPS.
-        """
+        """Send base overlay plus recording HUD in one set_texts call."""
         now = time.perf_counter()
         if now - self._last_overlay_time < self.OVERLAY_INTERVAL:
             return
@@ -637,12 +512,7 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
 
 
 def _find_camera_id(mj_model: "_mujoco.MjModel", suffix: str) -> int:
-    """Return the id of the first camera whose name is, or ends with, ``suffix``.
-
-    The compiled model prefixes entity cameras (e.g. "robot/wrist_camera"), so a
-    plain mj_name2id on the bare name would miss it — match by suffix instead.
-    Returns -1 if no camera matches.
-    """
+    """Return first camera matching suffix; -1 if none (prefix-aware)."""
     for ci in range(mj_model.ncam):
         name = _mujoco.mj_id2name(mj_model, _mujoco.mjtObj.mjOBJ_CAMERA, ci) or ""
         if name == suffix or name.endswith("/" + suffix):
@@ -666,14 +536,7 @@ def _find_site_id(mj_model: "_mujoco.MjModel", suffix: str) -> int:
 def _cast_gripper_ray(
     mjm: "_mujoco.MjModel", mjd: "_mujoco.MjData", origin: np.ndarray
 ) -> np.ndarray | None:
-    """Straight-down raycast from ``origin`` to the first non-robot surface.
-
-    mj_ray only supports excluding a single body per call, which isn't enough
-    to skip an entire robot arm (fingers, wrist, forearm...) in one shot. So
-    instead of exclusion, walk the ray forward: recast from just past each
-    pierced surface until a non-robot body is hit. Returns the world-space
-    hit point, or None if the ray escapes without hitting anything.
-    """
+    """Down ray from origin to first non-robot surface; None if no hit."""
     vec = np.array([0.0, 0.0, -1.0])
     pnt = origin.copy()
     geomid = np.zeros(1, dtype=np.int32)
@@ -695,15 +558,7 @@ def _cast_gripper_ray(
 
 
 def _build_wrist_pip(mj_model: "_mujoco.MjModel | None"):
-    """One-time construction of the wrist-camera PiP window.
-
-    Must be called before the hw thread starts polling the real arm.
-    mujoco.Renderer opens its own GLFW context and QApplication/QMainWindow
-    init talks to the display server — both are one-time operations that can
-    block for a long stretch. Doing that after the ~200 Hz hw thread is
-    already running starved it of scheduling time and tripped its tight
-    serial-reply timeout the instant the session started.
-    """
+    """Build wrist PiP window once; call before the HW thread starts."""
     if mj_model is None:
         return None, -1, None, None, None
     cam_id = _find_camera_id(mj_model, WRIST_CAMERA_NAME)
@@ -794,12 +649,29 @@ def main():
         help="Stop after N saved episodes (0 = record until Q is pressed).",
     )
     parser.add_argument(
+        "--start-pose-noise",
+        type=float,
+        default=None,
+        help=(
+            "Override the task's start-pose sample half-width [rad]. Omit it: "
+            "the task's own value is used, which is what makes a demo start "
+            "where an evaluation episode starts. Pass 0.0 for a bit-identical "
+            "start every episode. Keep any value well under the 0.2 rad "
+            "alignment gate, which is measured against the nominal pose."
+        ),
+    )
+    parser.add_argument(
         "--debug-timing",
         action="store_true",
         help=(
             "Log a per-stage breakdown for any recording step over budget "
             "(prints [STEP-SPIKE] lines) to diagnose intermittent FPS drops."
         ),
+    )
+    parser.add_argument(
+        "--debug-obs",
+        action="store_true",
+        help="Append-only debug panel (keep full per-frame history).",
     )
     args = parser.parse_args()
 
@@ -813,16 +685,21 @@ def main():
     #    success termination stays active (auto-saves as success).
     cfg = load_env_cfg(args.task, play=True)
     cfg.terminations["time_out"].time_out = False
+    # First action steps back to nominal pose; keep it as real data.
+    if args.start_pose_noise is not None:
+        cfg.events["reset_robot_joints"].params["position_range"] = (
+            -args.start_pose_noise,
+            args.start_pose_noise,
+        )
+    noise_lo, noise_hi = cfg.events["reset_robot_joints"].params["position_range"]
+    print(f"[INFO] Start-pose noise: {noise_lo:+.3f} .. {noise_hi:+.3f} rad")
 
     # 2. Create environment.
     env = ManagerBasedRlEnv(cfg=cfg, device=device)
     env = RslRlVecEnvWrapper(env)
     print("[INFO] Environment created")
 
-    # Override the task's default (body-tracking) viewer camera with a static
-    # world-frame free-camera framing — only used as a fallback (see
-    # FRONT_CAMERA_NAME in _LiveRecordingViewer.setup) and as the view the
-    # wrist-cam toggle restores to if front_cam isn't found in the model.
+    # Static world-frame fallback camera for the wrist-cam toggle.
     vcfg = env.cfg.viewer
     vcfg.origin_type = ViewerConfig.OriginType.WORLD
     vcfg.entity_name = None
@@ -837,9 +714,7 @@ def main():
     if mj_model is None:
         print("[WARN] Ghost-at-home overlay disabled (could not locate MjModel)")
 
-    # 4. Resolve dataset output directories — never wipe existing data.
-    #    Layout: <base>/success/<task>/<stamp>/ and <base>/failure/<task>/<stamp>/;
-    #    each dataset is only created once an episode of that kind is saved.
+    # Dataset dirs are created lazily; never wipe existing data.
     base_dir = Path(args.dataset_dir) if args.dataset_dir else DEMOS_DIR
     stamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     success_root = base_dir / "success" / args.task / stamp
@@ -863,10 +738,15 @@ def main():
         qpos_dim=qpos_dim,
         qvel_dim=qvel_dim,
         device=device,
+        start_pose_noise=noise_hi,
     )
     print(
         f"[INFO] Recording to {base_dir}/{{success,failure}}/{args.task}/{stamp} "
         f"(obs_dim={obs_dim}, qpos_dim={qpos_dim}, qvel_dim={qvel_dim})"
+    )
+    print(
+        "[INFO] Debug panel: "
+        + ("append-only (--debug-obs)" if args.debug_obs else "in-place overwrite")
     )
 
     # 6. Shared single-element lists (GIL-safe last-writer-wins).
@@ -875,10 +755,7 @@ def main():
     shutdown_flag: list = [False]
     hw_failed: list = [False]
 
-    # 6b. Build the wrist-cam PiP window now, before the hw thread starts —
-    # its one-time GLFW/Qt init can block for a long stretch, and doing that
-    # concurrently with the ~200 Hz hw thread starved it and blew its serial
-    # reply timeout. See _build_wrist_pip.
+    # Build PiP before HW thread (one-time init can block). See helper.
     wrist_renderer, wrist_cam_id_pip, pip_app, pip_window, pip_label = _build_wrist_pip(
         mj_model
     )
@@ -935,6 +812,7 @@ def main():
             task=args.task,
             num_episodes=args.num_episodes,
             debug_timing=args.debug_timing,
+            debug_obs_append=args.debug_obs,
             wrist_renderer=wrist_renderer,
             wrist_cam_id_pip=wrist_cam_id_pip,
             pip_app=pip_app,

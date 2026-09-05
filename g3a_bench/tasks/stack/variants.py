@@ -1,7 +1,6 @@
-"""Variant definitions for the stack task category.
+"""Stack variants.
 
-A variant fixes the block set and the target height:
-
+Each fixes the block set and the target height:
 - Stack{3,4,5}: 2n identical cubes, target height n * 0.04. Block count is
   strictly more than the minimum needed, so height, not block count, is the
   binding constraint.
@@ -14,10 +13,6 @@ A variant fixes the block set and the target height:
   x2, plate x2) followed by cubes; two separate stacks, each buildable from
   a mix of forms.
 
-All form heights are multiples of 0.02 m, and every variant's block set
-contains a subset whose heights sum exactly to the target height (a multiple
-of 0.04 m), so a target is always exactly reachable, not just exceedable.
-
 Block lists are *tail-extending* across the difficulty axis within each
 family (Stack3's blocks are blocks 0..2 of Stack4, etc.) so demos for easier
 tasks can be cut from the hardest task's recordings (see
@@ -29,12 +24,8 @@ from typing import Literal
 
 Form = Literal["cube", "plate", "tall", "cylinder"]
 
-# Half extents (hx, hy, hz) per form; the cylinder uses hx = hy = radius.
-# All heights are multiples of 0.02 so mixed sets can reach every target
-# height (a multiple of 0.04) exactly. Trade-offs: cube = balanced
-# baseline; plate = wide stabilizing cap/bridge, little height; tall =
-# most height per placement but slender and tippy; cylinder = good height
-# and yaw-free grasping, but rolls when tipped.
+# Half extents (hx, hy, hz) per form. Heights are multiples of 0.02, so a
+# target is always reachable.
 FORM_HALF_EXTENTS: dict[Form, tuple[float, float, float]] = {
     "cube": (0.02, 0.02, 0.02),
     "plate": (0.03, 0.02, 0.01),

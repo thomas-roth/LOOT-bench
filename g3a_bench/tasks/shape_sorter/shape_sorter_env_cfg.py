@@ -6,7 +6,6 @@ from mjlab.managers.observation_manager import ObservationTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.termination_manager import TerminationTermCfg
 from mjlab.sensor import ContactMatch, ContactSensorCfg
-from mjlab.utils.noise import UniformNoiseCfg as Unoise
 
 from g3a_bench.tasks.common.commands import GRIP_CONTACT_SENSOR_NAME
 from g3a_bench.tasks.common.env_cfg import make_manipulation_env_cfg
@@ -41,12 +40,10 @@ def make_shape_sorter_env_cfg(
         "cube_pose": ObservationTermCfg(
             func=sorter_mdp.cube_pose,
             params={"command_name": COMMAND_NAME},
-            noise=Unoise(n_min=-0.01, n_max=0.01),
         ),
         "piece_poses": ObservationTermCfg(
             func=sorter_mdp.piece_poses,
             params={"command_name": COMMAND_NAME},
-            noise=Unoise(n_min=-0.01, n_max=0.01),
         ),
         "socket_inserted": ObservationTermCfg(
             func=sorter_mdp.socket_inserted,
@@ -55,13 +52,8 @@ def make_shape_sorter_env_cfg(
     }
 
     task_rewards = {
-        "progress": RewardTermCfg(
-            func=sorter_mdp.progress_reward,
-            weight=1.0,
-            params={"command_name": COMMAND_NAME},
-        ),
-        "success": RewardTermCfg(
-            func=sorter_mdp.success_reward,
+        "task": RewardTermCfg(
+            func=sorter_mdp.task_reward,
             weight=1.0,
             params={"command_name": COMMAND_NAME},
         ),

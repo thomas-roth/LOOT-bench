@@ -11,7 +11,7 @@ Profiles (timestep / decimation / solver iterations / ls_iterations):
   play       0.010 / 1  /  20 / 10   current play/demo-collection settings
                                      (100 Hz control MDP, not 50 Hz!)
   train_acc  0.005 / 4  / 100 / 50   train timestep, MuJoCo-default solver
-                                     caps — isolates what 10/20 costs
+                                     caps. Isolates what 10/20 costs
   mujoco     0.002 / 10 / 100 / 50   MuJoCo defaults (OGBench-style), with
                                      decimation keeping 50 Hz control
   reference  0.001 / 20 / 100 / 100  accuracy baseline only (never a
@@ -29,11 +29,11 @@ Measurements per profile:
    compare against the ``reference`` profile at the same sim times. Three
    scenarios, from contact-free to contact-critical:
 
-     sweep   free-space arm sweep over the table — no sustained contacts;
+     sweep   free-space arm sweep over the table. No sustained contacts;
              isolates integrator/actuator differences.
      stack   every block teleported into one aligned tower (with 2 mm
              alternating level offsets so it is not knife-edge symmetric),
-             arm held at home — resting-contact stability: does the tower
+             arm held at home. Resting-contact stability: does the tower
              creep, jitter, or collapse? ``drift`` is the worst block's
              displacement from its teleported pose at the end (absolute,
              per profile).
@@ -43,7 +43,7 @@ Measurements per profile:
              tests/trlc_dk1/test_dk1_grasp.py; the last pin lands at exactly
              0.5 s for every profile, so all release from an identical
              pose), then carried through a lift-and-shake arm trajectory
-             with the gripper held closed — grip-contact accuracy under
+             with the gripper held closed. Grip-contact accuracy under
              inertial load. Deviation stats start at release. ``slip`` is
              the max cube distance from the grasp site after release; a
              dropped cube shows up as ~0.2 m instead of a few mm.
@@ -51,7 +51,7 @@ Measurements per profile:
    ``stack`` and ``grasp`` reach into ``StackCommand`` for the block
    entities, so they need a G3A-Stack-* task; on other tasks they are
    skipped with a note. Contact-rich trajectories diverge chaotically, so
-   the absolute deviation grows with sim time for *every* profile — read
+   the absolute deviation grows with sim time for *every* profile. Read
    objDev comparatively (smaller = closer to reference), and lean on div@
    (first sim time the object DOFs drift >1 mm) plus the absolute
    ``drift``/``slip`` columns.
@@ -61,8 +61,8 @@ Measurements per profile:
    real-time factor (steps/s x step_dt) and physics steps/s (x decimation).
 
 3. ``--viewer`` (needs a display, skipped by default): the sweep scenario
-   applied on top of the play config, run through the native viewer twice —
-   at 1x speed (does demo collection keep up with real time on this
+   applied on top of the play config, run through the native viewer twice.
+   At 1x speed (does demo collection keep up with real time on this
    machine?) and at max speed multiplier (render-loop throughput ceiling).
 
 Usage:
@@ -148,7 +148,7 @@ def scripted_action(t: float, dim: int, device: str) -> torch.Tensor:
     moves through the workspace and over the table objects) plus a square-wave
     open/close on the last dim (the gripper on the DK1). Being a function of
     *time* rather than step index, every control rate samples the same
-    continuous command — required for cross-profile comparability.
+    continuous command. Required for cross-profile comparability.
     """
     j = torch.arange(dim, dtype=torch.float32, device=device)
     a = 0.35 * torch.sin(2.0 * math.pi * 0.15 * t + j * (math.pi / 3.0))
@@ -164,7 +164,7 @@ def build_env(
     cfg.scene.num_envs = 1
     if deterministic:
         # A mid-run auto-reset (success fires, or time_out) would replace the
-        # trajectory with a fresh scatter and destroy the comparison — same
+        # trajectory with a fresh scatter and destroy the comparison. Same
         # trick as live_bridge/verify_replay.py.
         cfg.terminations.pop("success", None)
         cfg.terminations["time_out"].time_out = False
@@ -309,7 +309,7 @@ class GraspScenario(Scenario):
     def _pin(self, env: ManagerBasedRlEnv, device: str) -> None:
         # Aligning the cube with the grasp-site frame makes its faces meet
         # the finger pads flat (the site frame is an axis permutation of the
-        # ee frame — equivalent for a cube).
+        # ee frame. Equivalent for a cube).
         pos = self._robot.data.site_pos_w[:, self._sid]
         quat = self._robot.data.site_quat_w[:, self._sid]
         self._block.write_root_link_pose_to_sim(torch.cat([pos, quat], dim=-1))
@@ -322,8 +322,8 @@ class GraspScenario(Scenario):
     ) -> None:
         # The half-step slack makes the *last* pin land at exactly
         # t == GRIP_PIN_T for every profile (0.5 is a multiple of every
-        # step_dt), so all profiles release the cube from an identical pose —
-        # without it, each control rate would release from its own last pin
+        # step_dt), so all profiles release the cube from an identical pose.
+        # Without it, each control rate would release from its own last pin
         # time and the deviation stats would start with a pin-cadence
         # artifact instead of solver signal.
         if t < GRIP_PIN_T + 0.5 * step_dt:

@@ -1,22 +1,11 @@
-"""Shared tabletop-manipulation env-cfg skeleton for all task categories.
+"""Shared workbench for all tasks. Categories pass core parts as parameters.
 
-Every G3A task is the same workbench — a manipulator at a table with
-joint-position control, proprioceptive + task observations, and a
-success/time-out episode — plus a category-shaped core (entities, command,
-task observations/rewards/terminations). :func:`make_manipulation_env_cfg`
-builds the skeleton and takes the core as parameters; the per-category
-``make_*_env_cfg`` are thin caps.
-
-Robot-specific knobs are left as placeholders (empty grasp site, action scale
-0.5, empty viewer body, no ``"robot"`` scene entity).
-Fill them by calling :func:`~g3a_bench.tasks.common.manipulator_wiring.
-wire_manipulator_into_env` with a concrete ``ManipulatorInterface`` before
-registering the task.
+Robot placeholders are filled by wire_manipulator_into_env. No observation
+carries noise (see ADR-015).
 """
 
 from mjlab.entity import EntityCfg
 from mjlab.envs import ManagerBasedRlEnvCfg, mdp
-from mjlab.envs.mdp.actions import JointPositionActionCfg
 from mjlab.managers.action_manager import ActionTermCfg
 from mjlab.managers.command_manager import CommandTermCfg
 from mjlab.managers.event_manager import EventTermCfg
@@ -28,9 +17,9 @@ from mjlab.scene import SceneCfg
 from mjlab.sensor import SensorCfg
 from mjlab.sim import MujocoCfg, SimulationCfg
 from mjlab.terrains import TerrainEntityCfg
-from mjlab.utils.noise import UniformNoiseCfg as Unoise
 from mjlab.viewer import ViewerConfig
 
+from g3a_bench.tasks.common.actions import NormalizedJointPositionActionCfg
 from g3a_bench.tasks.common.observations import ee_pose_w
 
 
@@ -51,6 +40,7 @@ def make_manipulation_env_cfg(
     njmax: int,
     viewer_distance: float = 1.5,
     viewer_elevation: float = -15.0,
+    start_pose_noise: float = 0.0,
     play: bool = False,
 ) -> ManagerBasedRlEnvCfg:
     """Assemble the shared workbench around a category core.
@@ -72,23 +62,23 @@ def make_manipulation_env_cfg(
         task_rewards: category reward terms.
         task_terminations: category terminations, placed after ``time_out``.
         sensors: scene sensors (e.g. an end-effector contact sensor).
-        play: strip observation corruption and make the episode endless, for
-            interactive play. Physics are unchanged, so demos and eval run
-            under the same dynamics as training. The ``success`` termination
-            is kept — live_bridge demo playback needs episodes to terminate
-            on success.
+        start_pose_noise: half-width [rad] of the uniform sample added to
+            every robot joint at reset. ``0.0`` (the default) gives a
+            bit-identical start every episode, which every demo replay check
+            needs -- and which offers a policy exactly one start state to
+            generalize from. Raise it for training. Read back off
+            ``cfg.events["reset_robot_joints"].params["position_range"]``,
+            which is also where to override it on an already-built cfg.
+        play: make the episode endless, for interactive play. Physics are
+            unchanged, so demos and eval run under the same dynamics as
+            training. The ``success`` termination is kept — live_bridge demo
+            playback needs episodes to terminate on success.
     """
     actor_terms: dict[str, ObservationTermCfg] = {
-        "joint_pos": ObservationTermCfg(
-            func=mdp.joint_pos_rel, noise=Unoise(n_min=-0.01, n_max=0.01)
-        ),
-        "joint_vel": ObservationTermCfg(
-            func=mdp.joint_vel_rel, noise=Unoise(n_min=-1.5, n_max=1.5)
-        ),
+        "joint_pos": ObservationTermCfg(func=mdp.joint_pos_rel),
+        "joint_vel": ObservationTermCfg(func=mdp.joint_vel_rel),
         "ee_pose": ObservationTermCfg(
-            func=ee_pose_w,
-            params={"asset_cfg": SceneEntityCfg("robot", site_names=())},
-            noise=Unoise(n_min=-0.01, n_max=0.01),
+            func=ee_pose_w, params={"asset_cfg": SceneEntityCfg("robot", site_names=())}
         ),
         **task_obs_terms,
         **(
@@ -100,8 +90,10 @@ def make_manipulation_env_cfg(
             if command_obs
             else {}
         ),
-        # could be added but is probably not needed
-        # "actions": ObservationTermCfg(func=mdp.last_action),
+        # Named so it reads the term buffer with clamping applied.
+        "actions": ObservationTermCfg(
+            func=mdp.last_action, params={"action_name": "joint_pos"}
+        ),
     }
 
     observations = {
@@ -110,10 +102,10 @@ def make_manipulation_env_cfg(
     }
 
     actions: dict[str, ActionTermCfg] = {
-        "joint_pos": JointPositionActionCfg(
+        # Limits come from the compiled model. See tasks/common/actions.py.
+        "joint_pos": NormalizedJointPositionActionCfg(
             entity_name="robot",
             actuator_names=(".*",),
-            scale=0.5,  # Set per-robot.
         )
     }
 
@@ -123,11 +115,13 @@ def make_manipulation_env_cfg(
             mode="reset",
             params={"pose_range": {}, "velocity_range": {}},
         ),
+        # Robots declaring a reset pose get the absolute-pose reset swapped in
+        # by wire_manipulator_into_env; the ranges below survive the swap.
         "reset_robot_joints": EventTermCfg(
             func=mdp.reset_joints_by_offset,
             mode="reset",
             params={
-                "position_range": (0.0, 0.0),
+                "position_range": (-start_pose_noise, start_pose_noise),
                 "velocity_range": (0.0, 0.0),
                 "asset_cfg": SceneEntityCfg("robot", joint_names=(".*",)),
             },
@@ -177,8 +171,7 @@ def make_manipulation_env_cfg(
             enable_shadows=False,
             enable_reflections=False,
         ),
-        # Same settings as the mjlab manipulation example, except task-specific
-        # values and nativeccd disabled.
+        # Same as the mjlab manipulation example, with nativeccd disabled.
         sim=SimulationCfg(
             nconmax=nconmax,
             njmax=njmax,
@@ -188,20 +181,17 @@ def make_manipulation_env_cfg(
                 ls_iterations=50,
                 impratio=10,
                 cone="elliptic",
-                # Disabling nativeccd makes MuJoCo Warp use the analytic
-                # box-box collider (up to 8 contacts with per-contact depth)
-                # instead of GJK/EPA (<=4 contacts sharing one depth/frame),
-                # which jitters. Affects all box-box pairs: objects on the
-                # table top and in the box finger pads. No-op for other pairs.
+                # Analytic box-box collider. Stable contacts for boxes.
                 disableflags=("nativeccd",),
             ),
         ),
         decimation=4,
         episode_length_s=episode_length_s,
+        # Keep raw reward values, unscaled by step dt.
+        scale_rewards_by_dt=False,
     )
 
     if play:
         cfg.episode_length_s = int(1e9)
-        cfg.observations["actor"].enable_corruption = False
 
     return cfg

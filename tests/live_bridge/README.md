@@ -19,7 +19,7 @@ Expected output: all green, 32 passed (34 collected, 2 skipped = hardware/networ
 
 ### `test_mapper.py`
 
-Pure math — no sim, no hardware, no I/O.
+Pure math: no sim, no hardware, no I/O.
 
 Tests `mapper.py` which converts real-robot joint positions into the MuJoCo
 action format the sim expects.
@@ -41,32 +41,33 @@ uv run pytest tests/live_bridge/test_mapper.py -v
 
 ### `test_reader.py`
 
-Tests `reader.py` — the `ReaderFrame` dataclass, `DatasetReader` (offline replay),
+Tests `reader.py`: the `ReaderFrame` dataclass, `DatasetReader` (offline replay),
 `LiveReader` (real robot), and `_find_ports` auto-detection.
-Uses mocks and monkeypatching — no real serial ports or network needed.
+Uses mocks and monkeypatching, no real serial ports or network needed.
 
-**`TestReaderFrame`** — dataclass construction:
+**`TestReaderFrame`**: dataclass construction:
 
 | Test | What it checks |
 |------|----------------|
 | `test_creation_with_all_fields` | joint_pos, leader_action, cameras, timestamp accepted (also has a `state` field, untested here, used by replay's drift metric) |
 | `test_default_fields` | only joint_pos required; leader_action=None, cameras={}, timestamp=0.0 |
 
-**`TestDatasetReader`** — offline replay from a mocked LeRobot dataset:
+**`TestDatasetReader`**: offline replay from a mocked LeRobot dataset:
 
 | Test | What it checks |
 |------|----------------|
 | `test_read_returns_readerframe` | successive reads return correctly shaped ReaderFrame objects |
 | `test_read_raises_stopiteration_when_exhausted` | StopIteration raised after last frame |
 
-**`TestDatasetReaderIntegration`** *(skipped unless `HARDWARE_TEST=1`)* — downloads the real `FabianKerj/corkinbox100-fullrel` dataset:
+**`TestDatasetReaderIntegration`** *(skipped unless `HARDWARE_TEST=1`)*:
+downloads the real `FabianKerj/corkinbox100-fullrel` dataset:
 
 | Test | What it checks |
 |------|----------------|
 | `test_read_first_frame` | joint_pos/leader_action shape (7,), joints in radian range, gripper in [0,1] |
 | `test_read_multiple_frames` | 10 consecutive frames, timestamps non-decreasing |
 
-**`TestLiveReader`** — real-robot reader with mocked DK1 hardware:
+**`TestLiveReader`**: real-robot reader with mocked DK1 hardware:
 
 | Test | What it checks |
 |------|----------------|
@@ -86,7 +87,7 @@ Uses mocks and monkeypatching — no real serial ports or network needed.
 | `test_find_ports_prefers_device_path` | Linux `/dev/ttyACM0`/`ttyUSB0` paths win over description text regardless of list order |
 | `test_find_ports_ftdi_vid_identifies_leader` | Windows COM ports: FTDI vendor id `0x0403` pins the leader when both descriptions are identical |
 
-The FTDI test is the important one for Windows — it covers the scenario where
+The FTDI test is the important one for Windows, it covers the scenario where
 both ports show "USB Serial Device" and only the vendor id distinguishes them.
 
 ```bash
@@ -99,11 +100,11 @@ uv run pytest tests/live_bridge/test_reader.py -v
 
 Tests `recorder.py`. Split into two parts:
 
-**Mocked tests** (`TestRecorder` class) — fast, no disk I/O, patch `LeRobotDataset`.
+**Mocked tests** (`TestRecorder` class): fast, no disk I/O, patch `LeRobotDataset`.
 
 | Test | What it checks |
 |------|----------------|
-| `test_create_dataset_lazily` | no dataset on init — `LeRobotDataset.create` happens on the first `save_episode()` of that kind |
+| `test_create_dataset_lazily` | no dataset on init, `LeRobotDataset.create` happens on the first `save_episode()` of that kind |
 | `test_add_frame_buffers_until_save` | `add_frame()` holds frames in memory; dataset NOT written yet |
 | `test_save_episode_labels_frames_success` | `save_episode(True)` stamps `success=True` on every frame, then flushes |
 | `test_save_episode_labels_frames_failure` | `save_episode(False)` stamps `success=False` |
@@ -113,7 +114,7 @@ Tests `recorder.py`. Split into two parts:
 | `test_close_finalizes_dataset` | `close()` calls `finalize()` on every dataset that was created |
 | `test_discard_then_save_new_episode` | after discard, a fresh episode can be buffered and saved normally |
 
-**Real round-trip tests** — write actual LeRobot datasets to `tmp_path`, read back, check shapes.
+**Real round-trip tests**: write actual LeRobot datasets to `tmp_path`, read back, check shapes.
 
 | Test | What it checks |
 |------|----------------|
@@ -144,9 +145,30 @@ uv run pytest tests/live_bridge/test_live_record_helpers.py -v
 
 ---
 
+### `test_debug_panel.py`
+
+Unit tests for the `--debug-obs` live dashboard (`debug_panel.py`), no viewer,
+no simulator. Uses a fake env/obs layout to verify `LiveDebugPanel` and helpers
+`_ObsLayout`, `_xyz`, `_RunningStats`, `_aggregate_buffered`.
+
+| Test class | What it checks |
+|------------|----------------|
+| `TestObsLayout` | offsets, ee/goal/object term detection, domino heuristic, fallback to None |
+| `TestXyz` | xyz formatting, NaN flag, short-array fallback |
+| `TestRunningStats` / `TestAggregateBuffered` | cross-frame mean/min/max, torch inputs, non-finite handling |
+| `TestLiveDebugPanelPerFrame` | per-frame EEF/GOAL/OBJECT/REWARD/DONE output, tty vs piped (ANSI) behaviour, status line, reward accumulation |
+| `TestDeferredQposQvel` | qpos/qvel only buffered per-frame, checked at episode end |
+| `TestFinishEpisodeSummary` | episode-aggregated min/mean/max, anomaly report, boundary banner, reset isolation |
+
+```bash
+uv run pytest tests/live_bridge/test_debug_panel.py -v
+```
+
+---
+
 ### `manual_replay_demo.py`
 
-**Not a pytest test — an interactive script.** Opens a MuJoCo viewer window
+**Not a pytest test, an interactive script.** Opens a MuJoCo viewer window
 and replays `FabianKerj/corkinbox100-fullrel` through the sim. No recording,
 no hardware.
 
@@ -158,11 +180,11 @@ uv run python tests/live_bridge/manual_replay_demo.py
 
 **First run:** downloads ~655 MB from HuggingFace (cached after).
 
-**On Windows:** HuggingFace will print a symlink warning — this is harmless,
+**On Windows:** HuggingFace will print a symlink warning, this is harmless,
 the download completes anyway. If it fails on the first attempt, run it a
 second time (partial cache resolves the issue).
 
 **What to expect:** a MuJoCo viewer window opens showing the cube-stacking
 scene. The arm replays the recorded trajectory. When the episode ends it loops
 back to the start automatically. Close the window or press `Ctrl+C` to exit.
-Runs at ~8 FPS on CPU (RTF ~0.18x) — normal, sim is not GPU-accelerated here.
+Runs at ~8 FPS on CPU (RTF ~0.18x). Normal, sim is not GPU-accelerated here.

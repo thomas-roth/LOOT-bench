@@ -1,10 +1,7 @@
-"""TRLC-DK1 actuator configuration.
+"""DK1 actuator configs (DAMIAO DM4340/DM4310).
 
-Motor specs (DAMIAO DM4340 / DM4310), effective inertias, arm/gripper
-actuator builders, and action-scale computation. Motor specs and arm gains
-are taken from the official trlc_dk1_control config.py to match the
-real-world controller. The gripper uses a sim-specific soft tuning (see the
-gripper section below).
+Motor specs and arm gains match official trlc_dk1_control config.py; gripper
+uses sim-specific soft tuning.
 """
 
 import math
@@ -13,9 +10,7 @@ from dataclasses import dataclass
 from mjlab.actuator import BuiltinPositionActuatorCfg
 from mjlab.utils.actuator import ElectricActuator, reflect_rotary_to_linear
 
-##
 # Motors.
-##
 
 _ARMATURE_DM_4340 = 0.032
 "[kg*m²], rotor inertia of DM4340 reflected through gearbox."
@@ -35,9 +30,7 @@ _DM_4310 = ElectricActuator(
 )
 
 
-##
 # Arm joint actuators.
-##
 
 
 @dataclass(frozen=True)
@@ -72,18 +65,11 @@ def get_arm_actuators(prefix: str = "") -> tuple[BuiltinPositionActuatorCfg, ...
     )
 
 
-##
 # Gripper transmission and control parameters.
 #
-# The real-life gripper runs the DM4310's internal (unpublished) position loop
-# with grip forces coming from the torque cap: a servo that saturates its
-# force cap after a small position error. The sim gripper keeps that shape
-# (stiffness = cap / saturation error) but lowers the cap from the rated
-# 114 N to 20 N: at the rated force, sim-stiffness contacts let the pads sink
-# ~4.5 mm into task pieces and eject them from the grip, while 20 N holds
-# them with sub-millimeter penetration (tests/trlc_dk1/test_dk1_grasp.py).
-# Overdamped so the impact transient settles without bounce.
-##
+# Cap grip forces at 20 N instead of real-life 114 N (rated 114 N would let
+# pads sink ~4.5 mm into task pieces, 20 N holds them with sub-milimeter
+# precision). Overdamped to avoid bounce. See tests/trlc_dk1/test_dk1_grasp.py.
 
 GRIPPER_MECHANICAL_RANGE = {"open": 0.001, "closed": -0.045}
 "[m], mechanical gripper range mirroring `finger` joint range in xml/dk1.xml."
@@ -125,9 +111,7 @@ _GRIPPER_DAMPING = (
 "[kg/s], damping of the stiffness-spring-mass system."
 
 
-##
 # Gripper joint actuator.
-##
 
 
 def get_gripper_actuator(prefix: str = "") -> BuiltinPositionActuatorCfg:
@@ -141,34 +125,4 @@ def get_gripper_actuator(prefix: str = "") -> BuiltinPositionActuatorCfg:
     )
 
 
-##
-# Action scale.
-##
-
-
-def _dk1_action_scale(prefix: str = "") -> dict[str, float]:
-    """Arm: position error producing 25% of max torque. Gripper: the arm
-    heuristic is meaningless (its servo saturates torque by design after a
-    tiny error, which would shrink the command range to ~1 mm), so use the
-    natural command range instead: one unit of action = half the rack stroke,
-    so the policy sweeps open->closed within roughly [-2, 0].
-    """
-    # TODO: check whether 25% of max torque needed or if 100% ok
-
-    scale: dict[str, float] = {}
-    for a in get_arm_actuators(prefix):
-        assert a.effort_limit is not None
-        for n in a.target_names_expr:
-            scale[n] = 0.25 * a.effort_limit / a.stiffness
-
-    scale[f"{prefix}gripper_left"] = 0.5 * (
-        GRIPPER_MECHANICAL_RANGE["open"] - GRIPPER_MECHANICAL_RANGE["closed"]
-    )
-    return scale
-
-
-DK1_ACTION_SCALE_UNIMANUAL = _dk1_action_scale()
-DK1_ACTION_SCALE_BIMANUAL = {
-    **_dk1_action_scale("left_"),
-    **_dk1_action_scale("right_"),
-}
+# No action scale here. Tasks use NormalizedJointPositionAction.

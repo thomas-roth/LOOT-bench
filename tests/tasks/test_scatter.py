@@ -55,7 +55,7 @@ class TestSamplePoses:
 
     def test_seed_prefix_property(self):
         # The easier task's draws (3 objects) are a prefix of the harder
-        # task's (5 objects) under the same seed — the demo-cutoff rule.
+        # task's (5 objects) under the same seed. The demo-cutoff rule.
         grid = self._grid()
         torch.manual_seed(7)
         xy3, yaw3 = grid.sample_poses(16, 3)

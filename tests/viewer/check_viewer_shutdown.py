@@ -13,7 +13,7 @@ CLOSE_MARKER = "CHILD_CLOSING"
 
 def run_child(safe: bool, coredump: bool) -> None:
     """Open a tiny passive viewer, close it, and return straight into
-    interpreter exit — the race the safe teardown wait prevents."""
+    interpreter exit. That race is what the safe teardown wait prevents."""
     import mujoco
     import mujoco.viewer
 
@@ -114,7 +114,7 @@ def main() -> int:
     t_close = time.perf_counter()
     if args.coredump:
         # Dump-writing time is unbounded (load/disk dependent), so there is no
-        # timeout that separates "still dumping" from "hung" — just wait.
+        # timeout that separates "still dumping" from "hung". Just wait.
         print("child closed; waiting for it to finish core-dumping (no timeout)...")
         proc.communicate()
         return_code = proc.returncode

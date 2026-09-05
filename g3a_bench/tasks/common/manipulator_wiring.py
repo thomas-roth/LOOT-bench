@@ -8,12 +8,12 @@ contact sensors, if any; everything else is identical across categories.
 """
 
 from mjlab.envs import ManagerBasedRlEnvCfg
-from mjlab.envs.mdp.actions import JointPositionActionCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.sensor import ContactSensorCfg
 
 from g3a_bench.robots.interface import ManipulatorInterface
 from g3a_bench.tasks.common.commands import GripperGateCommandCfg
+from g3a_bench.tasks.common.events import reset_joints_to_pose
 
 
 def wire_manipulator_into_env(
@@ -22,24 +22,41 @@ def wire_manipulator_into_env(
     *,
     ee_contact_sensors: tuple[str, ...] = (),
     grip_contact_sensor: str | None = None,
+    object_contact_sensor: str | None = None,
 ) -> None:
     """Fill the robot placeholders left by a ``make_<cat>_env_cfg`` in place.
 
-    Adds the robot as the ``"robot"`` scene entity and sets the action scale
-    and viewer body. The grasp site is written to the ``asset_cfg`` of the
+    Adds the robot as the ``"robot"`` scene entity and sets the viewer body.
+    The action term needs nothing from the robot: it reads each joint's travel
+    off the compiled model (see ``tasks.common.actions``). The grasp site is
+    written to the ``asset_cfg`` of the
     ``ee_pose`` observation term (present in every category via the shared
     env cfg) and to any command cfg carrying a ``grasp_cfg``. Command cfgs
     deriving from :class:`GripperGateCommandCfg` get the robot's gripper
     joints/threshold. Sensors named in ``ee_contact_sensors`` get the
-    end-effector subtree as their primary match pattern. The sensor named
-    ``grip_contact_sensor``, if any, gets the finger-pad geom pattern as its
-    primary match pattern (see ``tasks.common.commands.ContactReleaseGate``).
+    end-effector subtree as their primary match pattern. The sensors named
+    ``grip_contact_sensor`` and ``object_contact_sensor``, if any, get the
+    finger-pad geom pattern as their primary match pattern (see
+    ``tasks.common.commands.ContactReleaseGate``). Only their *secondary*
+    match differs, and that is the task's business rather than the robot's:
+    the task declares which object it scores, the robot contributes the pads.
+
+    A robot declaring ``reset_joint_pos`` gets the ``reset_robot_joints`` event
+    swapped from mjlab's keyframe-relative offset reset to the absolute-pose
+    reset in ``tasks.common.events``. The task's own sample ranges carry over
+    unchanged, so ``start_pose_noise`` still means the same thing either way.
     """
     cfg.scene.entities["robot"] = manipulator.entity_cfg_fn()
 
-    action = cfg.actions["joint_pos"]
-    assert isinstance(action, JointPositionActionCfg)
-    action.scale = manipulator.action_scale
+    if manipulator.reset_joint_pos is not None:
+        event = cfg.events["reset_robot_joints"]
+        event.func = reset_joints_to_pose
+        event.params = {
+            "pose": dict(manipulator.reset_joint_pos),
+            "position_range": event.params["position_range"],
+            "velocity_range": event.params["velocity_range"],
+            "asset_cfg": event.params["asset_cfg"],
+        }
 
     grasp = (manipulator.grasp_site,)
     for group in cfg.observations.values():
@@ -55,18 +72,15 @@ def wire_manipulator_into_env(
             command.gripper_joints = manipulator.gripper_joints
             command.gripper_open_threshold = manipulator.gripper_open_threshold
 
-    if ee_contact_sensors:
-        assert cfg.scene.sensors is not None
-        for sensor in cfg.scene.sensors:
-            if sensor.name in ee_contact_sensors:
-                assert isinstance(sensor, ContactSensorCfg)
-                sensor.primary.pattern = manipulator.ee_subtree
-
-    if grip_contact_sensor is not None:
-        assert cfg.scene.sensors is not None
-        for sensor in cfg.scene.sensors:
-            if sensor.name == grip_contact_sensor:
-                assert isinstance(sensor, ContactSensorCfg)
-                sensor.primary.pattern = manipulator.pad_geoms
+    pad_sensors = (grip_contact_sensor, object_contact_sensor)
+    for sensor in cfg.scene.sensors:
+        if sensor.name in ee_contact_sensors:
+            pattern = manipulator.ee_subtree
+        elif sensor.name in pad_sensors:
+            pattern = manipulator.pad_geoms
+        else:
+            continue
+        assert isinstance(sensor, ContactSensorCfg)
+        sensor.primary.pattern = pattern
 
     cfg.viewer.body_name = manipulator.viewer_body

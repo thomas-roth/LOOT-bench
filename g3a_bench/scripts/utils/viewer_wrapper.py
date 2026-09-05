@@ -1,27 +1,6 @@
-"""Safe shutdown + uncapped-FPS native viewer.
+"""Native viewer with safe teardown and uncapped FPS.
 
-The two fixes over mjlab's stock ``NativeMujocoViewer``:
-
-**Safe teardown.** ``mujoco.viewer.Handle.close()`` only *requests* teardown:
-the actual window destruction happens afterwards on the viewer's daemon GLFW
-thread. If the Python interpreter exits while that thread is still inside
-``eglSwapBuffers`` (routine right after a close request), the C runtime's
-shared-library destructors (mesa/EGL) tear the display down under it and the
-thread segfaults. The kernel then writes a core dump of the whole process —
-multiple GB with a loaded sim — during which the window sits frozen (the
-compositor reports the viewer as not responding) and the machine stutters.
-Ctrl+C in the terminal hits this window almost every time, because the main
-thread reaches interpreter exit milliseconds after ``Handle.close()``.
-The fix is to block until teardown actually finished before letting the
-interpreter exit.
-
-**Throttled overlays.** Stock mjlab calls ``viewer.set_texts(...)`` on every
-rendered frame (and ``viewer.set_figures(...)`` on every frame while reward
-plots are shown). MuJoCo's passive-viewer ``set_texts``/``set_figures``
-spin-wait until the render thread (vsync'd to the monitor) consumes them, so
-the whole python loop is silently capped at the monitor refresh rate no matter
-what ``frame_rate`` is requested. Refreshing the overlays at a fixed low rate
-removes that coupling.
+close() waits for GLFW teardown; overlays refresh at low fixed rates.
 """
 
 import sys
@@ -35,16 +14,7 @@ TEARDOWN_TIMEOUT = 5.0  # seconds to wait for teardown of viewer thread
 
 
 def wait_for_viewer_teardown(viewer_handle: object) -> bool:
-    """Block until the passive viewer's GLFW thread finished tearing down.
-
-    The ``Handle`` keeps only a weakref to the C++ ``Simulate`` object; the
-    strong reference lives in the GLFW thread's launch frame and is dropped
-    once ``simulate.destroy()`` completed. The weakref clearing is therefore
-    a reliable "teardown done" signal. Returns True if teardown completed
-    within ``TEARDOWN_TIMEOUT``, False if the wait was skipped or timed out (in
-    both cases exiting may still segfault); failures are also warned to stderr
-    so they don't pass silently.
-    """
+    """Wait for GLFW teardown; True if done within TEARDOWN_TIMEOUT."""
 
     sim_ref = getattr(viewer_handle, "_sim", None)
     if sim_ref is None:
@@ -69,21 +39,7 @@ def wait_for_viewer_teardown(viewer_handle: object) -> bool:
 
 
 class NativeViewerWrapper(NativeMujocoViewer):
-    """NativeMujocoViewer with safe teardown and uncapped FPS.
-
-    Combines two fixes over the stock viewer:
-
-    1. ``close()`` waits up to ``TEARDOWN_TIMEOUT`` seconds for the GLFW
-       thread teardown to finish before returning, preventing a segfault on
-       Ctrl+C or fast interpreter exit.
-    2. UI overlays (``set_texts``) are refreshed at a fixed low rate
-       (``OVERLAY_INTERVAL``) and reward figures (``set_figures``)
-       at ``FIGURES_INTERVAL`` so neither can spin-wait on the render
-       thread and silently cap the simulation loop to the monitor refresh rate.
-
-    The frame rate defaults to ``VIEWER_FRAME_RATE`` for functionally
-    uncapped rendering.
-    """
+    """NativeMujocoViewer with safe teardown and throttled overlays."""
 
     VIEWER_FRAME_RATE = 1000.0  # frame rate of viewer (1000 is functionally uncapped)
     OVERLAY_INTERVAL = 0.25  # seconds between set_texts calls (4 Hz)
@@ -101,8 +57,7 @@ class NativeViewerWrapper(NativeMujocoViewer):
         self._last_figures_time = 0.0
 
     def close(self) -> None:
-        # Grab the handle first: super().close() sets self.viewer to None
-        # before requesting teardown, so it must be read beforehand.
+        # Read handle first: super().close() clears self.viewer.
         viewer_handle = self.viewer
         super().close()
 
@@ -110,8 +65,7 @@ class NativeViewerWrapper(NativeMujocoViewer):
             wait_for_viewer_teardown(viewer_handle)
 
     def _set_status_overlay(self, viewer: mujoco.viewer.Handle) -> None:
-        # Throttle set_texts to avoid spin-wait cap (vsync lock).
-        # Would otherwise result in sim being capped to monitor's refresh rate when left overlay shown.
+        # Throttled to avoid vsync cap on monitor refresh.
 
         now = time.perf_counter()
         if now - self._last_overlay_time < self.OVERLAY_INTERVAL:
@@ -121,8 +75,7 @@ class NativeViewerWrapper(NativeMujocoViewer):
         super()._set_status_overlay(viewer)
 
     def _update_reward_figures(self, viewer: mujoco.viewer.Handle) -> None:
-        # Throttle set_figures to avoid spin-wait cap (vsync lock).
-        # Would otherwise result in sim being capped to monitor's refresh rate when reward plots shown.
+        # Throttled to avoid vsync cap on monitor refresh.
 
         if not self._show_plots or not self._term_names:
             if self._figures_dirty:

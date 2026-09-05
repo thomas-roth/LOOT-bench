@@ -22,7 +22,7 @@ def domino_upright_aligned(
 
     A domino counts as standing when its body z-axis is within
     ``threshold_deg`` of world z *and* its body x-axis (the thin side) is
-    within ``threshold_deg`` of the row direction mod pi — so the dominoes
+    within ``threshold_deg`` of the row direction mod pi, so the dominoes
     can knock each other over regardless of which way they face.
 
     Args:
@@ -92,7 +92,7 @@ def chain_topple_success(
     Returns:
         (E,) bool: every domino fallen, all leaning the same way, and
         first-fall steps monotonic along the row in that direction (ties
-        allowed -- neighbors may settle within the same step).
+        allowed: neighbors may settle within the same step).
     """
     all_fallen = fallen.all(dim=-1)
     same_dir = (sign == sign[:, :1]).all(dim=-1)

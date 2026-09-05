@@ -1,6 +1,6 @@
 """Replay LeRobot dataset in simulation using Native MuJoCo viewer.
 
-Not a pytest test — an interactive manual-verification script.
+Not a pytest test. An interactive manual-verification script.
 
 Usage:
     uv run python tests/live_bridge/manual_replay_demo.py
@@ -17,7 +17,7 @@ import torch
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.rl import RslRlVecEnvWrapper
 from mjlab.tasks.registry import load_env_cfg
-import g3a_bench  # noqa: F401 — registers benchmark tasks in mjlab registry
+import g3a_bench  # noqa: F401  (registers benchmark tasks in mjlab registry)
 from g3a_bench.scripts.live_bridge.mapper import lerobot_to_mjlab_raw_action
 from g3a_bench.scripts.live_bridge.reader import DatasetReader
 from g3a_bench.scripts.utils.viewer_wrapper import NativeViewerWrapper

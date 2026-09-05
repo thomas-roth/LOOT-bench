@@ -24,6 +24,5 @@ register_category(
     make_env_cfg=make_domino_env_cfg,
     robots=(get_unimanual_dk1_interface(),),
     task_id_parts=_task_id_parts,
-    max_iterations=10_000,
     grip_contact_sensor=GRIP_CONTACT_SENSOR_NAME,
 )

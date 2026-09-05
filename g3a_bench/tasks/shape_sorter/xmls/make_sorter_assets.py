@@ -2,30 +2,7 @@
 # requires-python = ">=3.10"
 # dependencies = ["numpy>=1.26", "mapbox-earcut>=1.0"]
 # ///
-"""One-time generator for the STL shape-sorter assets.
-
-Converts the user-designed CAD STLs (committed under ``cad/``; mm units,
-uncentered assembly offsets) into the committed runtime assets under
-``tasks/shape_sorter/xmls/``:
-
-- ``meshes/sorter_visual.stl``      pretty sorter mesh (metres, centred)
-- ``meshes/sorter_col_<face>_<k>.stl``  exact convex collision parts, one set
-  per face panel (MuJoCo collides meshes as convex hulls, so the holed cube
-  must be split; the split is exact, not an approximation, because the hole
-  clearance ~1-2 mm *is* the task)
-- ``meshes/piece_<shape>.stl``      piece meshes, centred at the cross-section
-  centroid, extrusion axis +z
-- ``meshes/piece_star_col_<k>.stl`` convex parts of the (non-convex) star piece
-- ``sorter.xml`` / ``piece_<shape>.xml``  freejoint MJCF bodies
-- ``sorter_layout.json``            hole mouths/axes + piece dims in the cube
-  body frame -- the single source both the XML geometry and the success metric
-  derive from (see ``shape_sorter.assets.load_sorter_layout``)
-
-Build-time tool, not part of the runtime. Re-run to regenerate the committed
-assets:
-
-    uv run g3a_bench/tasks/shape_sorter/xmls/make_sorter_assets.py
-"""
+"""Generate STL sorter assets from CAD files. Run to regenerate xmls/."""
 
 from __future__ import annotations
 
@@ -177,11 +154,7 @@ def dist_to_boundary(pt: np.ndarray, poly: np.ndarray) -> float:
 def face_loops(
     verts: np.ndarray, faces: np.ndarray, axis: int, plane: float, tol: float = 1e-6
 ) -> list[list[int]]:
-    """Closed boundary loops of the triangulated region on a coordinate plane.
-
-    Returns vertex-index loops of the once-used (boundary) edges of all
-    triangles lying entirely on ``verts[:, axis] == plane``.
-    """
+    """Boundary loops of triangles lying on the given coordinate plane."""
     on_plane = np.abs(verts[:, axis] - plane) < tol
     tri_on = on_plane[faces].all(axis=1)
     edge_count: dict[tuple[int, int], int] = {}
@@ -302,11 +275,7 @@ def hertel_mehlhorn(verts: np.ndarray, polys: list[list[int]]) -> list[list[int]
 
 
 def extrude(poly: np.ndarray, frame: np.ndarray, d0: float, d1: float) -> list[Tri]:
-    """Convex CCW polygon (in the (c0,c1) plane) -> closed prism triangles.
-
-    ``frame`` rows are (c0, c1, axis); the prism spans axis coords [d0, d1]
-    (d0 < d1); polygon coords are (u, v) in the c0/c1 plane.
-    """
+    """Convex polygon in (c0, c1) plane → closed prism between d0 and d1."""
     c0, c1, a = frame
     lo = [u * c0 + v * c1 + d0 * a for u, v in poly]
     hi = [u * c0 + v * c1 + d1 * a for u, v in poly]
@@ -479,8 +448,7 @@ def rot_about_z(angle: float) -> np.ndarray:
 
 
 def best_fit(cross: np.ndarray, hole: np.ndarray) -> tuple[float, float]:
-    """Best (clearance, angle) of the centred *cross* inside the centred *hole*
-    over sampled z-rotations; clearance is -inf if it never fits."""
+    """Best clearance and angle of cross inside hole over z rotations."""
     best_clear, best_ang = -math.inf, 0.0
     for deg in range(360):
         ang = math.radians(deg)
@@ -513,11 +481,7 @@ def process_piece(
     hole2d = np.array(hole["polygon"])
     hole2d = hole2d - poly_centroid(hole2d)
 
-    # The CAD prism axis differs per piece (triangle/hexagon extrude along y).
-    # Detect it: an axis is a candidate if both end planes carry a single
-    # closed outline; among candidates keep the one whose cross-section fits
-    # the matching hole (some yaw), and bake that yaw into the mesh so an
-    # identity-orientation piece drops straight into its hole.
+    # CAD prism axis differs per piece. Detect it by fitting cross-sections.
     found = None
     for axis in (2, 1, 0):
         lo_loops = face_loops(verts, faces, axis, float(verts[:, axis].min()))
@@ -541,9 +505,7 @@ def process_piece(
     axis, verts, cross, centroid, clear, ang = found
 
     zmin, zmax = float(verts[:, 2].min()), float(verts[:, 2].max())
-    # Center at (cross centroid, mid-height) so the body origin coincides with
-    # the hole mouth centroid when the piece sits perfectly in its hole, then
-    # yaw so identity orientation aligns with the hole polygon frame.
+    # Centre on cross centroid and mid-height, yaw aligned to the hole.
     verts = verts - np.array([centroid[0], centroid[1], (zmin + zmax) / 2.0])
     verts = verts @ rot_about_z(ang).T
     cross = cross @ rot_about_z(ang)[:2, :2].T

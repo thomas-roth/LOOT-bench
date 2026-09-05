@@ -1,9 +1,6 @@
-"""Variant definitions for the shape-sorter task category.
+"""Shape-sorter variants.
 
-A variant fixes the shape set (every piece must be inserted, unlike the
-legacy insertion sorter which only commanded one target piece) and how the
-free-standing sorter cube spawns:
-
+Each fixes the shape set and cube spawn mode:
 - ShapeSorter{3,4,5}FixedOrientation: the cube always spawns at the same
   deterministic pose (only its xy position is jittered).
 - ShapeSorter{3,4,5}NoRotation: the cube spawns face-down on one of the faces
@@ -29,9 +26,7 @@ from typing import Literal
 Shape = Literal["circle", "square", "rect", "triangle", "hexagon"]
 SpawnMode = Literal["fixed", "no_rotation", "full"]
 
-# The six flat resting orientations of the sorter cube (see
-# ``mdp.commands._flat_quats``), in the order the STL sorter's faces expose
-# them: which shape's hole faces the table under each orientation.
+# Resting face per orientation, matching mdp.commands flat quats.
 FACE_DOWN_SHAPES: tuple[str, ...] = (
     "circle",
     "star",
@@ -59,13 +54,7 @@ _SHAPES_BY_COUNT: dict[int, tuple[Shape, ...]] = {
 
 
 def allowed_faces(shapes: tuple[Shape, ...]) -> tuple[int, ...]:
-    """Face indices whose hidden (down) shape is *not* one of ``shapes``.
-
-    Used by the ``no_rotation`` spawn mode: dropping the cube on one of these
-    faces guarantees no hole the variant actually needs starts against the
-    table. The returned set only shrinks as more shapes are required, and is
-    always non-empty (the star face is never a required shape).
-    """
+    """Faces whose hidden shape is not required. For no_rotation spawn."""
     return tuple(i for i, s in enumerate(FACE_DOWN_SHAPES) if s not in shapes)
 
 

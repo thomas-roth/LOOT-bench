@@ -22,7 +22,7 @@ class TestReaderFrame:
         assert frame.timestamp == 12345.0
 
     def test_default_fields(self):
-        """Only joint_pos is required — everything else has defaults."""
+        """Only joint_pos is required. Everything else has defaults."""
         frame = ReaderFrame(joint_pos=np.zeros(7))
         assert frame.leader_action is None
         assert frame.cameras == {}
@@ -213,7 +213,7 @@ class TestLiveReader:
         }
         mock_follower_cls.return_value = mock_follower
 
-        # Mock leader action — real contract: get_action() returns a dict.
+        # Mock leader action. Real contract: get_action() returns a dict.
         mock_leader = MagicMock()
         mock_leader.get_action.return_value = {
             "joint_1.pos": 0.0,

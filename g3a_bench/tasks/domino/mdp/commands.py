@@ -1,27 +1,4 @@
-"""Task command for the domino category.
-
-At every resample the command:
-
-1. places the row start pose (domino-0's slot position) and row yaw: fixed
-   at the workspace centre along +y by default, or — for ``RandomRow`` —
-   one shared draw, independent of the domino count, with the reach-band
-   clamp sized for ``HARDEST_COUNT``. Either way the start pose never
-   shifts with the variant's actual n (seed-prefix rule) and slots extend
-   from the start along the row direction,
-2. scatters all dominoes upright elsewhere in the workspace on a jittered
-   grid (collision-free by construction; per-domino draws in index order via
-   ``ScatterGrid.sample_poses``), with the grid cells within
-   ``_SLOT_KEEP_OUT`` of any slot of the ``HARDEST_COUNT`` row blocked, so
-   no domino ever spawns on or right next to a target.
-
-Every step it re-checks each domino's placement (position + upright/row
-alignment, ``success.py`` kernels) against its slot. ``KnockOver`` variants
-additionally latch a build/topple ``phase`` once every slot is placed
-simultaneously, then require the row to topple as a chain: every domino
-fallen along the row axis, all leaning the same way, and their first-fall
-steps monotonic along the row in that direction — both phases are gated by
-the shared at-rest + released check.
-"""
+"""Domino command. Scatters dominoes, checks slot placement, latches topple."""
 
 from __future__ import annotations
 
@@ -124,8 +101,7 @@ class DominoCommand(CommandTerm):
 
         halves = variant.half_extents
         self._half_h = torch.tensor([h[2] for h in halves], device=dev)
-        # Bounding-circle radius of the thickest (index-0) domino — the
-        # widest footprint any spawn slot must clear.
+        # Widest footprint any spawn slot must clear.
         object_radius = math.hypot(BASE_HALF_EXTENTS[0], BASE_HALF_EXTENTS[1])
         self._scatter = ScatterGrid.tiling(
             cfg.workspace_x, cfg.workspace_y, object_radius=object_radius, device=dev
@@ -158,13 +134,7 @@ class DominoCommand(CommandTerm):
 
     @property
     def command(self) -> torch.Tensor:
-        """(E, G*7): per-slot env-local target pose (pos xyz, quat wxyz).
-
-        Every slot in a row shares the same upright/row-aligned target
-        orientation. Object-major (slot index order == domino index order),
-        so a shorter variant's command is a tail-truncation of a longer
-        one's (demo-cutoff rule).
-        """
+        """(E, G*7): per-slot env-local target pose, in slot order."""
         goals = self.slot_goal_pos - self._env.scene.env_origins.unsqueeze(1)
         zeros = torch.zeros_like(self.row_yaw)
         slot_quat = quat_from_euler_xyz(zeros, zeros, self.row_yaw)  # (E, 4)
@@ -203,11 +173,7 @@ class DominoCommand(CommandTerm):
         )  # (E, G, 4) wxyz
 
         if not self.variant.ordered:
-            # Order-free assignment: match dominoes to slots by proximity so
-            # any domino may fill any slot. Only valid when all dominoes are
-            # identical (variants.py forbids different + not ordered). No
-            # registered variant uses this yet; the knob exists for manual
-            # experiments.
+            # Order-free matching by proximity. Needs identical dominoes.
             dist = torch.cdist(self.slot_goal_pos, self.domino_pos_w)
             self.piece_for_slot = self._greedy_match(dist)
 
@@ -234,8 +200,7 @@ class DominoCommand(CommandTerm):
             fallen, sign = domino_fallen_along_row(
                 self.domino_quat_w, self.row_yaw, self.cfg.fallen_tilt_deg
             )
-            # Latch first-fall steps, but only during the topple phase —
-            # accidents while building must not count toward the chain.
+            # Latch first-fall steps only during the topple phase.
             step = self._env.episode_length_buf.float().unsqueeze(-1)
             newly = fallen & (self.phase > 0.5).unsqueeze(-1)
             self.fall_order = torch.where(
@@ -335,15 +300,7 @@ class DominoCommand(CommandTerm):
 
     @staticmethod
     def _greedy_match(dist: torch.Tensor) -> torch.Tensor:
-        """Greedy one-to-one matching for a batched square cost matrix.
-
-        ``dist`` is (E, k, k) with rows = slots and columns = candidate
-        dominoes; returns the (E, k) column index per row. Greedy on the
-        global minimum recovers the perfect matching whenever one exists
-        within ``pos_threshold`` — dominoes cannot overlap and neighboring
-        slots are at least one domino width apart, so no domino can satisfy
-        two slots — which is all the success metric needs.
-        """
+        """Greedy one-to-one slot to domino matching for (E, k, k) costs."""
         num_envs, k, _ = dist.shape
         cost = dist.clone()
         assign = torch.zeros(num_envs, k, dtype=torch.long, device=dist.device)

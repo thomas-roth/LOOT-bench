@@ -9,9 +9,7 @@ from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
 from g3a_bench.scripts.live_bridge.dataset_extra_info import load_extra_info
 
-# Hardware-specific imports — only needed for LiveReader (real robot).
-# Protected by try/except so the module can be imported on machines
-# without the trlc-dk1 hardware libraries.
+# HW imports optional; module imports without trlc-dk1 libraries.
 try:
     from lerobot_robot_trlc_dk1.follower import (  # type: ignore[import]
         DK1Follower,
@@ -37,13 +35,7 @@ def _connect_with_retry(
     retries: int = _CONNECT_RETRIES,
     delay_s: float = _CONNECT_RETRY_DELAY_S,
 ) -> _T:
-    """Instantiate + `.connect()` a device, retrying on a transient `ConnectionError`.
-
-    A fresh device is built on every attempt: a device that already got as
-    far as opening its serial port (`bus.connect()` succeeded) before the
-    handshake failed would raise `DeviceAlreadyConnectedError` if we called
-    `.connect()` again on the same instance.
-    """
+    """Build device and connect, retrying transient ConnectionError."""
     last_exc: ConnectionError | None = None
     for attempt in range(1, retries + 1):
         device = make_device()
@@ -70,7 +62,7 @@ class ReaderFrame:
 
     # (7,) [joint_1..joint_6, gripper] in real-robot format (radians, gripper 0=open..1=closed)
     joint_pos: np.ndarray
-    # (7,) same format as joint_pos — what the human commanded via leader arm
+    # (7,) same format as joint_pos; human command via leader arm
     leader_action: np.ndarray | None = None
     # Full policy observation vector (sim actor obs) for datasets that store it;
     # used by replay to measure drift vs the recording. None for live sources.
@@ -98,11 +90,7 @@ class Reader(ABC):
 
 
 class DatasetReader(Reader):
-    """Reads frames from a saved LeRobotDataset (offline replay mode).
-
-    Useful for testing the bridge without hardware — feed it a dataset
-    and the rest of the pipeline processes it identically.
-    """
+    """Read frames from a saved LeRobotDataset (offline replay)."""
 
     def __init__(self, repo_id: str, episode_index: int = 0, root: str | None = None):
         # LeRobotDataset wraps a HuggingFace dataset under the hood.
@@ -209,14 +197,7 @@ class LiveReader(Reader):
             self.connect()
 
     def connect(self):
-        """Open serial connection(s) to the leader, and the follower if enabled.
-
-        The vendored dk1 `configure()` handshake calls `disable_torque()`
-        with `num_retry=0` — one dropped status packet on that very first
-        write (e.g. a USB-serial adapter that hasn't settled yet right after
-        the port opens) raises `ConnectionError` with no retry margin at
-        all. Retry the whole handshake here instead of failing the session.
-        """
+        """Open serial connections; retry handshake on dropped packets."""
         if self.use_follower:
             self._follower = _connect_with_retry(
                 lambda: DK1Follower(DK1FollowerConfig(port=self.follower_port))
@@ -271,8 +252,7 @@ class LiveReader(Reader):
         )
 
         if joint_pos is None:
-            # No follower connected — the leader's own reading is the only
-            # physical arm state available, so it doubles as joint_pos.
+            # Leader-only mode: leader reading doubles as joint_pos.
             joint_pos = leader_action.copy()
 
         return ReaderFrame(
@@ -283,17 +263,7 @@ class LiveReader(Reader):
         )
 
     def send_action(self, action_np: np.ndarray) -> dict[str, Any]:
-        """Send a (7,) numpy action to the real follower arm.
-
-        Converts the standard bridge format (numpy array of
-        [joint_1..joint_6, gripper]) to the dict format expected by
-        DK1Follower.send_action() and sends it.
-
-        Args:
-            action_np: (7,) array — joints in radians, gripper in [0, 1].
-        Returns:
-            The action dict that was sent to the follower.
-        """
+        """Send (7,) action to follower; joints rad, gripper in [0, 1]."""
         if self._follower is None:
             raise RuntimeError("Follower not connected. Call .connect() first.")
         action_dict = {

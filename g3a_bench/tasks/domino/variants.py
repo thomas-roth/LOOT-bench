@@ -10,7 +10,7 @@ A variant fixes the domino count and one modifier:
   along the row (same height/width), so upright-standing/knock-over physics
   vary along the row.
 - Domino{n}KnockOver: once every domino stands at its row slot, toppling the
-  whole line as a chain is also required for success — every domino must
+  whole line as a chain is also required for success: every domino must
   fall along the row axis, all leaning the same way, in row order (sideways
   or out-of-order toppling doesn't count); a `phase` observation flags the
   build (0) vs. topple (1) half of the episode.

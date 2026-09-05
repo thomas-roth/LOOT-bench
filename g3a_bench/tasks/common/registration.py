@@ -25,7 +25,7 @@ def register_category(
     task_id_parts: Callable[..., tuple[str, str]],
     ee_contact_sensors: tuple[str, ...] = (),
     grip_contact_sensor: str | None = None,
-    max_iterations: int = 15_000,
+    object_contact_sensor: str | None = None,
 ) -> None:
     """Register all robot x variant tasks of one category.
 
@@ -41,11 +41,10 @@ def register_category(
         robots: manipulator interfaces to register against.
         ee_contact_sensors: forwarded to ``wire_manipulator_into_env``.
         grip_contact_sensor: forwarded to ``wire_manipulator_into_env``.
+        object_contact_sensor: forwarded to ``wire_manipulator_into_env``.
         task_id_parts: ``(task, variation)`` for a variant, e.g.
             ``("Low", "DifferentBlocks")`` or ``("Low", "")`` for the base
             case.
-        max_iterations: PPO iteration budget (kept so ``g3a-play`` and the
-            mjlab registry tooling work; QC has its own trainer).
     """
     seen_task_ids: dict[str, str] = {}
     for robot in robots:
@@ -69,6 +68,7 @@ def register_category(
                 robot,
                 ee_contact_sensors=ee_contact_sensors,
                 grip_contact_sensor=grip_contact_sensor,
+                object_contact_sensor=object_contact_sensor,
             )
 
             play_env_cfg = make_env_cfg(variant, play=True)
@@ -77,6 +77,7 @@ def register_category(
                 robot,
                 ee_contact_sensors=ee_contact_sensors,
                 grip_contact_sensor=grip_contact_sensor,
+                object_contact_sensor=object_contact_sensor,
             )
 
             register_mjlab_task(
@@ -84,8 +85,7 @@ def register_category(
                 env_cfg=env_cfg,
                 play_env_cfg=play_env_cfg,
                 rl_cfg=manipulation_ppo_runner_cfg(
-                    f"{category.lower()}_{variant.name.lower()}_{robot.name.lower()}",
-                    max_iterations=max_iterations,
+                    f"{category.lower()}_{variant.name.lower()}_{robot.name.lower()}"
                 ),
                 runner_cls=ManipulationOnPolicyRunner,
             )

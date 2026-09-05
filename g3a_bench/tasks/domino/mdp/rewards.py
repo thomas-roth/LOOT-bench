@@ -4,14 +4,13 @@ from __future__ import annotations
 
 from functools import partial
 
-from g3a_bench.tasks.common.rewards import (
-    command_progress_reward,
-    command_success_reward,
-)
+from g3a_bench.tasks.common.rewards import command_task_reward
 from g3a_bench.tasks.domino.mdp.commands import get_command
 
-progress_reward = partial(command_progress_reward, get_command=get_command)
-"""Placement fraction (build phase) / toppling fraction (topple phase)."""
+task_reward = partial(command_task_reward, get_command=get_command)
+"""The category's whole reward, in [-1, 0], zero only at success.
 
-success_reward = partial(command_success_reward, get_command=get_command)
-"""Sparse bonus while the row (and, for KnockOver, the fall) is complete."""
+Shaped by the placement fraction in the build phase, and by the toppling
+fraction in the topple phase. Zero when the row is complete, and for
+KnockOver, when the fall is complete too.
+"""

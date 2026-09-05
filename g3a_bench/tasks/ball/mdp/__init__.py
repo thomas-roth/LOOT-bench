@@ -17,7 +17,7 @@ from g3a_bench.tasks.ball.mdp.observations import (
     wall_pose as wall_pose,
 )
 from g3a_bench.tasks.ball.mdp.rewards import (
-    success_reward as success_reward,
+    task_reward as task_reward,
 )
 from g3a_bench.tasks.ball.mdp.terminations import (
     ball_at_target as ball_at_target,

@@ -44,8 +44,8 @@ The child disables core dumps (`RLIMIT_CORE = 0`): the expected `--show-bug`
 segfault would otherwise spend seconds writing a 400+ MB core (torch is
 loaded), racing `--timeout` and misreporting the crash as a hang.
 `--show-bug --coredump` keeps the dump to demonstrate the unpatched
-real-world behavior — the crashed child lingers while the kernel writes the
-core (frozen window, stutter) — so there the parent just waits, without a
+real-world behavior, the crashed child lingers while the kernel writes the
+core (frozen window, stutter), so there the parent just waits, without a
 timeout, and reports how long the crash-to-exit took.
 
 The why and the fix live in the module docstring of

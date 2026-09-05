@@ -1,18 +1,9 @@
-"""TRLC-DK1 collision configuration.
+"""DK1 collision configs: full, gripper-only, gripper-only with self-collision."""
 
-Finger-pad geom pattern (single source of truth) and collision sets for the
-three modes: full contact, gripper-only (no self-collision, the unimanual
-training default), and gripper-only scene contact with whole-arm
-self-collision (the bimanual default).
-"""
-
-# The two TODOs below only matter for the self-colliding modes
-# (FULL_COLLISION, GRIPPER_ONLY_WITH_SELF_COLLISION); GRIPPER_ONLY_COLLISION
-# disables the affected geoms entirely.
-# TODO: fix small self-collision of dark part near joint2 end of link2-3 with
-#   joint4 end of link3-4.
-# TODO: fix too-large collision box of link2-3 (seen when trying to hit joint2
-#   end of link2-3 with lower black part of joint5).
+# TODOs affect self-colliding modes only; GRIPPER_ONLY_COLLISION disables
+# affected geoms.
+# TODO: fix self-collision of dark part near link2-3/link3-4.
+# TODO: fix oversized collision box of link2-3.
 
 from mjlab.utils.spec_config import CollisionCfg
 
@@ -31,11 +22,7 @@ def _collision_with_pad_tuning(
     contype: int | dict[str, int] = 1,
     conaffinity: int | dict[str, int] = 1,
 ) -> CollisionCfg:
-    """CollisionCfg with the contact tuning shared by all three modes.
-
-    Grippy high-condim finger pads, plain condim-3 contacts everywhere else —
-    grasp physics are identical across modes.
-    """
+    """CollisionCfg with shared contact tuning (grippy pads, plain rest)."""
     return CollisionCfg(
         geom_names_expr=geom_names_expr,
         contype=contype,
@@ -59,22 +46,12 @@ def _collision_with_pad_tuning(
 
 FULL_COLLISION = _collision_with_pad_tuning((".*_collision",))
 
-# Only the wrist link, fingers, and pads collide — with the scene, and (the
-# sibling finger pair only, deliberately: fingers must not pass through each
-# other when closing empty) with each other. Every other robot geom has
-# collision disabled via disable_other_geoms, so no arm self-collision remains;
-# the arm can fold through itself. Wrist<->finger pairs are removed by MuJoCo's
-# parent-child filter.
+# Gripper-only: wrist/fingers collide with scene and each other; arm disabled.
+# Wrist/finger pairs removed by MuJoCo parent-child filter.
 GRIPPER_ONLY_COLLISION = _collision_with_pad_tuning((DK1_GRIPPER_GEOMS_PATTERN,))
 
-# Scene contact limited to the wrist link and fingers — cheaper than full, and
-# the arm body cannot get stuck on scene objects during training — but the
-# whole arm keeps self-colliding.
-#
-# contype/conaffinity use two bits instead of one: bit 0 (SCENE) lets the
-# wrist/fingers contact scene objects, bit 1 (SELF) keeps the whole arm
-# self-colliding. Without the SELF bit the upper arm has contype=conaffinity=0,
-# so e.g. the gripper can swing straight through link2-3/link4-5 when folded.
+# Gripper-only scene contact; whole arm keeps self-collision.
+# Bit 0 SCENE for wrist/fingers, bit 1 SELF for the arm.
 _SCENE = 1
 _SELF = 2
 GRIPPER_ONLY_WITH_SELF_COLLISION = _collision_with_pad_tuning(
