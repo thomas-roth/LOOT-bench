@@ -2,8 +2,8 @@
 
 Ball has no progress signal: a ball is either in the target zone or not,
 and distance says little about whether the throw will land. So the reward
-is the sparse member of the shared convention: -1 every
-step until the ball scores, 0 on the step that scores.
+is the sparse member of the shared convention: -1 every step until the ball
+scores, 0 on the step that scores.
 """
 
 from __future__ import annotations

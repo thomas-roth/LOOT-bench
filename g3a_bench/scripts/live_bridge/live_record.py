@@ -10,9 +10,9 @@ State machine (per episode):
                        2s grace period unless F (save now as failure),
                        D (discard) or V (override to success) is pressed first
   RESET_PHASE          ghost arm visible at home; sim live (not recorded)
+
 Key bindings:
-    V  save episode as SUCCESS (also fires automatically on task
-       completion)
+    V  save episode as SUCCESS (also fires automatically on task completion)
     F  save episode as FAILURE  (also fires automatically ~2s after a collision)
     D  discard episode
     U  undo the last saved episode

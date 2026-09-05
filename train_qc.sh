@@ -54,8 +54,7 @@ shift 2
 # dataset recorded at 0.05 must run with the same value or
 # g3a_bench.qc.dataset.check_dataset_matches_env aborts at load time.
 # Accepts --start_pose_noise as a flag, or the G3A_START_POSE_NOISE env var.
-# The value is passed to qc/main.py:main under its own name,
-# --g3a_start_pose_noise, so qc sees one name and this wrapper another.
+# The value is passed to qc/main.py:main under --g3a_start_pose_noise.
 G3A_START_POSE_NOISE="${G3A_START_POSE_NOISE:-}"
 EXTRA_ARGS=()
 while [ $# -gt 0 ]; do
@@ -187,7 +186,7 @@ fi
 # A run is hours long and the session is usually closed before it ends.
 
 if [ -z "${TMUX:-}" ] && [ -z "${STY:-}" ] && [ "${G3A_ALLOW_NO_TMUX:-0}" != "1" ]; then
-  die "not inside tmux; a closed terminal kills the run. Start 'tmux new -s qc', or set G3A_ALLOW_NO_TMUX=1."
+  die "not inside tmux; a closed terminal kills the run. Start 'tmux new', or set G3A_ALLOW_NO_TMUX=1."
 fi
 
 # --- launch ------------------------------------------------------------------
