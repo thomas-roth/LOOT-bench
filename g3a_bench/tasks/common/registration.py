@@ -43,7 +43,7 @@ def register_category(
         grip_contact_sensor: forwarded to ``wire_manipulator_into_env``.
         object_contact_sensor: forwarded to ``wire_manipulator_into_env``.
         task_id_parts: ``(task, variation)`` for a variant, e.g.
-            ``("Low", "DifferentBlocks")`` or ``("Low", "")`` for the base
+            ``("3Pieces", "KnockOver")`` or ``("Easy", "")`` for the base
             case.
     """
     seen_task_ids: dict[str, str] = {}

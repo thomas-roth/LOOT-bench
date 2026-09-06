@@ -56,6 +56,13 @@ class NativeViewerWrapper(NativeMujocoViewer):
         self._last_overlay_time = 0.0
         self._last_figures_time = 0.0
 
+    def _setup_camera(self) -> None:
+        # Stock mjlab forces opt.frame = mjFRAME_WORLD, which paints a permanent
+        # RGB axis triad at the world origin. Clear it; the frame key still cycles.
+        super()._setup_camera()
+        if self.viewer is not None:
+            self.viewer.opt.frame = mujoco.mjtFrame.mjFRAME_NONE.value
+
     def close(self) -> None:
         # Read handle first: super().close() clears self.viewer.
         viewer_handle = self.viewer

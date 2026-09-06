@@ -5,7 +5,7 @@
 import mujoco
 from mjlab.entity import EntityCfg
 
-TABLE_RGBA = (0.5, 0.5, 0.5, 1.0)  # flat neutral gray
+TABLE_RGBA = (0.2, 0.2, 0.2, 1.0)  # dark gray: contrast vs split tiers, non-glaring
 
 # Body placement, env-local. Off-centre toward ball far targets.
 TABLE_POS = (0.48, 0.0, 0.0)

@@ -33,7 +33,6 @@ from g3a_bench.tasks.place.mdp.commands import PlaceCommand
 from g3a_bench.tasks.shape_sorter.assets import BOARD_POS, load_sorter_layout
 from g3a_bench.tasks.shape_sorter.mdp.commands import ShapeSorterCommand
 from g3a_bench.tasks.stack.mdp.commands import StackCommand
-from g3a_bench.tasks.stack.variants import FORM_HALF_EXTENTS
 
 _NUM_ENVS = 8
 _STEPS = 10
@@ -139,7 +138,7 @@ def _teleport_stack(
 ) -> None:
     """Stack every block at one xy, resting directly on top of each other."""
     origins = env.scene.env_origins
-    half_h = [FORM_HALF_EXTENTS[b.form][2] for b in cmd.variant.blocks]
+    half_h = [b.half_extents[2] for b in cmd.variant.blocks]
     quat = _upright_quat(cmd.num_envs, device)
     xy_t = torch.tensor(xy, device=device)
     cum = 0.0
@@ -154,33 +153,8 @@ def _teleport_stack(
         cum += 2 * h
 
 
-def _teleport_two_stacks(
-    cmd: StackCommand, env: ManagerBasedRlEnv, device: str, *, separation: float
-) -> None:
-    """Two separate n-block stacks, ``separation`` m apart in y."""
-    origins = env.scene.env_origins
-    half_h = [FORM_HALF_EXTENTS[b.form][2] for b in cmd.variant.blocks]
-    quat = _upright_quat(cmd.num_envs, device)
-    n = cmd.variant.target_blocks
-    xy_by_stack = (
-        torch.tensor([0.30, -separation / 2], device=device),
-        torch.tensor([0.30, separation / 2], device=device),
-    )
-    cum = [0.0, 0.0]
-    for i, block in enumerate(cmd.blocks):
-        stack = 0 if i < n else 1
-        h = half_h[i]
-        z = origins[:, 2] + cum[stack] + h
-        pos = torch.cat([origins[:, :2] + xy_by_stack[stack], z.unsqueeze(-1)], dim=-1)
-        block.write_root_link_pose_to_sim(torch.cat([pos, quat], dim=-1))
-        block.write_root_link_velocity_to_sim(
-            torch.zeros(cmd.num_envs, 6, device=device)
-        )
-        cum[stack] += 2 * h
-
-
-def _check_stack_low(device: str, *, render: bool = False) -> str | None:
-    task_id = "G3A-Stack-Low-Dk1_uni"
+def _check_stack3_easy(device: str, *, render: bool = False) -> str | None:
+    task_id = "G3A-Stack3-Easy-Dk1_uni"
     env = _make_env(task_id, device)
     cmd = cast(StackCommand, env.command_manager.get_term("task"))
     zeros = _zeros(env, device)
@@ -195,20 +169,123 @@ def _check_stack_low(device: str, *, render: bool = False) -> str | None:
     return f"progress={frac:.3f} (expected >0.9)" if frac <= 0.9 else reward_err
 
 
-def _check_stack_low_two_stacks(device: str, *, render: bool = False) -> str | None:
-    task_id = "G3A-Stack-Low-TwoStacks-Dk1_uni"
+_GRIP_CLOSE = -2.0  # last action dim, raw value that fully closes the gripper
+_GRIP_OPEN = 2.0
+_GRIP_STEPS = 60  # sim steps for the fingers to close on the pinned cube
+
+
+def _check_stack_held_block_excluded(
+    device: str, *, render: bool = False
+) -> str | None:
+    """A block gripped and lifted to target height must NOT earn progress.
+
+    Exercises the held-block exclusion (``StackCommand._held_block_mask`` +
+    ``stack_progress(exclude=...)``) against the real grip-contact sensor:
+    block 0 is pinned into the closing gripper at the grasp site while the
+    others rest at half target height. Only the resting blocks may count until
+    the gripper opens.
+    """
+    task_id = "G3A-Stack3-Easy-Dk1_uni"
     env = _make_env(task_id, device)
     cmd = cast(StackCommand, env.command_manager.get_term("task"))
-    zeros = _zeros(env, device)
-    env.step(zeros)
-    _teleport_two_stacks(cmd, env, device, separation=0.12)
-    for _ in range(_STEPS):
-        env.step(zeros)
-    frac = cmd.progress.mean().item()
-    reward_err = _reward_convention_error(env, zeros)
+    robot = env.scene["robot"]
+    ne, dim = _NUM_ENVS, env.action_manager.action.shape[1]
+    origins = env.scene.env_origins
+    table_z = origins[:, 2]
+    target = cmd.variant.target_height
+    quat = _upright_quat(ne, device)
+    env.step(_zeros(env, device))
+
+    def grip_action(value: float) -> torch.Tensor:
+        a = torch.zeros((ne, dim), device=device)
+        a[:, -1] = value
+        return a
+
+    def park_resting_blocks() -> None:
+        # Blocks 1.. rest on the table at distinct xy, tops at half target.
+        for i in range(1, cmd.num_blocks):
+            dx = 0.24 + 0.09 * ((i - 1) % 3)
+            dy = 0.12 + 0.09 * ((i - 1) // 3)
+            xy = origins[:, :2] + torch.tensor([dx, dy], device=device)
+            z = table_z + 0.5 * target - cmd._half_h[i]
+            pose = torch.cat([xy, z.unsqueeze(-1), quat], dim=-1)
+            cmd.blocks[i].write_root_link_pose_to_sim(pose)
+            cmd.blocks[i].write_root_link_velocity_to_sim(
+                torch.zeros(ne, 6, device=device)
+            )
+
+    def pin_cube_to_grasp() -> None:
+        pos = robot.data.site_pos_w[:, cmd.grasp_cfg.site_ids].squeeze(1)
+        q = robot.data.site_quat_w[:, cmd.grasp_cfg.site_ids].squeeze(1)
+        cmd.blocks[0].write_root_link_pose_to_sim(torch.cat([pos, q], dim=-1))
+        cmd.blocks[0].write_root_link_velocity_to_sim(torch.zeros(ne, 6, device=device))
+
+    for _ in range(_GRIP_STEPS):
+        park_resting_blocks()
+        pin_cube_to_grasp()
+        env.step(grip_action(_GRIP_CLOSE))
+    held_progress = cmd.progress.mean().item()
+    force = cmd._grip_sensor.data.force.norm(dim=-1).amax(dim=-1)  # pyright: ignore[reportOptionalMemberAccess]
+    gripping = bool((~cmd._contact_gate(cmd._grip_sensor)).all())
+
     _render_goal(env, task_id, render)
+
+    # Open the gripper at the same pose: the cube must count again.
+    for _ in range(20):
+        park_resting_blocks()
+        pin_cube_to_grasp()
+        env.step(grip_action(_GRIP_OPEN))
+    released_progress = cmd.progress.mean().item()
     env.close()
-    return f"progress={frac:.3f} (expected >0.9)" if frac <= 0.9 else reward_err
+
+    if not gripping:
+        return f"grip sensor never registered a grasp (max force={force.mean():.2f} N)"
+    if held_progress > 0.6:
+        return (
+            f"held cube counted toward progress: held={held_progress:.3f} "
+            "(expected ~0.5, the resting blocks only)"
+        )
+    if released_progress < 0.9:
+        return (
+            f"released cube did not count: released={released_progress:.3f} "
+            "(expected ~1.0)"
+        )
+    return None
+
+
+def _check_stack_empty_gripper_no_grip(
+    device: str, *, render: bool = False
+) -> str | None:
+    """An empty, fully-closed gripper must not register grip force.
+
+    Guards the finger<->finger contact exclusion in the DK1 model: without it
+    the closed empty fingers self-collide, the grip sensor reads force, and
+    ``_held_block_mask`` would wrongly exclude any resting block within
+    ``grip_reach`` (e.g. a freshly placed stack top). Every block is sunk out
+    of reach here, so any force can only be finger self-contact.
+    """
+    env = _make_env("G3A-Stack3-Easy-Dk1_uni", device)
+    cmd = cast(StackCommand, env.command_manager.get_term("task"))
+    ne, dim = _NUM_ENVS, env.action_manager.action.shape[1]
+    quat = _upright_quat(ne, device)
+    for block in cmd.blocks:
+        sunk = env.scene.env_origins.clone()
+        sunk[:, 2] -= 1.0
+        block.write_root_link_pose_to_sim(torch.cat([sunk, quat], dim=-1))
+        block.write_root_link_velocity_to_sim(torch.zeros(ne, 6, device=device))
+    close = torch.zeros((ne, dim), device=device)
+    close[:, -1] = _GRIP_CLOSE
+    for _ in range(_GRIP_STEPS):
+        env.step(close)
+    force = cmd._grip_sensor.data.force.norm(dim=-1).amax(dim=-1)  # pyright: ignore[reportOptionalMemberAccess]
+    gripping = bool((~cmd._contact_gate(cmd._grip_sensor)).any())
+    env.close()
+    if gripping:
+        return (
+            f"empty closed gripper registered grip (max force={force.max():.2f} N); "
+            "finger self-contact would cause false held-block exclusion"
+        )
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -552,8 +629,9 @@ _CHECKS: list[tuple[str, str]] = [
     ("Place     RandS-FixedT ", "place_rands_fixedt"),
     ("Place     FixedS-RandT ", "place_fixeds_randt"),
     ("Place     FixedS-FixedT", "place_fixeds_fixedt"),
-    ("Stack     Low          ", "stack_low"),
-    ("Stack     Low-TwoStacks", "stack_low_two_stacks"),
+    ("Stack3    Easy         ", "stack3_easy"),
+    ("Stack3    Easy-HeldBlock", "stack_held_block"),
+    ("Stack3    Easy-EmptyGrip", "stack_empty_gripper"),
     ("Domino    3Pieces       ", "domino_3pieces"),
     ("Domino    3Pieces-KnockOver", "domino_knockover"),
     ("Sorter    3Shapes-Full ", "shape_sorter_full"),
@@ -566,10 +644,12 @@ _CHECKS: list[tuple[str, str]] = [
 def _dispatch(key: str, device: str, *, render: bool = False) -> str | None:
     if key.startswith("place_"):
         return _check_place(_PLACE_TASK_IDS[key], device, render=render)
-    if key == "stack_low":
-        return _check_stack_low(device, render=render)
-    if key == "stack_low_two_stacks":
-        return _check_stack_low_two_stacks(device, render=render)
+    if key == "stack3_easy":
+        return _check_stack3_easy(device, render=render)
+    if key == "stack_held_block":
+        return _check_stack_held_block_excluded(device, render=render)
+    if key == "stack_empty_gripper":
+        return _check_stack_empty_gripper_no_grip(device, render=render)
     if key == "domino_3pieces":
         return _check_domino_3pieces(device, render=render)
     if key == "domino_knockover":

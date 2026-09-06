@@ -25,7 +25,7 @@ Ports are auto-detected if omitted. Asks for operator ID (1–4) at startup. **L
 - `D`: **Discard** → reset
 - `U`: **Undo** the last saved episode (single-level)
 - `Q`: Finalize dataset and quit
-- `C`: Toggle wrist camera ↔ orbit view
+- `C`: Cycle view (front → wrist → orbit)
 
 On task success an episode auto-saves; any other termination (out of bounds,
 collision, timeout) pauses the sim (orange ghost) and auto-saves as failure

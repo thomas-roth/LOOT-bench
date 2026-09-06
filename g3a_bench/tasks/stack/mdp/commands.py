@@ -20,6 +20,7 @@ import numpy as np
 import torch
 from mjlab.entity import Entity
 from mjlab.managers.command_manager import CommandTerm
+from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.sensor import ContactSensor
 
 from g3a_bench.tasks.common.commands import (
@@ -28,21 +29,20 @@ from g3a_bench.tasks.common.commands import (
     GripperGateCommandCfg,
     GripperOpenGate,
 )
-from g3a_bench.tasks.common.debug_markers import marker_color
+from g3a_bench.tasks.common.debug_markers import (
+    MARKER_INFLATE,
+    OUTLINE_RGBA,
+    add_box_wireframe,
+    marker_color,
+)
 from g3a_bench.tasks.common.scatter import ScatterGrid, write_upright_spawn
 from g3a_bench.tasks.common.success import OBJECT_VEL_THRESHOLD, SuccessGate
 from g3a_bench.tasks.stack.mdp.success import (
     block_top_heights,
     stack_progress,
     stack_reached,
-    two_stacks_progress,
-    two_stacks_success,
 )
-from g3a_bench.tasks.stack.variants import (
-    FORM_HALF_EXTENTS,
-    MIN_STACK_SEPARATION,
-    StackVariantCfg,
-)
+from g3a_bench.tasks.stack.variants import StackVariantCfg
 
 if TYPE_CHECKING:
     from mjlab.envs.manager_based_rl_env import ManagerBasedRlEnv
@@ -50,6 +50,23 @@ if TYPE_CHECKING:
 
 # Debug-vis plane color while the target height is not reached yet.
 _PLANE_RGBA = (0.95, 0.95, 0.95, 1.0)
+
+SHOW_GOAL_STACK = False
+"""Draw the ghost target stack (:meth:`StackCommand._draw_goal_stack`).
+
+Switched on by ``scripts/play.py`` only: a build guide for interactive play,
+not something a teleop recording should show."""
+
+GRIP_REACH = 0.08
+"""Max distance (m) from the grasp site for a block to count as held.
+
+Shared with ``scripts/split_demos.py``, which reproduces the held-block
+exclusion offline and would otherwise recompute a different reward."""
+
+# Clearance (m) between the scatter region and the guide tower, so the guide
+# never overlaps the blocks it describes.
+_GOAL_STACK_MARGIN = 0.06
+_GOAL_STACK_RGBA = (0.55, 0.75, 1.0, 1.0)  # base (pending) color, alpha unused
 
 
 def get_command(env: ManagerBasedRlEnv, name: str) -> StackCommand:
@@ -61,10 +78,13 @@ class StackCommandCfg(GripperGateCommandCfg):
     block_names: tuple[str, ...]
     """All block entities, in the variant's (tail-extending) index order."""
     variant: StackVariantCfg
+    grasp_cfg: SceneEntityCfg
+    """Robot grasp site, used to find the held block; site set by wiring."""
     workspace_x: tuple[float, float] = (0.21, 0.44)
     workspace_y: tuple[float, float] = (-0.21, 0.21)
     block_vel_threshold: float = OBJECT_VEL_THRESHOLD
     """Max linear speed (m/s) of any block to count success."""
+    grip_reach: float = GRIP_REACH
 
     def build(self, env: ManagerBasedRlEnv) -> StackCommand:
         return StackCommand(self, env)
@@ -80,10 +100,15 @@ class StackCommand(CommandTerm):
         self.blocks: list[Entity] = [env.scene[n] for n in cfg.block_names]
         self.num_blocks = len(self.blocks)
 
+        # The managers resolve a term's ``asset_cfg``; this command-owned one
+        # is not, so resolve it here to get ``grasp_cfg.site_ids``.
+        self.grasp_cfg = cfg.grasp_cfg
+        self.grasp_cfg.resolve(env.scene)
+
         E, N = self.num_envs, self.num_blocks
         dev = self.device
 
-        halves = [FORM_HALF_EXTENTS[b.form] for b in variant.blocks]
+        halves = [b.half_extents for b in variant.blocks]
         self._half_h = torch.tensor([h[2] for h in halves], device=dev)
         # Bounding-circle radius of the widest footprint (collision-free
         # scatter must hold at any yaw).
@@ -138,30 +163,41 @@ class StackCommand(CommandTerm):
         table_z = self._env.scene.env_origins[:, 2]
         target = self.variant.target_height
         top_z = block_top_heights(self.block_pos_w[:, :, 2], self._half_h)
-        xy = self.block_pos_w[:, :, :2]
 
         self.block_reached = stack_reached(
             top_z, table_z, target, self.variant.height_tol
         )
-        if self.variant.two_stacks:
-            task_done = two_stacks_success(self.block_reached, xy, MIN_STACK_SEPARATION)
-            self.progress = two_stacks_progress(
-                top_z, xy, table_z, target, MIN_STACK_SEPARATION
-            )
-        else:
-            task_done = self.block_reached.any(dim=-1)
-            self.progress = stack_progress(top_z, table_z, target)
+        robot = self._env.scene["robot"]
+        pads_free = self._contact_gate(self._grip_sensor)  # pads exert no force
+        held = self._held_block_mask(robot, gripping=~pads_free)
+        task_done = self.block_reached.any(dim=-1)
+        self.progress = stack_progress(top_z, table_z, target, exclude=held)
 
         speed = torch.stack(
             [b.data.root_link_lin_vel_w for b in self.blocks], dim=1
         ).norm(dim=-1)  # (E, N)
-        released = self._gripper_gate(self._env.scene["robot"]) & self._contact_gate(
-            self._grip_sensor
-        )
+        released = self._gripper_gate(robot) & pads_free
         self._gate.update(task_done, speed, released)
 
         self.metrics["max_height_frac"] = self.progress
         self.metrics["episode_success"] = self.episode_success
+
+    def _held_block_mask(self, robot: Entity, gripping: torch.Tensor) -> torch.Tensor:
+        """(E, N) bool marking the single block currently held in the gripper.
+
+        Held = the pads exert grip force and the block is the one nearest the
+        grasp site, within ``grip_reach``. Excluded from progress so a block
+        merely lifted to the target height is not mistaken for a placed stack;
+        it counts again the instant it is released.
+        """
+        grasp_pos = robot.data.site_pos_w[:, self.grasp_cfg.site_ids].squeeze(1)
+        dist = (self.block_pos_w - grasp_pos.unsqueeze(1)).norm(dim=-1)  # (E, N)
+        nearest = dist.argmin(dim=-1)  # (E,)
+        env = torch.arange(self.num_envs, device=self.device)
+        held_env = gripping & (dist[env, nearest] <= self.cfg.grip_reach)
+        mask = torch.zeros_like(dist, dtype=torch.bool)
+        mask[env, nearest] = held_env
+        return mask
 
     def _resample_command(self, env_ids: torch.Tensor) -> None:
         n = len(env_ids)
@@ -201,4 +237,55 @@ class StackCommand(CommandTerm):
                 mat=np.eye(3),
                 color=marker_color(_PLANE_RGBA, reached, success),
                 label=f"target_height_{batch}",
+            )
+            if SHOW_GOAL_STACK:
+                self._draw_goal_stack(visualizer, batch, origin, cx, success)
+
+    def _level_reached(self, batch: int) -> np.ndarray:
+        """(target_blocks,) bool: the resting stack has reached that level.
+
+        Read off ``progress``, so the guide fills up exactly like the reward —
+        a block merely lifted to a level lights nothing.
+        """
+        variant = self.variant
+        height = float(self.progress[batch]) * variant.target_height
+        levels = variant.block_height * np.arange(1, variant.target_blocks + 1)
+        return height >= levels - variant.height_tol
+
+    def _draw_goal_stack(
+        self,
+        visualizer: DebugVisualizer,
+        batch: int,
+        origin: np.ndarray,
+        cx: float,
+        success: bool,
+    ) -> None:
+        """Ghost stack of ``target_blocks`` blocks beside the workspace.
+
+        Stands beside the scatter region rather than in it: success is
+        height-only, so the real stack's xy is free.
+        """
+        variant = self.variant
+        half = np.array(variant.blocks[0].half_extents) + MARKER_INFLATE
+        gy = self.cfg.workspace_y[1] + _GOAL_STACK_MARGIN + half[1]
+        reached = self._level_reached(batch)
+        for level in range(variant.target_blocks):
+            center = origin + np.array([cx, gy, (level + 0.5) * variant.block_height])
+            color = marker_color(_GOAL_STACK_RGBA, bool(reached[level]), success)
+            visualizer.add_box(
+                center=center,
+                size=half,
+                mat=np.eye(3),
+                color=color,
+                label=f"goal_stack_{batch}_{level}",
+            )
+            # Red edges mark it as a virtual target, not a real block (same
+            # convention as the domino slot markers).
+            add_box_wireframe(
+                visualizer,
+                center=center,
+                half_extents=half,
+                mat=np.eye(3),
+                color=OUTLINE_RGBA,
+                label_prefix=f"goal_stack_outline_{batch}_{level}",
             )

@@ -4,10 +4,13 @@ import mjlab.scripts.play as mjlab_play
 
 import g3a_bench  # noqa: F401  (registers benchmark tasks)
 from g3a_bench.scripts.utils.viewer_wrapper import NativeViewerWrapper
+from g3a_bench.tasks.stack.mdp import commands as stack_commands
 
 
 def main() -> None:
     mjlab_play.NativeMujocoViewer = NativeViewerWrapper
+    # Stack build guide; teleop recordings keep the plain target-height plane.
+    stack_commands.SHOW_GOAL_STACK = True
     mjlab_play.main()
 
 

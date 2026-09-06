@@ -46,7 +46,7 @@ def ee_pose_w(env: ManagerBasedRlEnv, asset_cfg: SceneEntityCfg) -> torch.Tensor
     Publishing a quaternion here would be a bug. Site orientation reaches the
     entity as a rotation matrix, and ``site_quat_w`` converts it with a sign-
     unstable branch (see :func:`rot6d_from_matrix`). The DK1 grasp site sits
-    right on the unstable region: measured on ``G3A-Stack-Low-Dk1_uni``, the
+    right on the unstable region: measured on a stack task (ADR-007), the
     sign flipped on 14 of 120 consecutive steps, a jump of 2.0 against a median
     step change of 0.005. The same physical state would reach the policy as two
     different observations.

@@ -16,7 +16,8 @@ _VARIATION_BY_SPAWN = {
 }
 
 
-def _task_id_parts(variant: ShapeSorterVariantCfg) -> tuple[str, str]:
+def task_id_parts(variant: ShapeSorterVariantCfg) -> tuple[str, str]:
+    """The ``(task, variation)`` id segments; also read by ``split_demos``."""
     task = f"{variant.num_pieces}Shapes"
     if variant.wide_positions:
         return task, "RandomPositions"
@@ -28,6 +29,6 @@ register_category(
     variants=SHAPE_SORTER_VARIANTS.values(),
     make_env_cfg=make_shape_sorter_env_cfg,
     robots=(get_unimanual_dk1_interface(),),
-    task_id_parts=_task_id_parts,
+    task_id_parts=task_id_parts,
     grip_contact_sensor=GRIP_CONTACT_SENSOR_NAME,
 )

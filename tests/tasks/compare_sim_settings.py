@@ -66,7 +66,7 @@ Measurements per profile:
              dropped cube shows up as ~0.2 m instead of a few mm.
 
    ``stack`` and ``grasp`` reach into ``StackCommand`` for the block
-   entities, so they need a G3A-Stack-* task; on other tasks they are
+   entities, so they need a G3A-Stack<n>-* task; on other tasks they are
    skipped with a note. Contact-rich trajectories diverge chaotically, so
    the absolute deviation grows with sim time for *every* profile. Read
    objDev comparatively (smaller = closer to reference), and lean on div@
@@ -105,9 +105,8 @@ from mjlab.tasks.registry import load_env_cfg
 
 import g3a_bench  # noqa: F401  (registers tasks)
 from g3a_bench.tasks.stack.mdp.commands import StackCommand
-from g3a_bench.tasks.stack.variants import FORM_HALF_EXTENTS
 
-DEFAULT_TASK = "G3A-Stack-Low-Dk1_uni"
+DEFAULT_TASK = "G3A-Stack3-Easy-Dk1_uni"
 SAMPLE_DT = 0.02  # sim-time spacing of accuracy samples; every profile's
 # step_dt must divide this so all profiles are compared at identical times.
 OBJECT_DRIFT_THRESHOLD = 1e-3  # 1 mm / 1 mrad: "first divergence" marker
@@ -249,7 +248,7 @@ def _stack_command(env: ManagerBasedRlEnv, scenario: str) -> StackCommand:
     cmd = env.command_manager.get_term("task")
     if not isinstance(cmd, StackCommand):
         raise ScenarioUnavailable(
-            f"scenario '{scenario}' needs a G3A-Stack-* task (command term is "
+            f"scenario '{scenario}' needs a G3A-Stack<n>-* task (command term is "
             f"{type(cmd).__name__})"
         )
     return cmd
@@ -277,7 +276,7 @@ class StackScenario(Scenario):
         poses: list[torch.Tensor] = []
         cum = 0.0
         for i, block in enumerate(cmd.blocks):
-            h = FORM_HALF_EXTENTS[cmd.variant.blocks[i].form][2]
+            h = cmd.variant.blocks[i].half_extents[2]
             off = torch.tensor(
                 [TOWER_XY[0] + (-1.0) ** i * TOWER_LEVEL_OFFSET, TOWER_XY[1]],
                 device=device,
@@ -650,7 +649,7 @@ def main() -> int:
         nargs="+",
         choices=sorted(SCENARIOS),
         default=["sweep", "stack", "grasp"],
-        help="accuracy scenarios (stack/grasp need a G3A-Stack-* task)",
+        help="accuracy scenarios (stack/grasp need a G3A-Stack<n>-* task)",
     )
     ap.add_argument(
         "--sim-seconds",

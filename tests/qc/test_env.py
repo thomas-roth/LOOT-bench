@@ -17,7 +17,7 @@ from g3a_bench.tasks.common.actions import (
     GRIPPER_ACTION_NAME,
 )
 
-TASK_ID = "G3A-Stack-Low-Dk1_uni"
+TASK_ID = "G3A-Stack3-Easy-Dk1_uni"
 
 PLACE_TASK_ID = "G3A-Place-RandS-RandT-Dk1_uni"
 """The one category that declares the object-filtered contact sensor.
@@ -216,9 +216,9 @@ class TestObjectContact:
     """The cube-filtered sensor: the only key that answers "touched the cube".
 
     ``pad_contact_force`` cannot answer it. That sensor has no secondary match,
-    and the DK1 pads can reach each other. So the number ``qc`` counts grips
-    out of also counts a gripper closing on empty air, which is exactly what a
-    failing policy does all episode.
+    so it reports the pads meeting anything -- the table, another block -- not
+    just the object ``qc`` scores. It no longer reports a gripper closed on
+    empty air: ``dk1.xml`` excludes the finger-pad pair.
     """
 
     def test_reset_info_carries_the_object_keys(self, place_env):
@@ -227,14 +227,15 @@ class TestObjectContact:
         assert info["object_contact_steps"] == 0.0
         assert info["object_touched"] == 0.0
 
-    def test_a_gripper_closed_on_air_loads_the_pads_only(self, place_env):
-        """The measurement the whole second sensor exists for.
+    def test_a_gripper_closed_on_air_reports_no_contact(self, place_env):
+        """Neither sensor may fire on an empty grasp.
 
         The arm holds its reset pose, which parks the gripper about 0.2 m above
         the table while the cube lies on it, so the pads cannot reach the cube
-        whatever the scatter sampled. Closing the gripper there loads the two
-        pads against each other. The unfiltered sensor reports that force; the
-        filtered one has to stay at a hard zero.
+        whatever the scatter sampled. Closing there used to load the two pads
+        against each other and report grip force with nothing held, which made
+        ``pad_contact_force`` count the very thing a failing policy does all
+        episode. ``dk1.xml`` excludes the pair, so both keys stay at zero.
         """
         place_env.reset()
         action = _hold_action(place_env)
@@ -242,10 +243,9 @@ class TestObjectContact:
         info: dict[str, float] = {}
         for _ in range(60):
             _, _, _, _, info = place_env.step(action)
-        assert info["pad_contact_force"] > CONTACT_THRESHOLD, (
-            "the pads are expected to meet; if they no longer do, the "
-            "pad_contact_force key stopped being a self-contact hazard and "
-            "this test is the place that says so"
+        assert info["pad_contact_force"] <= CONTACT_THRESHOLD, (
+            "an empty gripper reported grip force; the finger-pad <exclude> in "
+            "dk1.xml is gone, or this robot's pads meet somewhere else"
         )
         assert info["object_contact_force"] == 0.0
         assert info["object_contact_steps"] == 0.0

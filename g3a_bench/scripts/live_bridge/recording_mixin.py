@@ -259,12 +259,12 @@ class RecordingViewerMixin:
         """Two-column HUD text: state, counts, and valid keys."""
         if self._provisional_failure:
             state = "SAVE OR DISCARD?"
-            keys = "V save success   F save failure   D discard   C wrist cam"
+            keys = "V save success   F save failure   D discard   C cycle view"
         else:
             state = f"RECORDING  episode {self.episodes_saved + 1}"
             keys = (
                 "V save success   F save failure   D discard   "
-                "U undo   Q quit   C wrist cam"
+                "U undo   Q quit   C cycle view"
             )
         staged = "last save undoable (U)" if self._recorder.has_staged else "-"
         labels = "State\nSaved\nUndo\nKeys"

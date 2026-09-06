@@ -109,13 +109,12 @@ class ContactReleaseGate:
     (object) filter: it reports contact with anything, not just a tracked
     object, so this is coarser than "is it still holding the scored object".
 
-    That coarseness includes **pad-against-pad** contact on a gripper closed
-    on nothing. It costs nothing here, because this gate never runs alone:
-    :class:`GripperOpenGate` requires the gripper joint above 2/3 of its
-    stroke, and the DK1's pads cannot reach each other until 5/6 of the way
-    closed. So every pose that can self-contact is already "not released" on
-    the joint gate. Telemetry has no such second gate, which is why it reads
-    :data:`OBJECT_CONTACT_SENSOR_NAME` instead.
+    It does not include **pad-against-pad** contact: the DK1's pads overlap
+    slightly at full close, so an empty gripper used to report grip force
+    with nothing held, and ``dk1.xml`` excludes the pair. A robot whose pads
+    can still touch needs the same exclusion, because the reading is used
+    unguarded elsewhere -- the stack command reads it to find the held block,
+    and ``qc/env.py`` publishes it as ``pad_contact_force`` telemetry.
     """
 
     def __init__(self, min_force: float = MIN_GRIP_FORCE):

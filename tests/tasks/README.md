@@ -66,7 +66,7 @@ time: a contact-free arm `sweep`, a teleported block tower at rest (`stack`,
 reports the tower's absolute `drift`), and a `grasp` where a cube is pinned into
 the closing gripper and then lifted and shaken (reports the absolute grip
 `slip`; a dropped cube reads ~0.2 m). The contact scenarios need a
-`G3A-Stack-*` task and are skipped elsewhere. Speed is headless `env.step()`
+`G3A-Stack<n>-*` task and are skipped elsewhere. Speed is headless `env.step()`
 throughput after Warp warmup.
 `--viewer` adds a native-viewer play-mode pass (1x real-time and max speed).
 Needs a display, like the `tests/viewer/` checks.
@@ -85,7 +85,7 @@ uv run python tests/tasks/compare_sim_settings.py --viewer
 ## Success-metric check (`check_success_reward.py`)
 
 Teleports objects to their goals for one representative task per category, plus
-structurally unusual variants (Stack Low-TwoStacks, Domino 3Pieces-KnockOver,
+structurally unusual variants (Domino 3Pieces-KnockOver,
 Ball Minigolf-UsingWall, Ball Throw-U), and checks that the command term's
 success metric fires.
 The Domino KnockOver check builds the row (teleport), then tips only the first
@@ -93,6 +93,7 @@ domino past its tip-over point and simulates the chain reaction, so it verifies
 the row topples along the row axis, all leaning the same way, in row order,
 not just that objects end up "fallen".
 The shape-sorter check reorients the free cube so the target hole faces up, then drives the piece through the mouth in two stations so the latched outside-to-inside crossing fires.
+Two stack checks pin the held-block exclusion against the real grip sensor: `Easy-HeldBlock` confirms a cube gripped above target height earns no progress until released, `Easy-EmptyGrip` confirms an empty closed gripper registers no grip force (so a resting block near the fingers is not wrongly excluded).
 This confirms the metric *can* fire when objects are placed correctly; it does not verify that reward shaping guides a policy there.
 Run it after touching a category's `mdp/commands.py` or success-metric logic.
 

@@ -36,7 +36,7 @@ def main():
         default=None,
         help=(
             "Path to a local live_record dataset directory "
-            "(e.g. dataset/demos/G3A-Stack-Low-Dk1_uni/2026-07-18_16-59-03). "
+            "(e.g. dataset/demos/G3A-Place-FixedS-FixedT-Dk1_uni/2026-08-30_10-28-38). "
             "When omitted, replays the default HuggingFace dataset."
         ),
     )
@@ -49,7 +49,7 @@ def main():
     parser.add_argument(
         "--task",
         type=str,
-        default="G3A-Stack-Low-Dk1_uni",
+        default="G3A-Place-FixedS-FixedT-Dk1_uni",
         help="MJLab task name to load.",
     )
     args = parser.parse_args()

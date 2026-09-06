@@ -23,7 +23,7 @@ from g3a_bench.qc.transitions import QC_KEYS
 
 OBS_DIM = 5
 ACTION_DIM = 7
-TASK_ID = "G3A-Stack-Low-Dk1_uni"
+TASK_ID = "G3A-Stack3-Easy-Dk1_uni"
 START_POSE_NOISE = 0.0
 
 

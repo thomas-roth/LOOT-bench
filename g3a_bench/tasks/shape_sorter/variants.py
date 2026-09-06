@@ -15,13 +15,17 @@ Each fixes the shape set and cube spawn mode:
 
 Shapes tail-extend across the difficulty axis (3 = the first 3 of the 5-shape
 list) so demos for easier tasks can be cut from the hardest task's
-recordings (see ``docs/task_categories.md`` "General").
+recordings (see ``docs/task_categories.md`` "General"). Pieces are colored by
+which tier first needs them, so the operator sees the collection order and
+where a recording can be cut.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Literal
+
+from g3a_bench.tasks.common.colors import SPLIT_TIERS, order_color
 
 Shape = Literal["circle", "square", "rect", "triangle", "hexagon"]
 SpawnMode = Literal["fixed", "no_rotation", "full"]
@@ -36,21 +40,21 @@ FACE_DOWN_SHAPES: tuple[str, ...] = (
     "triangle",
 )
 
-# Piece colour per shape (matches the legacy insertion sorter's assignment).
-SHAPE_COLOR: dict[Shape, str] = {
-    "circle": "blue",
-    "square": "red",
-    "triangle": "yellow",
-    "rect": "orange",
-    "hexagon": "green",
+# Shapes tail-extend: ShapeSorter3's shapes are shapes 0..2 of ShapeSorter5.
+# Ordered by difficulty, so the tail extensions are the hard shapes: the
+# circle/rect/square core, then hexagon, then triangle.
+_SHAPES_BY_COUNT: dict[int, tuple[Shape, ...]] = {
+    3: ("circle", "rect", "square"),
+    4: ("circle", "rect", "square", "hexagon"),
+    5: ("circle", "rect", "square", "hexagon", "triangle"),
 }
 
-# Shapes tail-extend: ShapeSorter3's shapes are shapes 0..2 of ShapeSorter5.
-_SHAPES_BY_COUNT: dict[int, tuple[Shape, ...]] = {
-    3: ("circle", "square", "triangle"),
-    4: ("circle", "square", "triangle", "rect"),
-    5: ("circle", "square", "triangle", "rect", "hexagon"),
-}
+# Split tier -> piece color. Positional, not a color match: the light-wood
+# sorter cube swallows the black/gray/white ramp, so the tiers take the three
+# darkest domino colors in the same order.
+_TIER_COLOR: dict[str, str] = dict(
+    zip(SPLIT_TIERS, ("cobalt", "indigo", "violet"), strict=True)
+)
 
 
 def allowed_faces(shapes: tuple[Shape, ...]) -> tuple[int, ...]:
@@ -76,7 +80,8 @@ class ShapeSorterVariantCfg:
 
     @property
     def colors(self) -> tuple[str, ...]:
-        return tuple(SHAPE_COLOR[s] for s in self.shapes)
+        # Tier boundaries are the easier variants' piece counts (3 and 4).
+        return tuple(_TIER_COLOR[order_color(i, 3, 4)] for i in range(self.num_pieces))
 
 
 SHAPE_SORTER_VARIANTS: dict[str, ShapeSorterVariantCfg] = {

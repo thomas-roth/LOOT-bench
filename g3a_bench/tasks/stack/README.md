@@ -3,34 +3,37 @@
 Stack blocks to reach a target height. Only the final height matters; block
 xy position (and which blocks form the stack) does not.
 
-A *variant* (`variants.py`) fixes the block set and the target height
-(`target_blocks * 0.04 m`). The `StackCommand` scatters all blocks upright
-on a jittered grid at every reset (no goal poses — the target height is a
-per-task constant, so `command_obs=False`). Success holds on the first step
-where some block's top face is within `HEIGHT_TOL * margin` of the target
-height, all blocks move slowly, and the gripper is open. TwoStacks variants
-need two such blocks at least 0.06 m apart in xy.
+A *variant* (`variants.py`) fixes two axes: the target height in blocks
+(`Stack{3,4,5}`) and the block's height:width ratio (`{Easy,Medium,Hard}`).
+The `StackCommand` scatters all blocks upright on a jittered grid at every
+reset (no goal poses — the target height is a per-task constant, so
+`command_obs=False`). Success holds on the first step where some block's top
+face is within `HEIGHT_TOL * margin` of the target height, all blocks move
+slowly, and the gripper is open.
 
-Block sets carry strictly more material than the minimum needed to reach the
-target height: base/TwoStacksDifferentBlocks sets are `2n` blocks, TwoStacks
-`2n+2`, DifferentBlocks a mixed prefix plus cubes — so height, not block
-count, is the binding constraint, and support structures (staircase,
-buttress, pyramid) become viable strategies. Four forms, all heights
-multiples of 0.02 m so mixed sets can always hit the target height (a
-multiple of 0.04 m) exactly:
+All blocks of a variant are identical, so the target height is reachable by
+exactly `target_blocks` blocks and by no other count (the tolerance stays
+below half a block height). Each variant carries `2n` blocks — strictly more
+than needed, so height, not block count, is the binding constraint and
+support structures (staircase, buttress, pyramid) stay viable.
 
-- `cube` 0.04x0.04x0.04, 100 g — balanced baseline.
-- `plate` 0.06x0.04x0.02, 90 g — wide stabilizing cap/base, big landing
-  area, barely any height.
-- `tall` 0.03x0.03x0.08, 60 g — most height per placement; slender, high
-  center of mass, tiny top face.
-- `cylinder` r 0.02 x h 0.06, 80 g — good height, yaw-invariant grasp;
-  rolls away when tipped, round top edge.
+The difficulty axis is the block's aspect ratio; the footprint is square
+because blocks spawn at a random yaw. Mass follows the shape from
+`BLOCK_DENSITY = 1562.5 kg/m^3`, so the slenderest block is also the
+lightest:
 
-Block lists tail-extend across the difficulty axis within each family
-(Low's blocks are blocks 0..2 of Medium) and resets draw per-block
+| Difficulty | Size (m)               | Ratio | Mass  |
+| ---------- | ---------------------- | ----- | ----- |
+| Easy       | 0.04 x 0.04 x 0.04     | 1.0   | 100 g |
+| Medium     | 0.03 x 0.03 x 0.05     | 1.67  | 70 g  |
+| Hard       | 0.025 x 0.025 x 0.06   | 2.4   | 59 g  |
+
+Block lists tail-extend across the target-height axis within one difficulty
+(Stack3's blocks are blocks 0..5 of Stack4) and resets draw per-block
 randomness in index order, so demos for easier tasks can be cut from the
-hardest task's recordings (see `docs/task_categories.md`).
+hardest task's recordings (see `docs/task_categories.md`). The blocks are
+colored by that cut boundary (`order_color`): Stack5's ten blocks read six
+black, two gray, two white.
 
 ## Observations (state-based)
 
@@ -41,21 +44,27 @@ hardest task's recordings (see `docs/task_categories.md`).
 
 One term, in `[-1, 0]`, exactly `0` only at success
 (`docs/adr/006-one-task-reward-in-minus-one-to-zero.md`). It is shaped by the
-fraction of the target height that the tallest block reaches (the mean over
-the two best-separated leaders for TwoStacks), and floored at
-`-MIN_SHORTFALL` so that no non-success step can read a true zero.
+fraction of the target height that the tallest **resting** block reaches —
+the block currently held in the gripper is excluded, so merely lifting one to
+the target height earns nothing
+(`docs/adr/017-a-held-block-earns-no-stack-progress.md`) — and floored at
+`-MIN_SHORTFALL` so that no
+non-success step can read a true zero.
 
 ## Variants
 
-| Task id (`-Dk1_uni`)                     | Description                                  |
-| ----------------------------------------- | -------------------------------------------- |
-| `G3A-Stack-{Low,Medium,High}`              | stack 3/4/5 standard cubes (2n blocks)       |
-| `G3A-Stack-{Low,Medium,High}-DifferentBlocks` | mixed forms (tall, cylinder, plate x2) + cubes |
-| `G3A-Stack-{Low,Medium,High}-TwoStacks`    | two separate stacks, each at target height (2n+2 cubes) |
-| `G3A-Stack-{Low,Medium,High}-TwoStacksDifferentBlocks` | two separate stacks, each buildable from a mix of forms |
+| Task id (`-Dk1_uni`)              | Target height    | Blocks |
+| --------------------------------- | ---------------- | ------ |
+| `G3A-Stack3-{Easy,Medium,Hard}`   | 0.12/0.15/0.18 m | 6      |
+| `G3A-Stack4-{Easy,Medium,Hard}`   | 0.16/0.20/0.24 m | 8      |
+| `G3A-Stack5-{Easy,Medium,Hard}`   | 0.20/0.25/0.30 m | 10     |
 
 Play e.g. with:
 
 ```bash
-uv run g3a-play G3A-Stack-Low-Dk1_uni
+uv run g3a-play G3A-Stack3-Easy-Dk1_uni
 ```
+
+`g3a-play` also draws a ghost target stack beside the workspace as a build
+guide (`SHOW_GOAL_STACK`); teleop recording keeps the plain target-height
+plane.

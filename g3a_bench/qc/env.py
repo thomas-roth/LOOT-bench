@@ -90,7 +90,7 @@ class G3aEnv(gymnasium.Env):
         """Build the task.
 
         Args:
-            task_id: a registered mjlab task id, e.g. ``G3A-Stack-Low-Dk1_uni``.
+            task_id: a registered mjlab task id, e.g. ``G3A-Stack3-Easy-Dk1_uni``.
             device: torch device for the simulation.
             seed: seed for the reset sampling. mjlab seeds a process-global
                 RNG, so seeding one env seeds them all. Build training

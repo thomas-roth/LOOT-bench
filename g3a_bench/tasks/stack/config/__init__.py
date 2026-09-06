@@ -1,4 +1,9 @@
-"""Task registration for all stack variants on all supported robots."""
+"""Task registration for all stack variants on all supported robots.
+
+The target height is part of the category segment (``Stack3``/``Stack4``/
+``Stack5``) and the block shape is the task segment, so the ids read
+``G3A-Stack{n}-{Easy,Medium,Hard}-<robot>``.
+"""
 
 from g3a_bench.robots.trlc_dk1 import get_unimanual_dk1_interface
 from g3a_bench.tasks.common.commands import GRIP_CONTACT_SENSOR_NAME
@@ -6,22 +11,27 @@ from g3a_bench.tasks.common.registration import register_category
 from g3a_bench.tasks.stack.stack_env_cfg import make_stack_env_cfg
 from g3a_bench.tasks.stack.variants import STACK_VARIANTS, StackVariantCfg
 
-_TASK_BY_TARGET_BLOCKS = {3: "Low", 4: "Medium", 5: "High"}
+
+def category_of(variant: StackVariantCfg) -> str:
+    """The category segment; also read by ``scripts/split_demos.py``."""
+    return f"Stack{variant.target_blocks}"
 
 
-def _task_id_parts(variant: StackVariantCfg) -> tuple[str, str]:
-    task = _TASK_BY_TARGET_BLOCKS[variant.target_blocks]
-    mixed = any(b.form != "cube" for b in variant.blocks)
-    if variant.two_stacks:
-        return task, "TwoStacksDifferentBlocks" if mixed else "TwoStacks"
-    return task, "DifferentBlocks" if mixed else ""
+def task_id_parts(variant: StackVariantCfg) -> tuple[str, str]:
+    """The ``(task, variation)`` id segments; also read by ``split_demos``."""
+    return variant.difficulty, ""
 
 
-register_category(
-    category="Stack",
-    variants=STACK_VARIANTS.values(),
-    make_env_cfg=make_stack_env_cfg,
-    robots=(get_unimanual_dk1_interface(),),
-    task_id_parts=_task_id_parts,
-    grip_contact_sensor=GRIP_CONTACT_SENSOR_NAME,
-)
+_BY_CATEGORY: dict[str, list[StackVariantCfg]] = {}
+for _variant in STACK_VARIANTS.values():
+    _BY_CATEGORY.setdefault(category_of(_variant), []).append(_variant)
+
+for _category, _variants in _BY_CATEGORY.items():
+    register_category(
+        category=_category,
+        variants=_variants,
+        make_env_cfg=make_stack_env_cfg,
+        robots=(get_unimanual_dk1_interface(),),
+        task_id_parts=task_id_parts,
+        grip_contact_sensor=GRIP_CONTACT_SENSOR_NAME,
+    )

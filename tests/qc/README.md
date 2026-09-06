@@ -204,9 +204,9 @@ so a dataset from here fails exactly where a stale recording would.
 
 ```bash
 uv run python tests/qc/make_smoke_dataset.py --cpu \
-    --task G3A-Stack-Low-Dk1_uni --output out/qc/smoke.npz
+    --task G3A-Stack3-Easy-Dk1_uni --output out/qc/smoke.npz
 
 RUN_DIR=/var/tmp/$USER/qc-runs WANDB_MODE=offline G3A_ALLOW_NO_TMUX=1 \
-    ./train_qc.sh G3A-Stack-Low-Dk1_uni out/qc/smoke.npz \
+    ./train_qc.sh G3A-Stack3-Easy-Dk1_uni out/qc/smoke.npz \
     --offline_steps 2 --online_steps 0 --eval_episodes 1
 ```

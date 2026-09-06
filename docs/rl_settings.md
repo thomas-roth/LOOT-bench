@@ -110,12 +110,14 @@ time:
 
 ### Stack
 
-- **Progress**: the fraction of the target height that the tallest block
-  reaches (the mean over the two best-separated leaders for `TwoStacks`).
+- **Progress**: the fraction of the target height that the tallest
+  *resting* block reaches. A block held in the gripper is excluded, so
+  lifting one to the target height earns nothing until it is released
+  (ADR-017).
 - **Observations**: the pose of every block.
-- **Success**: the top of a valid stack is within a small tolerance of the
-  target height. The `TwoStacks` variants also need the two piles to be 6 cm
-  or more apart.
+- **Success**: the top of a stack is within a small tolerance of the target
+  height. All blocks of a variant share one height, so only a stack of
+  exactly `target_blocks` blocks lands inside it.
 - **Randomization**: the blocks are scattered once at the start of the
   episode.
 

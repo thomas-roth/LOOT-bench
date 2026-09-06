@@ -32,7 +32,7 @@ uv run g3a-list-tasks --filter G3A --count
 ### Playing a Task
 The `g3a-play` command starts mjlab's player on one task ID, so you can look at the scene and the robot. Give a checkpoint to see a policy, or `--agent zero` to hold the robot still.
 ```shell
-uv run g3a-play G3A-Stack-Low-Dk1_uni --agent zero --viewer native --num-envs 1
+uv run g3a-play G3A-Stack3-Easy-Dk1_uni --agent zero --viewer native --num-envs 1
 ```
 
 ## Data Collection
@@ -57,6 +57,18 @@ uv run g3a-convert-demos \
 ```
 
 All recordings must come from the same task ID. The command writes that ID into the `.npz`, together with the action convention, so a training run can detect a dataset that does not agree with its environment.
+
+### Splitting Demos
+The `g3a-split-demos` command turns one recording of a hard task into a demo set for each easier task in the same family, without re-simulating anything. Stack, Domino and Sorter all tail-extend: the easier task's objects are the first `k` of the harder one's, and the reset draws per object in index order, so the easier rollout is already inside the recording.
+
+```shell
+uv run g3a-split-demos \
+    --source-dir dataset/demos/<task>/<timestamp> \
+    --source-task G3A-Stack5-Easy-Dk1_uni \
+    --output-dir dataset/demos_split
+```
+
+Every episode is truncated to the target's objects and cut on the frame the target's success would have been paid, with the reward recomputed through the environment's own success kernels. Pass `--target-task` (repeatable) to write only some of them. Each episode's own reward is recomputed first and checked against the recording, so a layout or threshold that no longer matches the environment fails immediately instead of writing a corrupt dataset.
 
 ## Training
 

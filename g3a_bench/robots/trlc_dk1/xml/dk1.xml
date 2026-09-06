@@ -337,4 +337,10 @@
     <!-- Both fingers are driven by one motor through the rack-and-pinion. -->
     <joint joint1="gripper_left" joint2="gripper_right" polycoef="0 1 0 0 0" />
   </equality>
+
+  <contact>
+    <!-- The pads overlap at full close, so an empty closed gripper self-collides
+         and grip_contact reports grip force with nothing held. -->
+    <exclude body1="finger_left" body2="finger_right" />
+  </contact>
 </mujoco>

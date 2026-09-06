@@ -17,11 +17,11 @@ generalization the policy would otherwise have to cover, which is what makes
 from dataclasses import dataclass
 
 CUBE_HALF_EXTENTS = (0.02, 0.02, 0.02)
-"""Matches stack's "cube" form (``FORM_HALF_EXTENTS["cube"]``). Reuses the
+"""Matches stack's Easy block (``DIFFICULTY_HALF_EXTENTS["Easy"]``). Reuses the
 established box geometry rather than inventing new physics constants."""
 
 CUBE_MASS = 0.10
-"""Matches stack's ``FORM_MASS["cube"]``."""
+"""Matches stack's ``block_mass("Easy")``."""
 
 CUBE_HEIGHT = 2.0 * CUBE_HALF_EXTENTS[2]
 

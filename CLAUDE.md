@@ -13,9 +13,11 @@ training is QC-FQL (offline-to-online RL), which lives in a **separate `qc`
 checkout** reached by `PYTHONPATH` — this repo holds only the seam to it, in
 `g3a_bench/qc/`.
 
-Five task categories, 47 tasks total, currently registered for one robot
+Five task categories, 44 tasks total, currently registered for one robot
 (`-Dk1_uni`) → task ids look like `G3A-<Category>-<Task>[-<Variation>]-<Robot>`:
-`tasks/stack` (stack blocks to a target height, registered as `Stack`),
+`tasks/stack` (stack blocks to a target height; the height is part of the
+category segment, so it registers as `Stack3`/`Stack4`/`Stack5` x
+`Easy`/`Medium`/`Hard`),
 `tasks/domino` (place and optionally knock over a row of dominoes; the row is
 at a **fixed** pose every reset, because a teleoperator needs a layout that
 does not move between takes — the `RandomRow` variant is the one that opts
@@ -55,7 +57,7 @@ uv run pyright             # type check (config in pyrightconfig.json, basic mod
 uv run pre-commit run --all-files
 
 # Play a task (wraps mjlab's player after importing g3a_bench to register tasks)
-uv run g3a-play G3A-Stack-Low-Dk1_uni
+uv run g3a-play G3A-Stack3-Easy-Dk1_uni
 
 # List all registered task IDs (mjlab's built-ins included; --filter/--count narrow it)
 uv run g3a-list-tasks
@@ -65,6 +67,10 @@ uv run g3a-list-tasks --filter G3A --count
 # Teleop recording -> the .npz QC-FQL trains on (several sessions at once)
 uv run g3a-convert-demos --success-dir dataset/demos/<task>/<stamp> \
     --failure-dir dataset/demos/<task>/<stamp>_failure --output dataset/qc/demos.npz
+
+# One hard recording -> a demo set per easier same-family task, no re-simulation
+uv run g3a-split-demos --source-dir dataset/demos/<task>/<stamp> \
+    --source-task G3A-Stack5-Easy-Dk1_uni --output-dir dataset/demos_split
 
 # Verification scripts (see tests/tasks/README.md), not installed as console scripts
 uv run python tests/tasks/build_sim_registered_tasks.py
@@ -87,9 +93,10 @@ run_scripts/G3A-Place/critic-variants/critic-off_100k-100k.sh   # one critic var
 The pytest suite (`uv run pytest tests/`) unit-tests the pure kernels in
 `tasks/common/` (`tests/tasks/`), the QC seam without a simulator
 (`tests/qc/`: the converter, the transition assembly, the gym adapter, the
-BC gate), the teleop bridge (`tests/live_bridge/`, no hardware needed), and
+BC gate), the teleop bridge (`tests/live_bridge/`, no hardware needed), the
+demo splitter on synthetic episodes (`tests/scripts/`), and
 the DK1 collision contract on the compiled model (`tests/trlc_dk1/`). See
-`tests/tasks/README.md`, `tests/qc/README.md` and
+`tests/tasks/README.md`, `tests/qc/README.md`, `tests/scripts/README.md` and
 `tests/live_bridge/README.md` for what each script covers; all verification
 scripts accept `--cpu` to force CPU-only execution. `tests/viewer/` holds the
 manual native-viewer checks (FPS cap, shutdown segfault).
@@ -377,6 +384,14 @@ actuated).
   suffix there). Read demos from `dataset/demos/`; record new ones into
   `out/demos/`. `g3a-convert-demos` is run against already-kept sessions, so its
   `.npz` goes straight to `dataset/qc/`, committed like the demos it came from.
+- **Split demos before recording easier tasks by hand.** `g3a-split-demos`
+  (`scripts/split_demos.py`) relabels a hard Stack/Domino/Sorter recording into
+  every easier same-family task offline, reusing the categories' own success
+  kernels and `tasks/common/rewards.shaped_task_reward`. It reproduces the
+  environment's one-step reward lag and its held-block progress exclusion, and
+  self-checks by recomputing the source episode's own reward. When an
+  observation layout, a success kernel or the gripper's open threshold changes,
+  that self-check is what fails — fix the splitter, do not loosen the tolerance.
 
 ## Agent skills
 

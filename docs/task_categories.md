@@ -22,27 +22,31 @@ always randomize objects & goal poses (position and orientation) a little if not
 ## Category: Stack
 
 Stack blocks to reach a target height. Only the final height matters; block
-position does not. Block sets carry extra material beyond the minimum
+position does not. Every variant carries `2n` blocks, more than the minimum
 needed, so support structures (staircase, pyramid) are viable strategies —
-height, not block count, is the constraint.
+height, not block count, is the constraint. The blocks of a variant are
+identical, so exactly `n` of them reach the target and no other count does.
 
 | **Evaluated Capabilities** | Description |
 | --- | --- |
-| Combinatorial complexity and transfer | Use different block sets and stacking strategies. |
+| Long-horizon precision | Place n blocks in sequence without toppling the tower. |
 | Robustness | Continue building even with an unstable base. |
 
 | **Task** | Description |
 | --- | --- |
-| Low | Build a stack three standard blocks high. |
-| Medium | Build a stack four standard blocks high. |
-| High | Build a stack five standard blocks high. |
+| Stack3 | Build a stack three blocks high. |
+| Stack4 | Build a stack four blocks high. |
+| Stack5 | Build a stack five blocks high. |
 
 | **Variation** | Description |
 | --- | --- |
-| `base` | Identical cubes only, `2n` of them for a target height of `n` blocks. |
-| `differentBlocks` | A mixed prefix of four forms plus cubes: `cube` (balanced baseline), `plate` (wide, stabilizing, barely any height), `tall` (most height per placement, slender and tippy), `cylinder` (good height, yaw-invariant grasp, rolls when tipped). All heights are multiples of 0.02 m, so every set has an exact-height combination for the target. |
-| `2Stacks` | Build two separate stacks that each reach the target height, `2n+2` cubes. |
-| `2StacksDifferentBlocks` | `2Stacks` with a doubled mixed prefix of the four forms plus cubes. |
+| `Easy` | 0.04 m cubes (ratio 1.0, 100 g). The balanced baseline. |
+| `Medium` | 0.03 x 0.03 x 0.05 m (ratio 1.67, 70 g). Smaller landing area and grasp target, higher center of mass per placement, taller tower. |
+| `Hard` | 0.025 x 0.025 x 0.06 m (ratio 2.4, 59 g). Same axis pushed further; Stack5 tops out at a 0.30 m tower, the highest the arm can still place a block on. |
+
+The footprint stays square because blocks spawn at a random yaw, so the
+variation axis is exactly the height:width ratio. Mass follows the shape
+(`BLOCK_DENSITY`), so the slenderest block is also the lightest.
 
 ## Category: Domino
 
