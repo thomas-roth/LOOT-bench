@@ -61,6 +61,8 @@ Build a domino line that can topple sequentially.
 | 2Pieces | Place two dominoes in a line. |
 | 3Pieces | Place three dominoes in a line. |
 | 4Pieces | Place four dominoes in a line. |
+| 5Pieces | Place five dominoes in a line. |
+| 6Pieces | Place six dominoes in a line. |
 
 | **Variation** | Description |
 | --- | --- |

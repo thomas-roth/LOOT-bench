@@ -2,8 +2,8 @@
 
 A variant fixes the domino count and one modifier:
 
-- Domino{2,3,4}: n identical dominoes standing upright in a row, at the same
-  fixed row every reset (workspace-centred, along +y).
+- Domino{2,3,4,5,6}: n identical dominoes standing upright in a row, at the
+  same fixed row every reset (workspace-centred, along +y).
 - Domino{n}RandomRow: the row's start position and yaw are instead drawn
   uniformly at random each reset.
 - Domino{n}DifferentDominoes: dominoes get progressively thinner and lighter
@@ -32,22 +32,16 @@ SPACING = 0.05
 """Row slot spacing (m); < domino height (0.07) so toppling one knocks over
 the next."""
 
-HARDEST_COUNT = 4
+HARDEST_COUNT = 6
 """The row is always laid out for this count — the random row's reach-band
 clamp and the fixed row's centring both size for it — so the start pose does
-not depend on the variant's actual n (seed-prefix rule)."""
+not depend on the variant's actual n (seed-prefix rule). Keep this equal to
+the largest ``num_dominoes`` in ``DOMINO_VARIANTS`` and ``DOMINO_COLORS`` at
+least this long, or a new hardest variant either shifts every shorter
+variant's fixed row off-centre or crashes on an out-of-range color index."""
 
-DOMINO_COLORS: tuple[str, ...] = ("sky", "cobalt", "indigo", "violet")
-"""Per-index identity color (``tasks/common/colors.PALETTE`` keys), index 0
-through ``HARDEST_COUNT - 1``. All registered variants use ``ordered=True``
-(fixed domino-index -> slot-index assignment, see ``mdp/commands.py``), but
-nothing previously let a teleoperator tell which physical domino is which
-index -- every domino rendered identically, and spawn position is a uniform
-random draw independent of index (see docs/DominoTask-Analysis.md). This is
-a colorblind-safe cool-hue arc with monotonically decreasing brightness
-(sky = lightest/index 0, violet = darkest/index 3), so the sequence reads
-from hue position and from brightness alone -- deliberately excludes green,
-which is reserved for the placed/success marker states."""
+DOMINO_COLORS: tuple[str, ...] = ("sky", "cobalt", "indigo", "violet", "plum", "wine")
+
 
 _THICKNESS_DECAY = 0.8
 
@@ -102,7 +96,7 @@ class DominoVariantCfg:
 
 DOMINO_VARIANTS: dict[str, DominoVariantCfg] = {
     v.name: v
-    for n in (2, 3, 4)
+    for n in (2, 3, 4, 5, 6)
     for v in (
         DominoVariantCfg(name=f"Domino{n}", num_dominoes=n, ordered=True),
         DominoVariantCfg(

@@ -67,7 +67,7 @@ def make_domino_env_cfg(
     }
 
     num_dominoes = variant.num_dominoes
-    episode_length_s = 20.0 * num_dominoes + (20.0 if variant.knock_over else 0.0)
+    episode_length_s = 30.0 * num_dominoes + (30.0 if variant.knock_over else 0.0)
     sensors = (
         ContactSensorCfg(
             name=GRIP_CONTACT_SENSOR_NAME,
