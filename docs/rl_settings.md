@@ -22,17 +22,21 @@ If this file and a record disagree, the record is correct.
 - Task observations: category-specific, see below.
 - Command: the current goal (for example the target stack height), where the
   category publishes one.
-- Last action, read from the action term after the clamp.
+- No last-action term. It made "repeat the last action" a trivially strong
+  regressor, so a policy could score on the demos without reading the scene
+  (`docs/adr/016-control-at-20hz-through-a-5cm-end-effector-delta.md`).
 
 **Actions**
 
-- One joint-position action term over all actuators
-  (`tasks/common/actions.NormalizedJointPositionAction`).
-- `-1` commands a joint to its lower limit and `+1` to its upper limit, so one
-  action unit is half of that joint's travel
-  (`docs/adr/005-one-action-unit-is-half-a-joint-travel.md`). The term reads
-  the limits off the compiled model, and it clamps the raw action to
-  `[-1, 1]`.
+- Two terms, 7 wide, at a 0.05 s control step
+  (`docs/adr/016-control-at-20hz-through-a-5cm-end-effector-delta.md`).
+- The arm: `EndEffectorDeltaAction`, mjlab's differential IK in relative mode
+  on the grasp site. `±1` is 0.05 m per position axis and 0.5 rad per rotation
+  axis, per channel, and a zero action holds still.
+- The gripper: `NormalizedJointPositionAction` on its one actuated joint. `-1`
+  is the closed limit, `+1` the open one, read off the compiled model.
+- Both clamp the raw action to `[-1, 1]`. The clamp is the convention, not a
+  guard: differential IK scales whatever it is handed.
 
 **Rewards**
 

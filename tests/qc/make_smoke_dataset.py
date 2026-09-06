@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 from gymnasium.spaces import Space
@@ -50,10 +51,8 @@ def build(
     episodes: int,
     length: int,
     seed: int,
-    action_scale: np.ndarray,
-    action_offset: np.ndarray,
-    start_pose_noise: float = 0.0,
-) -> dict[str, np.ndarray]:
+    convention: dict[str, Any],
+) -> dict[str, Any]:
     """Synthetic rows, shaped like a recording of ``episodes`` attempts.
 
     The first episode succeeds, so the dataset carries one absorbing row; the
@@ -81,9 +80,7 @@ def build(
             actions=actions,
             rewards=rewards,
         ),
-        "action_scale": np.asarray(action_scale, dtype=np.float32).reshape(-1),
-        "action_offset": np.asarray(action_offset, dtype=np.float32).reshape(-1),
-        "start_pose_noise": np.array(float(start_pose_noise), dtype=np.float32),
+        **convention,
     }
 
 
@@ -97,39 +94,18 @@ def main() -> None:
     parser.add_argument("--cpu", action="store_true", help="build the env on CPU")
     args = parser.parse_args()
 
-    # The environment is built only to read the widths and the conventions
-    # off it. A stamp copied from anywhere else would defeat the check it
-    # exists to feed.
+    # The environment is built only to read the widths and the action
+    # convention off it. A stamp copied from anywhere else would defeat the
+    # check it exists to feed.
     env = G3aEnv(args.task, device="cpu" if args.cpu else "cuda")
     try:
         obs_dim = _width(env.observation_space)
         action_dim = _width(env.action_space)
-        start_pose_noise = env.start_pose_noise()
-        term = env.action_term()
-        env_scale = term.scale
-        env_offset = term.offset
-        if hasattr(env_scale, "detach"):
-            env_scale = env_scale.detach().cpu().numpy()  # type: ignore[union-attr]
-        if hasattr(env_offset, "detach"):
-            env_offset = env_offset.detach().cpu().numpy()  # type: ignore[union-attr]
-        env_scale = np.asarray(env_scale, dtype=np.float32).reshape(-1)
-        env_offset = np.asarray(env_offset, dtype=np.float32).reshape(-1)
+        convention = env.action_convention()
     finally:
         env.close()
 
-    data = build(
-        obs_dim,
-        action_dim,
-        args.episodes,
-        args.length,
-        args.seed,
-        action_scale=env_scale,
-        action_offset=env_offset,
-        start_pose_noise=start_pose_noise,
-    )
-    # Stamp the task id too, so the smoke run also exercises the task
-    # identity check in check_dataset_matches_env.
-    data["task"] = np.array(args.task, dtype=np.str_)
+    data = build(obs_dim, action_dim, args.episodes, args.length, args.seed, convention)
 
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)

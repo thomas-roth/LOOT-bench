@@ -24,7 +24,8 @@ back into a sampled row, and the domino *spawns* stay random in all of them),
 `Sorter`), `tasks/ball` (minigolf / throw a ball to a target), and
 `tasks/place` (carry one cube to a sampled target spot, registered as
 `Place`). Place is the one-cube sanity check the QC pipeline is brought up
-on — 500 steps, no difficulty axis; its four variants instead switch the two
+on — 15 s, i.e. 300 steps at 20 Hz, no difficulty axis; its four variants
+instead switch the two
 randomness axes independently (`RandS`/`FixedS` for the cube spawn,
 `RandT`/`FixedT` for the target), e.g. `G3A-Place-FixedS-RandT-Dk1_uni`.
 `tasks/peg_insertion` is an archived, unregistered category kept importable
@@ -63,7 +64,7 @@ uv run g3a-list-tasks --filter G3A --count
 
 # Teleop recording -> the .npz QC-FQL trains on (several sessions at once)
 uv run g3a-convert-demos --success-dir dataset/demos/<task>/<stamp> \
-    --failure-dir dataset/demos/<task>/<stamp>_failure --output out/qc/demos.npz
+    --failure-dir dataset/demos/<task>/<stamp>_failure --output dataset/qc/demos.npz
 
 # Verification scripts (see tests/tasks/README.md), not installed as console scripts
 uv run python tests/tasks/build_sim_registered_tasks.py
@@ -138,7 +139,8 @@ adding/editing a category means mirroring an existing one:
 
 `tasks/common/` is the home of everything shared: the workbench builder
 (`env_cfg.py`), the manipulator wiring, the registration seam + PPO cfg, the
-normalized action term (`actions.py`), the one-reward convention
+action terms (`actions.py`: the end-effector delta and the gripper's
+normalized stroke), the one-reward convention
 (`rewards.py`: `MIN_SHORTFALL` and `shaped_task_reward`), the shared
 observation terms (`observations.py`: `ee_pose_w` and `rot6d_from_matrix`),
 the absolute-pose reset (`events.py`: `reset_joints_to_pose`), the shared
@@ -188,15 +190,15 @@ copy of the trainer is deleted; do not bring one back.
   same column (ADR-010). Every episode end is a boundary, only a success is
   absorbing. A timed-out episode's final row is **dropped**, because the
   recorder stored no successor for it.
-- `convert.py` — the `g3a-convert-demos` entry point. It repeats the record-time
-  action conversion exactly (same function, same gravity compensation), sorts
-  rows by `(episode, frame)`, and stamps the action `scale`/`offset`, the
-  `start_pose_noise` the episodes were recorded under, and the task id into the
-  `.npz` (ADR-011). It is the only module here that imports lerobot.
+- `convert.py` — the `g3a-convert-demos` entry point. It copies the recorded
+  action through rather than re-deriving it (a delta is meaningless without the
+  pose it was measured against), sorts rows by `(episode, frame)`, and stamps
+  the convention record into the `.npz` (ADR-011). It raises on an action
+  outside the box and on recordings spanning more than one task. It is the only
+  module here that imports lerobot.
 - `dataset.py` — `load_dataset(path, env)` reads a dataset back and **raises** on
-  an action-convention, start-pose-noise, or task mismatch against the
-  environment it is handed (ADR-011); an un-stamped `task` on an old file
-  warns instead. It imports no lerobot on purpose: the `qc` venv loads
+  any convention-record mismatch against the environment it is handed
+  (ADR-011), including a missing stamp. It imports no lerobot on purpose: the `qc` venv loads
   datasets and must stay free of the recording stack.
 
 `train_qc.sh` launches a run. It checks the things that are invisible in the
@@ -205,9 +207,12 @@ code and cost a whole run when wrong (ADR-004): `g3a-bench` reached by
 `XLA_PYTHON_CLIENT_PREALLOCATE=false`, a run directory off NFS, a wandb login,
 and a tmux session. `run_scripts/<task>/` holds the per-experiment launchers
 that call it; each one is a single run (one seed) and tags its wandb run with
-its own file name through `G3A_RUN_SCRIPT`. The eight surviving scripts are the
-`G3A-Place/critic-variants/` set, which vary how much the critic acts
-(off / selection / steering) at two step budgets.
+its own file name through `G3A_RUN_SCRIPT`. `G3A-Place/critic-variants/` varies
+how much the critic acts (off / selection / steering) at two step budgets;
+`G3A-Place/fixed-variants/` varies the spawn/target randomness and the
+offline/online split. `run_scripts/sweep.sh` is the exception to the one-run
+rule: it launches a sweep and owns its own `--wandb_tags`, so `train_qc.sh`
+skips the tag it would otherwise add.
 
 Two documents govern what to run: **ADR-012** says to gate a new demonstration
 set with `tests/qc/bc_gate.py` before spending a training run, and **ADR-014**
@@ -219,10 +224,15 @@ Read both before proposing an experiment.
 Tasks never hardcode robot details. `robots/interface.py` defines
 `ManipulatorInterface` (name, entity-cfg factory, grasp site, gripper joints +
 open threshold for the success gate, end-effector subtree, finger-pad geom
-regex, viewer body, start pose). It carries no action scale: every task uses
-`tasks/common/actions.NormalizedJointPositionAction`, where `[-1, 1]` spans
-each joint's own travel and the numbers come from the compiled model. Each
-robot package
+regex, viewer body, start pose). It carries no action scale — those are one
+pair of constants in `tasks/common/actions.py`, shared by every robot — but it
+does declare the **actuator split** the two action terms are built from:
+`arm_actuators` (the IK chain), `gripper_actuators` (the normalized stroke),
+and `ik_max_dq`. All three are required. Deriving the arm as "every actuator
+that is not the gripper" was rejected: it makes the residue load-bearing, so a
+later robot's torso or wrist-camera joint silently joins the IK chain.
+`ik_max_dq` is a *torque* cap (`kp · max_dq`), not a rate limit — see its
+docstring before copying mjlab's default. Each robot package
 exposes its own `get_<robot>_interface()` factory —
 `robots/trlc_dk1/__init__.py` has `get_unimanual_dk1_interface()` and
 `get_bimanual_dk1_interface()`, `robots/yam/__init__.py` has
@@ -264,17 +274,30 @@ actuated).
   use `mjlab.utils.lab_api.math` (not `mjlab.utils.math`),
   `RslRlOnPolicyRunnerCfg` with separate actor/critic `RslRlModelCfg` (not
   `RslRlPpoRunnerCfg`), and `mjlab.viewer.debug_visualizer`.
-- **One action unit is half a joint's travel.** Every task uses
-  `tasks/common/actions.NormalizedJointPositionActionCfg`: `-1` commands a
-  joint's lower limit, `+1` its upper, and the term reads those limits off the
-  compiled model, so no file holds a copy. It also clamps the raw action to
-  `[-1, 1]`, which binds teleop too — gravity compensation can otherwise leave
-  the box near a joint limit and fly a trajectory no bounded policy can repeat.
-  The teleop bridge inverts the same mapping
-  (`live_bridge/mapper.action_scale_offset`), and `tests/tasks/test_actions.py`
-  asserts the two agree. mjlab's plain `JointPositionActionCfg` uses a residual
-  scale instead, which suits an unbounded PPO policy and makes the task
-  unreachable for a tanh-bounded one.
+- **An action is a ±5 cm end-effector delta at 20 Hz.** Every task, one
+  convention, all of it in `tasks/common/actions.py` (ADR-016 — read it before
+  touching the action term, the control rate, or the teleop mapper). Two terms,
+  7 wide: `EndEffectorDeltaActionCfg` (mjlab's differential IK in relative mode
+  on the grasp site, `±1` = 0.05 m per position axis / 0.5 rad per rotation
+  axis) plus `NormalizedJointPositionActionCfg` for the gripper alone, where
+  `-1` is its closed limit and `+1` its open one, read off the compiled model.
+  Control step 0.05 s (`timestep` 0.005 × `decimation` 10). A zero action holds
+  the end-effector still.
+  - The clamp to `[-1, 1]` **is** the convention, not a safety net: DiffIK
+    scales whatever it is handed, so without it `delta_pos_scale` would be a
+    unit rather than a bound.
+  - The box is per-channel, not a norm. Say "±5 cm per axis", never "≤5 cm per
+    step" — all three position channels at once is 0.087 m.
+  - `delta_action_from_poses` is the *only* place a delta action is built. The
+    teleop bridge calls it through `live_bridge/mapper.leader_to_delta_action`,
+    so a recorded action and a policy action cannot mean different things;
+    `tests/tasks/test_actions.py` and `tests/live_bridge/test_mapper.py` pin
+    the two halves.
+  - The arm's gravity is compensated in the simulator (per-body `gravcomp`,
+    `dk1_constants._compensate_arm_gravity`). DiffIK re-anchors its setpoint to
+    the measured pose every substep, so PD sag compounds rather than being
+    corrected — uncompensated, a held zero action walks the arm 0.168 m into
+    the table over 100 steps.
 - **One task reward, in `[-1, 0]`, exactly `0` only at success** (ADR-006,
   `tasks/common/rewards.py`). Every task ends on success, so a positive
   per-step reward would pay a policy to hover at the goal and never touch it.
@@ -312,9 +335,8 @@ actuated).
   (`place_env_cfg.py`, currently `0.0`); every other category takes
   `make_manipulation_env_cfg`'s `0.0` default. A run can override the task
   value with `train_qc.sh --start_pose_noise` or `G3A_START_POSE_NOISE`, but
-  the dataset stamp then has to agree (ADR-011). Keep any value well under the
-  recorder's
-  0.2 rad alignment gate. Measure start-state variety with peak-to-peak range,
+  the dataset stamp then has to agree (ADR-011). Keep any value inside the recorder's
+  alignment gate, which is one action box wide (`mapper.leader_is_aligned`). Measure start-state variety with peak-to-peak range,
   never standard deviation.
 - **Fixed props (boards, fields) are fixed-base entities** — a `MjSpec` body with
   *no* free joint, which mjlab auto-wraps as a mocap body. Position them with
@@ -348,14 +370,13 @@ actuated).
 - Test renders are written to `out/render/<domain>/`; training logs to `logs/` and
   `wandb/`. The `examples/` dir holds reference mjlab code, not part of the package.
 - **`out/` is scratch, `dataset/` is kept.** `out/` is gitignored: the teleop
-  recorder writes its sessions to `out/demos/success|failure/<task>/<stamp>/`, and
-  `g3a-convert-demos` writes its `.npz` to `out/qc/`. A demo session that is worth
-  keeping is moved into `dataset/demos/<task>/<stamp>/`, which is committed, with
-  the failure half of the same session as the sibling
+  recorder writes its sessions to `out/demos/success|failure/<task>/<stamp>/`. A
+  session worth keeping is moved into `dataset/demos/<task>/<stamp>/`, which is
+  committed, with the failure half of the same session as the sibling
   `dataset/demos/<task>/<stamp>_failure/` (the `success/`+`failure/` split becomes a
-  suffix there). A converted `.npz` that a run script points at is kept the same
-  way, in `dataset/qc/`. Read demos from `dataset/demos/`; record new ones into
-  `out/demos/`.
+  suffix there). Read demos from `dataset/demos/`; record new ones into
+  `out/demos/`. `g3a-convert-demos` is run against already-kept sessions, so its
+  `.npz` goes straight to `dataset/qc/`, committed like the demos it came from.
 
 ## Agent skills
 

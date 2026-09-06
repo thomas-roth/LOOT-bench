@@ -10,6 +10,7 @@ as failure after a 2s grace period unless F/D/V decides first) → RESET_PHASE.
 import time
 
 import numpy as np
+import pytest
 import torch
 
 from g3a_bench.scripts.live_bridge.recording_mixin import (
@@ -52,7 +53,7 @@ class FakeRecorder:
 
 
 class FakeEnv:
-    """Minimal env: obs at the start pose so the reset phase exits at once."""
+    """Minimal env: steps, returns zeros, and counts how often it was asked."""
 
     def __init__(self):
         self.steps = 0
@@ -71,6 +72,15 @@ class FakeEnv:
 
 
 class FakePolicy:
+    """The two attributes the recording path reads off the live policy.
+
+    ``latest_raw_action`` is the 7-wide action ``env.step()`` was given and the
+    one a frame stores; ``latest_leader_action`` is the leader pose behind it,
+    which only the alignment gate reads. ``None`` is the pre-hardware state --
+    no leader reading yet -- and holds the reset phase open.
+    """
+
+    latest_raw_action = np.zeros(7, dtype=np.float32)
     latest_leader_action = None
 
     def __call__(self, obs):
@@ -94,7 +104,6 @@ class Harness(RecordingViewerMixin):
             robot_obs_list=[None],
             hw_failed=[False],
             mj_model=None,
-            live_start_pose_rel=np.zeros(6, dtype=np.float32),
             task="test-task",
             num_episodes=num_episodes,
             debug_timing=False,
@@ -333,3 +342,65 @@ class TestSessionEnd:
         h, rec = make_harness()
         assert h._handle_custom_action("CUSTOM", "quit")
         assert h._interrupted
+
+
+class TestResetPhaseAlignmentGate:
+    """What ends the reset phase (ADR-016).
+
+    The gate reads the *leader*, and it is one action box wide rather than a
+    joint-space tolerance: that is exactly the condition under which the
+    episode's opening action does not clamp, so every stored action stays one
+    the simulator took and a bounded policy could have emitted. ADR-016
+    measured the alternative — 66 of 99 demos opened with the arm snapping
+    toward an already-parked leader.
+
+    ``leader_is_aligned`` itself is pinned in ``tests/live_bridge/test_mapper.py``
+    against the real forward kinematics; here it is patched, because compiling
+    the DK1 is what this file's "no viewer, no simulator" contract rules out.
+    """
+
+    def test_an_aligned_leader_ends_the_reset_phase(self, monkeypatch):
+        h, _ = make_harness()
+        h._handle_done(is_success=True, extras={})
+        assert h._in_reset_phase
+        h.policy.latest_leader_action = np.zeros(7, dtype=np.float32)
+        monkeypatch.setattr(
+            "g3a_bench.scripts.live_bridge.recording_mixin.leader_is_aligned",
+            lambda _pose: True,
+        )
+        assert h._execute_step()
+        assert not h._in_reset_phase
+
+    def test_an_unaligned_leader_keeps_it_open(self, monkeypatch):
+        h, _ = make_harness()
+        h._handle_done(is_success=True, extras={})
+        h.policy.latest_leader_action = np.zeros(7, dtype=np.float32)
+        monkeypatch.setattr(
+            "g3a_bench.scripts.live_bridge.recording_mixin.leader_is_aligned",
+            lambda _pose: False,
+        )
+        assert h._execute_step()
+        assert h._in_reset_phase
+
+    def test_no_leader_reading_keeps_it_open(self, monkeypatch):
+        """Before the hardware has reported once there is nothing to compare,
+        and the gate must not be answered by the sim arm — the env reset
+        already parked *that* at the start pose."""
+        h, _ = make_harness()
+        h._handle_done(is_success=True, extras={})
+        h.policy.latest_leader_action = None
+        monkeypatch.setattr(
+            "g3a_bench.scripts.live_bridge.recording_mixin.leader_is_aligned",
+            lambda _pose: pytest.fail("the gate must not run without a leader pose"),
+        )
+        assert h._execute_step()
+        assert h._in_reset_phase
+
+    def test_the_reset_phase_still_steps_the_simulator(self):
+        """Held open, the arm must keep being driven — a frozen sim is what
+        the operator is aligning against."""
+        h, _ = make_harness()
+        h._handle_done(is_success=True, extras={})
+        before = h.env.steps
+        h._execute_step()
+        assert h.env.steps == before + 1

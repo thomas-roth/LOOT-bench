@@ -1,4 +1,8 @@
-"""Environment configuration for the place task category."""
+"""Environment configuration for the place task category.
+
+The QC pipeline's sanity check: 35 observations, a 7-wide action, a 15 s
+episode. The budget is its only departure from the shared workbench.
+"""
 
 from mjlab.entity import EntityCfg
 from mjlab.envs import ManagerBasedRlEnvCfg
@@ -18,6 +22,12 @@ from g3a_bench.tasks.place.assets import get_cube_spec
 from g3a_bench.tasks.place.variants import CUBE_COLOR, PlaceVariantCfg
 
 COMMAND_NAME = "task"
+
+# Half-width [rad] of the start-pose sample (ADR-008). On the task, not on a
+# launcher flag, so recorder and training run read one number. 0.0 is a
+# bit-identical start; raise it for start-state variety, but stay inside the
+# box mapper.leader_is_aligned gates on.
+START_POSE_NOISE = 0.0
 
 
 def make_place_env_cfg(
@@ -85,8 +95,10 @@ def make_place_env_cfg(
         task_terminations=task_terminations,
         sensors=sensors,
         env_spacing=1.5,
-        episode_length_s=10.0,
-        start_pose_noise=0.0,
+        # 300 steps at 20 Hz, matching robomimic `can`. The old 10 s cut the
+        # ending off 20 of the 99 demos; 15 s keeps 98 % whole (ADR-016).
+        episode_length_s=15.0,
+        start_pose_noise=START_POSE_NOISE,
         nconmax=120,
         njmax=700,
         play=play,

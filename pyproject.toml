@@ -24,6 +24,7 @@ dependencies = [
 [project.scripts]
 g3a-play = "g3a_bench.scripts.play:main"
 g3a-list-tasks = "g3a_bench.scripts.list_tasks:main"
+g3a-record-demos = "g3a_bench.scripts.live_bridge.live_record:main"
 g3a-convert-demos = "g3a_bench.qc.convert:main"
 
 [build-system]

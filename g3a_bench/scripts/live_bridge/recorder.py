@@ -16,7 +16,6 @@ class Recorder:
         qpos_dim: int | None = None,
         qvel_dim: int | None = None,
         device: str | None = None,
-        gravity_compensate: bool = True,
         start_pose_noise: float | None = None,
     ):
         features = {
@@ -66,13 +65,13 @@ class Recorder:
         self._qpos_dim = qpos_dim
         self._qvel_dim = qvel_dim
         self._device = device
-        self._gravity_compensate = gravity_compensate
         # Start-pose half-width [rad] used for recording (checked on load).
         self._start_pose_noise = start_pose_noise
         # Seeds tracked per dataset (success/failure indexed from 0).
         self._episode_seeds: dict[bool, dict[str, int]] = {True: {}, False: {}}
         self._episodes_saved: dict[bool, int] = {True: 0, False: 0}
-        # Extra metadata kept in a sidecar (outside lerobot schema).
+        # Extra metadata kept in a sidecar (outside lerobot's closed schema),
+        # one dict per dataset so a later write never clobbers an earlier one.
         self._extra_info: dict[bool, dict] = {True: {}, False: {}}
 
     def _get_dataset(self, success: bool) -> LeRobotDataset:
@@ -200,7 +199,6 @@ class Recorder:
         ep_index = self._episodes_saved[success]
         self._episodes_saved[success] += 1
         extra = self._extra_info[success]
-        extra["gravity_compensate"] = self._gravity_compensate
         if self._start_pose_noise is not None:
             extra["start_pose_noise"] = self._start_pose_noise
         if seed is not None:

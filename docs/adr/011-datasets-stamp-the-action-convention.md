@@ -1,11 +1,25 @@
 # A dataset carries the action convention, and loading checks it
 
-The converter writes the action `scale` and `offset` in force at record time,
-the `start_pose_noise` the episodes were recorded under, and the task id
-itself into the `.npz`. `load_dataset(path, env)` compares those stamps
-against the environment a training run builds, and raises on a mismatch.
-A training run should read its dataset through `load_dataset`, not through
+The converter writes the **convention record** in force at record time into the
+`.npz`. `load_dataset(path, env)` compares that stamp against the environment a
+training run builds, and raises on a mismatch, naming the field that differs. A
+training run should read its dataset through `load_dataset`, not through
 `np.load`.
+
+The record is `qc/dataset.STAMP_KEYS`: a `convention` name checked first (so a
+dataset from an older MDP says *that* rather than reporting whichever number
+happens to differ), the two delta scales, the gripper stroke mapping, the
+`control_step_s`, the `start_pose_noise`, and the `task_id`. *(Widened by
+ADR-016. It was the action `scale`/`offset` pair, which the delta term does not
+have; the control rate had never been stamped at all, so changing it was
+silent, and the task id closes an already-realised hole — every `place` variant
+shares its widths, so a `RandS-RandT` dataset trained against a
+`FixedS-FixedT` env for all fourteen runs of the α ladder.)*
+
+A missing field **raises**; there is no warn-gate for old files. An earlier
+revision warned on an absent `task` stamp so pre-stamp datasets still loaded.
+ADR-016 changed what an action means, so every dataset from before it has to be
+re-converted anyway, and a warning nobody reads is worth less than a refusal.
 
 ## Why
 
@@ -14,24 +28,16 @@ this exists for. Nothing raises, the loss falls, and evaluation scores zero,
 which is exactly what ADR-005 found. A stale dataset must fail at startup
 instead.
 
-The width and convention checks cannot see a **task swap**: variants of one
-category (the four Place variants in particular) share the robot, the
-observation terms, the action width, and the start-pose noise, so a dataset
-recorded for `FixedS-FixedT` passes every width check against `RandS-RandT`
-and trains silently on the wrong spawn and target distribution. The task
-stamp is what distinguishes the two: the recorder writes `task` per frame,
-the converter resolves it (inferred from the recording or given with
-`--task`) and stamps it into the `.npz`, and the check compares it against
-`env.task_id` and raises on a disagreement.
-
-The task check is **warn-gated on old files**: a `.npz` without the stamp
-predates it, so it loads with a `UserWarning` rather than an error. A
-stamped dataset always gets the check. Rebuild a dataset with
-`g3a-convert-demos` to upgrade it.
-
-The converter also repeats the record-time action conversion exactly, using
-the same function and the same gravity compensation as the recorder's live
-policy. Anything else records one trajectory and trains on another.
+The converter also stores the action the recording was flown with, byte for
+byte. Anything else records one trajectory and trains on another. *(How it does
+that changed with ADR-016. It used to re-run the record-time leader-pose
+conversion, which only worked while an action was absolute; a delta means "move
+this far from where you are", and the pose it was measured against is not in the
+file. The recorder now writes the raw action `env.step()` was given and the
+converter copies it through — which makes this paragraph's claim literally true
+rather than true by reconstruction. `build_dataset` raises if any stored action
+lies outside the action box, since that would mean the recorder's mapping and
+the action term disagreed.)*
 
 ## Consequences
 

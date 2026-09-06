@@ -61,11 +61,11 @@ the converter adds around them.
 
 | Test class | What it checks |
 |------------|----------------|
-| `TestActionConversion` | converted actions stay inside the policy box, invert back to the recorded pose, and survive a pose at a joint limit |
+| `TestActionColumn` | the recorded action is copied through, not re-derived, and an out-of-box row is rejected |
 | `TestRowOrder` | rows are sorted by `(episode, frame)` before assembly, so a shuffled or interleaved recording still converts |
-| `TestStamp` | every stamp key is published, and the stamped scale/offset match the built action term, for any robot |
-| `TestStampCheck` | a different action scale, offset, observation width, action width, start-pose noise, or task is **rejected**; a missing task stamp only warns |
-| `TestEnvStartPoseNoise` | the three sources the noise is read from, in order, and the error message each missing one gives |
+| `TestStamp` | every stamp key is published, and the stamped numbers match what the action terms apply |
+| `TestStartPoseNoiseStamp` | the start-pose half-width the episodes were recorded under is stamped (ADR-008) |
+| `TestStampCheck` | any stamp field that disagrees with the env is **rejected**, and so is a missing one |
 | `TestSessionOffsetting` | episode indices that collide across sessions do not silently join two episodes |
 | `TestRewardValidation` | a dataset on a stale reward convention is rejected |
 | `TestReadingARecording` | a LeRobot session converts to an `.npz`, two sessions keep their episodes apart, and mixed tasks are rejected |

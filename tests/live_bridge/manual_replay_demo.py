@@ -13,12 +13,12 @@ replaying leader actions from a recorded dataset.
 # native import-order segfault (HF `datasets` vs mujoco-warp). Must precede mjlab.
 import lerobot.datasets.lerobot_dataset  # noqa: F401,E402,I001
 
+import numpy as np
 import torch
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.rl import RslRlVecEnvWrapper
 from mjlab.tasks.registry import load_env_cfg
-import g3a_bench  # noqa: F401  (registers benchmark tasks in mjlab registry)
-from g3a_bench.scripts.live_bridge.mapper import lerobot_to_mjlab_raw_action
+import g3a_bench  # noqa: F401 — registers benchmark tasks in mjlab registry
 from g3a_bench.scripts.live_bridge.reader import DatasetReader
 from g3a_bench.scripts.utils.viewer_wrapper import NativeViewerWrapper
 
@@ -61,7 +61,8 @@ def main():
 
             if frame.leader_action is None:
                 raise RuntimeError("DatasetReader frame is missing an action")
-            raw_action = lerobot_to_mjlab_raw_action(frame.leader_action)
+            # The stored column is the raw action itself (ADR-016).
+            raw_action = np.asarray(frame.leader_action, dtype=np.float32)
             return torch.from_numpy(raw_action).unsqueeze(0).to(device)
 
     # ------------------------------------------------------------------

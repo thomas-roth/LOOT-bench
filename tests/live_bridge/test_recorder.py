@@ -229,7 +229,7 @@ def test_recorder_real_roundtrip(tmp_path):
     failure_root = tmp_path / "failure" / "stamp"
     rec = Recorder(
         repo_id="test_roundtrip",
-        fps=50,
+        fps=20,
         obs_dim=53,
         success_root=str(success_root),
         failure_root=str(failure_root),
@@ -264,7 +264,7 @@ def test_recorder_real_undo_roundtrip(tmp_path):
     success_root = tmp_path / "success" / "stamp"
     rec = Recorder(
         repo_id="test_undo",
-        fps=50,
+        fps=20,
         obs_dim=53,
         success_root=str(success_root),
     )
@@ -287,12 +287,12 @@ def test_recorder_real_undo_roundtrip(tmp_path):
 
 def test_close_stores_operator_id(tmp_path):
     """operator_id passed to close() must appear in the sidecar extra-info
-    file after finalize, alongside the seed/gravity metadata staged earlier.
-    Later writes must not clobber earlier ones."""
+    file after finalize, alongside the episode seeds staged earlier — later
+    writes must not clobber earlier ones."""
     from g3a_bench.scripts.live_bridge.dataset_extra_info import load_extra_info
 
     root = tmp_path / "ds_op" / "success"
-    rec = Recorder(repo_id="test_op", fps=50, obs_dim=53, success_root=str(root))
+    rec = Recorder(repo_id="test_op", fps=20, obs_dim=53, success_root=str(root))
     rec.add_frame(
         {"actor": torch.zeros(1, 53)},
         np.zeros(7, dtype=np.float32),
@@ -306,11 +306,10 @@ def test_close_stores_operator_id(tmp_path):
     extra_info = load_extra_info(root)
     assert extra_info["operator_id"] == 3
     assert extra_info["episode_seeds"] == {"0": 42}
-    assert extra_info["gravity_compensate"] is True
 
 
 def test_close_without_operator_id_still_finalizes(tmp_path):
     """close() with no operator_id must not crash (backwards compat)."""
     root = tmp_path / "ds_noop" / "success"
-    rec = Recorder(repo_id="test_noop", fps=50, obs_dim=53, success_root=str(root))
-    rec.close()  # no argument, nothing recorded. Must not raise.
+    rec = Recorder(repo_id="test_noop", fps=20, obs_dim=53, success_root=str(root))
+    rec.close()  # no argument, nothing recorded — must not raise
