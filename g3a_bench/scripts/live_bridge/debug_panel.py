@@ -9,7 +9,7 @@ import numpy as np
 # First task-specific term after common ones is an object pose (xyz first).
 _EE_TERM_NAME = "ee_pose"
 _GOAL_TERM_NAME = "command"
-_COMMON_TERMS = {"joint_pos", "joint_vel", _EE_TERM_NAME, _GOAL_TERM_NAME, "actions"}
+_COMMON_TERMS = {"joint_pos", "joint_vel", _EE_TERM_NAME, _GOAL_TERM_NAME}
 
 _PANEL_WIDTH = 92
 

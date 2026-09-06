@@ -40,7 +40,7 @@ settling/tumbling after latching).
 
 ## Observations (state-based)
 
-- joint positions/velocities, EE pose, last action
+- joint positions/velocities, EE pose
 - the cube's own pose (env-local position + quaternion) — a single pose for
   the whole rigid cube/hole assembly; every hole's position/orientation is a
   fixed, learnable offset from it, so no per-hole observation is added

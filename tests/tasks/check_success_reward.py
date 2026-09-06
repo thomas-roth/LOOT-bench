@@ -27,6 +27,7 @@ from g3a_bench.tasks.ball.variants import (
     BALL_VARIANTS,
     TARGET_X,
 )
+from g3a_bench.tasks.common.env_cfg import CONTROL_STEP_S
 from g3a_bench.tasks.domino.mdp.commands import DominoCommand
 from g3a_bench.tasks.place.mdp.commands import PlaceCommand
 from g3a_bench.tasks.shape_sorter.assets import BOARD_POS, load_sorter_layout
@@ -36,9 +37,13 @@ from g3a_bench.tasks.stack.variants import FORM_HALF_EXTENTS
 
 _NUM_ENVS = 8
 _STEPS = 10
-_KNOCKOVER_STEPS = 100
-"""Control dt = timestep(0.005) * decimation(4) = 0.02 s, so 100 steps is
-~2.0 s. Enough for a 3-domino chain reaction to propagate and settle."""
+_KNOCKOVER_SECONDS = 2.0
+"""Enough for a 3-domino chain reaction to propagate and settle."""
+
+_KNOCKOVER_STEPS = round(_KNOCKOVER_SECONDS / CONTROL_STEP_S)
+"""Derived from the control step rather than written, so a rate change moves
+the budget instead of silently shortening the wait (ADR-016 took it from
+0.02 s to 0.05 s)."""
 
 # ---------------------------------------------------------------------------
 # Helpers

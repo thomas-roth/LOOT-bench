@@ -16,7 +16,8 @@
 #   QC_PYTHON             its interpreter          (default: $QC_DIR/.venv/bin/python)
 #   RUN_DIR               where runs are written   (default: /var/tmp/$USER/qc-runs)
 #   WANDB_MODE            online | offline | disabled  (default: online)
-#   G3A_RUN_SCRIPT        wandb tag naming the launching script (default: train_qc.sh)
+#   G3A_RUN_SCRIPT        names the launching script; becomes the script-<name>
+#                         wandb tag                (default: train_qc)
 #   G3A_START_POSE_NOISE  override task start-pose noise [rad] (default: task value)
 #                         or pass --start_pose_noise
 #   G3A_ALLOW_NO_TMUX     set to 1 to run outside tmux
@@ -39,7 +40,9 @@ die() {
 }
 
 usage() {
-  sed -n '2,21p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'
+  # Header comment block, shebang excluded: self-adjusting, so it can't drift
+  # from a hardcoded line range when the header above is edited.
+  awk '/^#!/{next} /^#/{print; next} {exit}' "${BASH_SOURCE[0]}" | sed 's/^# \?//'
   exit 1
 }
 
@@ -98,6 +101,33 @@ esac
 
 [ -f "$QC_DIR/main.py" ] || die "no qc checkout at $QC_DIR (set QC_DIR)"
 [ -x "$QC_PYTHON" ] || die "no interpreter at $QC_PYTHON (set QC_PYTHON)"
+
+# --- wandb tags --------------------------------------------------------------
+#
+# A tag has to travel as a flag: wandb.init receives tags= explicitly, which
+# beats the WANDB_TAGS environment variable.
+#
+# Only the dataset is tagged here, because only the shell knows it. main.py
+# tags what its own flags say (`task-`, `script-`), so sending those too would
+# tag the run twice with one fact. A caller with its own --wandb_tags
+# (run_scripts/sweep.sh) owns the list and this build is skipped below.
+#
+# wandb caps a tag at 64 characters and rejects the run otherwise, and
+# main.py splits --wandb_tags on `,` -- so a dataset stem is clamped and
+# stripped of both before it reaches either, same as sweep.sh's own tags.
+DATA_TAG="data-$(basename "$DATASET" .npz)"
+DATA_TAG="${DATA_TAG//=/-}"
+DATA_TAG="${DATA_TAG// /-}"
+DATA_TAG="${DATA_TAG//,/-}"
+TAGS=(--wandb_tags "${DATA_TAG:0:64}")
+for arg in "$@"; do
+  case "$arg" in
+  --wandb_tags | --wandb_tags=*)
+    TAGS=()
+    break
+    ;;
+  esac
+done
 
 # --- the venv ----------------------------------------------------------------
 #
@@ -206,4 +236,5 @@ exec "$QC_PYTHON" main.py \
   --env_name "$TASK_ID" \
   --g3a_dataset "$DATASET" \
   --save_dir "$RUN_DIR" \
+  ${TAGS[@]+"${TAGS[@]}"} \
   "$@"

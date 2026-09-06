@@ -63,7 +63,7 @@ brighter green once the whole task succeeds (unchanged from the shared
 
 ## Observations (state-based)
 
-- joint positions/velocities, EE pose, last action
+- joint positions/velocities, EE pose
 - all domino poses (env-local position + quaternion, object-major)
 - per-slot placed indicator
 - the command: per-slot target pose (env-local position + upright/row-aligned

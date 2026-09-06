@@ -1,5 +1,20 @@
 # One action unit is half a joint's travel
 
+status: superseded by ADR-016, which replaced joint-position actions with a
+5 cm end-effector delta at 20 Hz.
+
+Two things below outlive the decision and still bind. **A bounded policy needs
+a bounded, reachable action space** — the residual-scale argument in "Why" is
+the reasoning ADR-016 inherits, and it is why the delta term clamps to
+`[-1, 1]` rather than treating the scale as a unit. **Hard joint limits stay
+teleoperable** — the outer slice of every joint is flown through during
+recording, which is why the robots set `soft_joint_pos_limit_factor = 1.0`
+instead of shrinking the soft limits under differential IK.
+
+The rule itself is gone: `NormalizedJointPositionAction` survives only as the
+gripper term, one joint wide. Everything below describes the arm as it was
+until ADR-016.
+
 Every task uses `tasks/common/actions.NormalizedJointPositionAction`: `-1`
 commands a joint's lower limit, `+1` its upper limit, `0` the midpoint. The
 term reads the limits off the compiled model, so no file holds a copy of the

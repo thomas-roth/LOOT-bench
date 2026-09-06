@@ -6,7 +6,7 @@ raises ``KeyError`` for any field it doesn't declare, and ``write_info``
 round-trips only declared fields (``to_dict`` is ``dataclasses.asdict``), so
 even a plain ``setattr`` would be silently dropped on save. g3a-bench's own
 recording metadata (per-episode RNG seeds, the device they were drawn on,
-the operator id, whether recorded actions used gravity compensation)
+the operator id, the start-pose noise the episodes were flown under)
 doesn't fit that schema, so it lives in a sibling JSON file instead of
 ``meta/info.json``.
 """

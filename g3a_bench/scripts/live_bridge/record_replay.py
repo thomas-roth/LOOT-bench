@@ -19,7 +19,6 @@ from mjlab.tasks.registry import load_env_cfg
 from mjlab.viewer.base import VerbosityLevel
 
 import g3a_bench  # noqa: F401
-from g3a_bench.scripts.live_bridge.mapper import lerobot_to_mjlab_raw_action
 from g3a_bench.scripts.live_bridge.reader import DatasetReader, ReaderFrame
 from g3a_bench.scripts.live_bridge.recorder import Recorder
 from g3a_bench.scripts.utils.viewer_wrapper import NativeViewerWrapper
@@ -225,8 +224,18 @@ class _ReplayAndRecord:
         if self._fallback_action_np is None:
             self._fallback_action_np = frame.leader_action.copy()
 
-        raw_action = lerobot_to_mjlab_raw_action(frame.leader_action, True)
-        return torch.from_numpy(raw_action).unsqueeze(0).to(self.device)
+        # The stored column *is* the raw action now (ADR-016), so there is
+        # nothing to map. Note what that costs: an absolute joint target was
+        # self-correcting, but replaying a delta sequence open-loop integrates
+        # its own error, so a replayed trajectory drifts from the recorded one
+        # instead of converging back onto it. Use `state_replay.py` when the
+        # question is what the episode looked like; use this when the question
+        # is what the actions do.
+        return (
+            torch.from_numpy(np.asarray(frame.leader_action, dtype=np.float32))
+            .unsqueeze(0)
+            .to(self.device)
+        )
 
     def record_step_result(
         self,

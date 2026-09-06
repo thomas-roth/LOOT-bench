@@ -10,13 +10,13 @@ import torch
 from mjlab.viewer.base import VerbosityLevel
 
 from g3a_bench.scripts.live_bridge.debug_panel import LiveDebugPanel
+from g3a_bench.scripts.live_bridge.mapper import leader_is_aligned
 
 GHOST_ROBOT_ENTITY = "robot"  # scene entity key whose geoms get ghosted
 GHOST_COLOR = (0.5, 0.6, 0.9, 0.5)  # translucent blue, the neutral/reset-target color
 GHOST_COLOR_SUCCESS = (0.3, 0.9, 0.3, 0.8)  # bright green for success feedback
 GHOST_COLOR_FAILURE = (0.9, 0.3, 0.3, 0.8)  # bright red for failure feedback
 GHOST_COLOR_PROMPT = (0.95, 0.6, 0.1, 0.8)  # orange during the save-or-discard window
-RESET_THRESHOLD_RAD = 0.2  # all 6 arm joints must be within this many rad of home
 
 
 class RecordingViewerMixin:
@@ -28,7 +28,6 @@ class RecordingViewerMixin:
         robot_obs_list: list,
         hw_failed: list,
         mj_model: "_mujoco.MjModel | None",
-        live_start_pose_rel: np.ndarray,
         task: str,
         num_episodes: int,
         debug_timing: bool,
@@ -43,18 +42,6 @@ class RecordingViewerMixin:
         self._hw_failed = hw_failed
         self._debug_timing = debug_timing
         self._debug_panel = LiveDebugPanel(env, append_only=debug_obs_append)
-        self._live_start_pose_rel = live_start_pose_rel
-        # Reset gate reads the leader pose (sim arm is already reset).
-        if live_start_pose_rel is not None and home_joint_pos:
-            home_arm = np.array(
-                [home_joint_pos[f"joint{i}"] for i in range(1, 7)],
-                dtype=np.float32,
-            )
-            self._leader_reset_pose = home_arm + np.asarray(
-                live_start_pose_rel, dtype=np.float32
-            )
-        else:
-            self._leader_reset_pose = None
         self._spike_ms = 35.0
         self._worst_step_ms = 0.0
         self._ghost_model: _mujoco.MjModel | None = None
@@ -135,8 +122,8 @@ class RecordingViewerMixin:
         # Suppress verbose per-tick spam during arm alignment
         self.verbosity = VerbosityLevel.INFO
         print(
-            f"[INFO] Reset phase — move the leader arm to the ghost position "
-            f"(within {RESET_THRESHOLD_RAD:.2f} rad per joint) to start next episode"
+            "[INFO] Reset phase — move the leader arm to the ghost position "
+            "(within one action box of it) to start next episode"
         )
 
     def _exit_reset_phase(self) -> None:
@@ -332,18 +319,10 @@ class RecordingViewerMixin:
                     self.env.step(actions)
                     self._step_count += 1
                     self._stats_steps += 1
-                    # Gate on leader pose; sim arm was reset already.
+                    # Gate on leader pose; sim arm was reset already. One
+                    # action box wide, so the opening action never clamps.
                     leader_action = getattr(self.policy, "latest_leader_action", None)
-                    if (
-                        leader_action is not None
-                        and self._leader_reset_pose is not None
-                        and np.all(
-                            np.abs(
-                                np.asarray(leader_action)[:6] - self._leader_reset_pose
-                            )
-                            < RESET_THRESHOLD_RAD
-                        )
-                    ):
+                    if leader_action is not None and leader_is_aligned(leader_action):
                         self._exit_reset_phase()
                         print(
                             f"[INFO] === Episode {self.episodes_saved + 1} "
@@ -370,17 +349,24 @@ class RecordingViewerMixin:
                 _obs_next, rew, dones, _extras = self.env.step(actions)
                 t3 = time.perf_counter()
 
-                # Only record if both leader action and robot obs are available
-                leader_action = getattr(self.policy, "latest_leader_action", None)
+                # Only record if both the action and the robot obs are there.
+                # The stored action is the *raw action* the policy just handed
+                # to env.step(), not the leader pose behind it: under delta
+                # control an action means "move this far from where you are",
+                # so it cannot be re-derived later from the leader pose alone.
+                # Storing it directly is what keeps ADR-011's "the recording
+                # and the simulator saw one MDP" literally true.
+                raw_action = getattr(self.policy, "latest_raw_action", None)
                 robot_obs = self._robot_obs_list[0]
-                if leader_action is not None and robot_obs is not None:
-                    # Clone sim state; buffer is overwritten next step.
+                if raw_action is not None and robot_obs is not None:
+                    # Clone sim state; buffer is overwritten next step. Kept
+                    # on-device: the GPU→CPU sync dropped live fps 60 → 45.
                     qpos_t = self.env.env.sim.data.qpos[0].clone()
                     qvel_t = self.env.env.sim.data.qvel[0].clone()
                     # rew/dones stay on GPU; .item() deferred to save time.
                     self._recorder.add_frame(
                         {"actor": obs["actor"]},
-                        leader_action,
+                        raw_action,
                         rew[0],
                         dones[0],
                         task=self._task,
@@ -392,7 +378,7 @@ class RecordingViewerMixin:
                     get_status = getattr(self, "get_status", None)
                     self._debug_panel.update(
                         obs["actor"][0],
-                        leader_action,
+                        raw_action,
                         rew[0],
                         dones[0],
                         robot_state=robot_obs,

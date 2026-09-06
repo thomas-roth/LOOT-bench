@@ -18,7 +18,59 @@
    ```
    The PyTorch build is selected automatically by platform (see `[tool.uv.sources]` in `pyproject.toml`): `cu128` on Linux/Windows, `cpu` on macOS.
 
-## Code Quality Checks
+## Task Commands
+
+### Listing Tasks
+The `g3a-list-tasks` command lists all task IDs registered into mjlab (the `G3A-*` benchmark tasks plus mjlab's built-ins).
+Narrow it with a substring using `--filter`, or count the tasks using `--count`:
+```shell
+uv run g3a-list-tasks
+uv run g3a-list-tasks --filter Domino
+uv run g3a-list-tasks --filter G3A --count
+```
+
+### Playing a Task
+The `g3a-play` command starts mjlab's player on one task ID, so you can look at the scene and the robot. Give a checkpoint to see a policy, or `--agent zero` to hold the robot still.
+```shell
+uv run g3a-play G3A-Stack-Low-Dk1_uni --agent zero --viewer native --num-envs 1
+```
+
+## Data Collection
+
+### Recording Demos
+The `g3a-record-demos` command records teleop demonstrations into a LeRobot dataset. A GELLO leader arm drives the simulation, and you label each episode a success or a failure with a key. The script requires the leader hardware and a display.
+```shell
+uv run g3a-record-demos --task <TASK_ID>
+```
+
+For the keys, the savedir, the ports and the other bridge scripts, read `g3a_bench/scripts/live_bridge/README.md`.
+
+### Converting Demos
+The `g3a-convert-demos` command reads teleop recordings and converts them into an `.npz` file that QC-FQL trains on.
+
+Give one or more success roots with `--success-dir`, optionally the sibling failure roots with `--failure-dir`, and the output file with `--output`:
+```shell
+uv run g3a-convert-demos \
+    --success-dir dataset/demos/<task>/<timestamp_success> \
+    --failure-dir dataset/demos/<task>/<timestamp_failure> \
+    --output dataset/qc/demos.npz
+```
+
+All recordings must come from the same task ID. The command writes that ID into the `.npz`, together with the action convention, so a training run can detect a dataset that does not agree with its environment.
+
+## Training
+
+`run_scripts/` holds ready-made QC-FQL launches (Linux/cluster only, they need a `qc` checkout next to this repo). They consist of different run scripts, each pinning task, dataset, and configuration, as well as a generic sweep script to start a task experiment run with multiple alphas and seeds:
+```shell
+bash run_scripts/G3A-Place/fixed-s_fixed-t_200k-0.sh
+bash run_scripts/sweep.sh --help
+```
+
+The scripts are experiment records, so they change often. For the current list, look in `run_scripts/`. For the sweep options, the wandb config, and how to write a new script, read `run_scripts/README.md`.
+
+## Development
+
+### Code Quality Checks
 The project uses [Ruff](https://www.astral.sh/ruff) for linting and formatting and [Pyright](https://microsoft.github.io/pyright) for type checking.
 
 To run the linter on the current working directory (recursively):
@@ -48,17 +100,3 @@ To manually run the pre-commit hooks on all files:
 uv run pre-commit run --all-files
 ```
 
-## Listing tasks
-The `g3a-list-tasks` command lists all task IDs registered into mjlab (the `G3A-*` benchmark tasks plus mjlab's built-ins).
-Narrow it with a substring using `--filter`, or count the tasks using `--count`:
-```shell
-uv run g3a-list-tasks
-uv run g3a-list-tasks --filter Domino
-uv run g3a-list-tasks --filter G3A --count
-```
-
-## Example G3A-Stack-Low-Dk1_uni
-View:
-```shell
-uv run g3a-play G3A-Stack-Low-Dk1_uni --agent zero --viewer native --num-envs 1 --no-terminations True
-```

@@ -1,7 +1,11 @@
 """Shared workbench for all tasks. Categories pass core parts as parameters.
 
+The control rate and the action terms live here and nowhere else (ADR-016): a
+per-category fork would put two MDP conventions in one workbench. Categories
+choose their own ``episode_length_s``, not their rate or their action space.
+
 Robot placeholders are filled by wire_manipulator_into_env. No observation
-carries noise (see ADR-015).
+carries noise (ADR-015).
 """
 
 from mjlab.entity import EntityCfg
@@ -19,8 +23,28 @@ from mjlab.sim import MujocoCfg, SimulationCfg
 from mjlab.terrains import TerrainEntityCfg
 from mjlab.viewer import ViewerConfig
 
-from g3a_bench.tasks.common.actions import NormalizedJointPositionActionCfg
+from g3a_bench.tasks.common.actions import (
+    EE_DELTA_ACTION_NAME,
+    GRIPPER_ACTION_NAME,
+    EndEffectorDeltaActionCfg,
+    NormalizedJointPositionActionCfg,
+)
 from g3a_bench.tasks.common.observations import ee_pose_w
+
+SIM_TIMESTEP = 0.005
+"""[s] physics timestep, shared by every task."""
+
+CONTROL_DECIMATION = 10
+"""Physics steps per control step. 10 x 0.005 s is 20 Hz.
+
+Both QC-validated reference domains run at 20 Hz, and ``horizon_length=5``
+then spans 0.25 s -- the middle of the band QC's own Fig. 6 sweeps as working.
+At the previous 50 Hz the same chunk spanned 0.10 s, nearer the failing end.
+See ADR-016."""
+
+CONTROL_STEP_S = SIM_TIMESTEP * CONTROL_DECIMATION
+"""[s] one control step, 0.05 s. Stamped into every dataset, so changing the
+rate invalidates recordings loudly instead of silently (ADR-011)."""
 
 
 def make_manipulation_env_cfg(
@@ -90,10 +114,9 @@ def make_manipulation_env_cfg(
             if command_obs
             else {}
         ),
-        # Named so it reads the term buffer with clamping applied.
-        "actions": ObservationTermCfg(
-            func=mdp.last_action, params={"action_name": "joint_pos"}
-        ),
+        # No `actions` term: it made "repeat the last action" a trivially
+        # strong regressor (0.0242 against a BC gate bar of 0.0766), so a
+        # policy could score on the demos without reading the scene (ADR-016).
     }
 
     observations = {
@@ -101,12 +124,13 @@ def make_manipulation_env_cfg(
         "critic": ObservationGroupCfg(dict(actor_terms)),
     }
 
+    # Two terms, 6 + 1 = 7 wide, in this order. Every robot-specific field is
+    # a placeholder filled by wire_manipulator_into_env from the robot's
+    # declared actuator split -- see tasks/common/actions.py for what the
+    # numbers mean and why the arm moves in task space.
     actions: dict[str, ActionTermCfg] = {
-        # Limits come from the compiled model. See tasks/common/actions.py.
-        "joint_pos": NormalizedJointPositionActionCfg(
-            entity_name="robot",
-            actuator_names=(".*",),
-        )
+        EE_DELTA_ACTION_NAME: EndEffectorDeltaActionCfg(entity_name="robot"),
+        GRIPPER_ACTION_NAME: NormalizedJointPositionActionCfg(entity_name="robot"),
     }
 
     events = {
@@ -176,7 +200,7 @@ def make_manipulation_env_cfg(
             nconmax=nconmax,
             njmax=njmax,
             mujoco=MujocoCfg(
-                timestep=0.005,
+                timestep=SIM_TIMESTEP,
                 iterations=100,
                 ls_iterations=50,
                 impratio=10,
@@ -185,7 +209,7 @@ def make_manipulation_env_cfg(
                 disableflags=("nativeccd",),
             ),
         ),
-        decimation=4,
+        decimation=CONTROL_DECIMATION,
         episode_length_s=episode_length_s,
         # Keep raw reward values, unscaled by step dt.
         scale_rewards_by_dt=False,

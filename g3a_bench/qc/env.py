@@ -44,7 +44,12 @@ from mjlab.envs import ManagerBasedRlEnv
 from mjlab.sensor import ContactSensor
 from mjlab.tasks.registry import load_env_cfg
 
+from g3a_bench.qc.dataset import CONVENTION_NAME
 from g3a_bench.qc.episode import EpisodeStats
+from g3a_bench.tasks.common.actions import (
+    EE_DELTA_ACTION_NAME,
+    GRIPPER_ACTION_NAME,
+)
 from g3a_bench.tasks.common.commands import (
     GRIP_CONTACT_SENSOR_NAME,
     OBJECT_CONTACT_SENSOR_NAME,
@@ -138,23 +143,26 @@ class G3aEnv(gymnasium.Env):
         """
         return self._mjlab_env
 
-    def action_term(self):
-        """The joint action term, which owns the scale and offset.
+    def action_convention(self) -> dict[str, Any]:
+        """What an action means in this env, as the stamped record.
 
-        Published so a dataset can be checked against the convention this env
+        Published so a dataset can be checked against the MDP this env
         actually runs (``qc.dataset.check_dataset_matches_env``) rather than
-        against a copy of it.
+        against a copy of it. A method here, not a property on a term: no
+        single term owns the record.
         """
-        return self._mjlab_env.action_manager.get_term("joint_pos")
-
-    def start_pose_noise(self) -> float:
-        """Half-width [rad] of the start-pose sample this env was built with.
-
-        Published alongside :meth:`action_term` for the same reason: a dataset
-        stamped at record time must be comparable to the environment at train
-        time without importing the recorder stack.
-        """
-        return self._start_pose_noise
+        ee_delta = self._mjlab_env.action_manager.get_term(EE_DELTA_ACTION_NAME)
+        gripper = self._mjlab_env.action_manager.get_term(GRIPPER_ACTION_NAME)
+        return {
+            "convention": CONVENTION_NAME,
+            "delta_pos_scale": ee_delta.cfg.delta_pos_scale,
+            "delta_ori_scale": ee_delta.cfg.delta_ori_scale,
+            "gripper_scale": float(gripper.scale.reshape(-1)[0].item()),
+            "gripper_offset": float(gripper.offset.reshape(-1)[0].item()),
+            "control_step_s": float(self._mjlab_env.step_dt),
+            "start_pose_noise": self._start_pose_noise,
+            "task_id": self.task_id,
+        }
 
     def _observation(self, obs: Mapping[str, Any]) -> np.ndarray:
         """The actor group, as a fresh float32 row.
