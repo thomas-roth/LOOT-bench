@@ -23,7 +23,7 @@ stay random in every variant.
 
 from dataclasses import dataclass
 
-BASE_HALF_EXTENTS = (0.0075, 0.02, 0.035)
+BASE_HALF_EXTENTS = (0.0075, 0.015, 0.035)
 """Half extents (hx, hy, hz) of a base domino."""
 
 BASE_MASS = 0.10
