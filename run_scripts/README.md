@@ -14,9 +14,9 @@ All of it is **Linux/cluster-only** (`train_qc.sh` needs bash, tmux,
 ## Running a sweep
 
 ```bash
-./run_scripts/G3A-Place/fixed-s_fixed-t_200k-0.sh
-./run_scripts/G3A-Place/fixed-s_fixed-t_200k-0.sh --horizon_length 10
-./run_scripts/G3A-Place/fixed-s_fixed-t_200k-0.sh --alphas 500,1000 --num-seeds 5 --dry-run
+./run_scripts/LOOT-Place/fixed-s_fixed-t_200k-0.sh
+./run_scripts/LOOT-Place/fixed-s_fixed-t_200k-0.sh --horizon_length 10
+./run_scripts/LOOT-Place/fixed-s_fixed-t_200k-0.sh --alphas 500,1000 --num-seeds 5 --dry-run
 ```
 
 `sweep.sh --help` lists the options. `--dry-run` prints every `train_qc.sh`
@@ -37,7 +37,7 @@ rather than leaving the card idle. A failed run does not stop the others.
 #!/usr/bin/env bash
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-export G3A_RUN_SCRIPT="$(basename "${BASH_SOURCE[0]}" .sh)"
+export LOOT_RUN_SCRIPT="$(basename "${BASH_SOURCE[0]}" .sh)"
 
 exec "$HERE/../sweep.sh" \
   <group-name> <TASK_ID> dataset/qc/<demos>.npz \

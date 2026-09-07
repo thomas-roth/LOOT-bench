@@ -24,7 +24,7 @@ QC-FQL learns nothing on `place` (success ≈ 0 across 29 runs) while grasping
 in 83–100 % of episodes once `alpha` is raised. The two reference domains the
 QC paper validates on agree exactly with each other and disagree with us:
 
-| | G3A `place` (old) | robomimic `can` | OGBench `cube-single` |
+| | LOOT `place` (old) | robomimic `can` | OGBench `cube-single` |
 |---|---|---|---|
 | action | 7-d absolute joint pos, `[-1,1]` = full travel | 7-d `OSC_POSE` delta, `output_max=[.05,.05,.05,.5,.5,.5]` | 5-d DiffIK delta, `action_range=[.05,.05,.05,.3,1.0]` |
 | rate | 50 Hz | 20 Hz | 20 Hz |

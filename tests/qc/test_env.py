@@ -9,17 +9,17 @@ flat rather than an exception.
 import numpy as np
 import pytest
 
-from g3a_bench.qc import G3aEnv, is_g3a_task
-from g3a_bench.qc.dataset import STAMP_KEYS
-from g3a_bench.qc.episode import CONTACT_THRESHOLD
-from g3a_bench.tasks.common.actions import (
+from loot_bench.qc import LootEnv, is_loot_task
+from loot_bench.qc.dataset import STAMP_KEYS
+from loot_bench.qc.episode import CONTACT_THRESHOLD
+from loot_bench.tasks.common.actions import (
     EE_DELTA_ACTION_NAME,
     GRIPPER_ACTION_NAME,
 )
 
-TASK_ID = "G3A-Stack3-Easy-Dk1_uni"
+TASK_ID = "LOOT-Stack3-Easy-Dk1_uni"
 
-PLACE_TASK_ID = "G3A-Place-RandS-RandT-Dk1_uni"
+PLACE_TASK_ID = "LOOT-Place-RandS-RandT-Dk1_uni"
 """The one category that declares the object-filtered contact sensor.
 
 Place scores exactly one free object, so "contact with the object" is a
@@ -33,19 +33,19 @@ ROBOT_TERMS = ("joint_pos", "joint_vel", "ee_pose")
 
 @pytest.fixture(scope="module")
 def env():
-    e = G3aEnv(TASK_ID, device="cpu", seed=0, start_pose_noise=0.05)
+    e = LootEnv(TASK_ID, device="cpu", seed=0, start_pose_noise=0.05)
     yield e
     e.close()
 
 
 @pytest.fixture(scope="module")
 def place_env():
-    e = G3aEnv(PLACE_TASK_ID, device="cpu", seed=0, start_pose_noise=0.05)
+    e = LootEnv(PLACE_TASK_ID, device="cpu", seed=0, start_pose_noise=0.05)
     yield e
     e.close()
 
 
-def _term_slices(env: G3aEnv) -> dict[str, slice]:
+def _term_slices(env: LootEnv) -> dict[str, slice]:
     """Map each actor-observation term to its slice of the flat vector.
 
     Derived rather than hardcoded: a task that gains a term would otherwise
@@ -64,7 +64,7 @@ def _term_slices(env: G3aEnv) -> dict[str, slice]:
     return out
 
 
-def _split(env: G3aEnv, rows: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def _split(env: LootEnv, rows: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Split observations into (robot columns, scene columns)."""
     slices = _term_slices(env)
     robot = np.concatenate([rows[:, slices[t]] for t in ROBOT_TERMS], axis=1)
@@ -72,7 +72,7 @@ def _split(env: G3aEnv, rows: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     return robot, scene
 
 
-def _hold_action(env: G3aEnv) -> np.ndarray:
+def _hold_action(env: LootEnv) -> np.ndarray:
     """The action that parks the arm where it is and holds the gripper open.
 
     A zero delta is "stay where you are" by construction now (ADR-016), so the
@@ -91,7 +91,7 @@ def _hold_action(env: G3aEnv) -> np.ndarray:
     return action
 
 
-def _gripper_index(env: G3aEnv) -> int:
+def _gripper_index(env: LootEnv) -> int:
     """Which action column drives the gripper: the last one, after the 6-D
     delta. Asserted rather than assumed, so a reordering fails here."""
     manager = env.mjlab_env.action_manager
@@ -113,13 +113,13 @@ def _peak_to_peak(block: np.ndarray) -> float:
 
 
 class TestTaskPrefix:
-    def test_recognizes_g3a_tasks(self):
-        assert is_g3a_task(TASK_ID)
-        assert is_g3a_task("G3A-Ball-Throw-U-Dk1_uni")
+    def test_recognizes_loot_tasks(self):
+        assert is_loot_task(TASK_ID)
+        assert is_loot_task("LOOT-Ball-Throw-U-Dk1_uni")
 
     def test_rejects_other_env_names(self):
-        assert not is_g3a_task("antmaze-large-diverse-v2")
-        assert not is_g3a_task("cube-triple-play-singletask-task1-v0")
+        assert not is_loot_task("antmaze-large-diverse-v2")
+        assert not is_loot_task("cube-triple-play-singletask-task1-v0")
 
 
 class TestSpaces:
@@ -260,7 +260,7 @@ class TestEpisodeBoundaries:
         *next* episode's first state, which would corrupt the last transition
         pushed to the replay buffer and the info the success metric reads.
         """
-        env = G3aEnv(TASK_ID, device="cpu", seed=1, start_pose_noise=0.0)
+        env = LootEnv(TASK_ID, device="cpu", seed=1, start_pose_noise=0.0)
         try:
             assert env.mjlab_env.cfg.auto_reset is False
         finally:
@@ -283,7 +283,7 @@ class TestEpisodeBoundaries:
 
     def test_zero_start_pose_noise_repeats_the_same_start(self):
         """Replay verification needs a bit-identical start."""
-        env = G3aEnv(TASK_ID, device="cpu", seed=3, start_pose_noise=0.0)
+        env = LootEnv(TASK_ID, device="cpu", seed=3, start_pose_noise=0.0)
         try:
             rows = np.stack([env.reset()[0] for _ in range(8)])
             robot, scene = _split(env, rows)
@@ -296,7 +296,7 @@ class TestEpisodeBoundaries:
             env.close()
 
     def test_nonzero_start_pose_noise_varies_the_start(self):
-        env = G3aEnv(TASK_ID, device="cpu", seed=4, start_pose_noise=0.05)
+        env = LootEnv(TASK_ID, device="cpu", seed=4, start_pose_noise=0.05)
         try:
             rows = np.stack([env.reset()[0] for _ in range(8)])
             robot, scene = _split(env, rows)

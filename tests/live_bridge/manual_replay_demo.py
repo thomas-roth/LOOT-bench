@@ -18,9 +18,9 @@ import torch
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.rl import RslRlVecEnvWrapper
 from mjlab.tasks.registry import load_env_cfg
-import g3a_bench  # noqa: F401 — registers benchmark tasks in mjlab registry
-from g3a_bench.scripts.live_bridge.reader import DatasetReader
-from g3a_bench.scripts.utils.viewer_wrapper import NativeViewerWrapper
+import loot_bench  # noqa: F401 — registers benchmark tasks in mjlab registry
+from loot_bench.scripts.live_bridge.reader import DatasetReader
+from loot_bench.scripts.utils.viewer_wrapper import NativeViewerWrapper
 
 
 def main():
@@ -30,7 +30,7 @@ def main():
     # ------------------------------------------------------------------
     # 1. Load a task config in play-mode (infinite episode, no noise).
     # ------------------------------------------------------------------
-    cfg = load_env_cfg("G3A-Stack3-Easy-Dk1_uni", play=True)
+    cfg = load_env_cfg("LOOT-Stack3-Easy-Dk1_uni", play=True)
     cfg.terminations["time_out"].time_out = False
 
     # ------------------------------------------------------------------

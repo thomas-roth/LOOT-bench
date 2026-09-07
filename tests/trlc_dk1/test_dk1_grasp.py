@@ -19,8 +19,8 @@ import mujoco
 import numpy as np
 from mjlab.entity.entity import Entity
 
-from g3a_bench.robots.trlc_dk1.dk1_actuators import GRIPPER_COMMAND_RANGE
-from g3a_bench.robots.trlc_dk1.dk1_constants import (
+from loot_bench.robots.trlc_dk1.dk1_actuators import GRIPPER_COMMAND_RANGE
+from loot_bench.robots.trlc_dk1.dk1_constants import (
     HOME_JOINT_POS,
     get_unimanual_dk1_robot_cfg,
 )

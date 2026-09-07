@@ -19,20 +19,20 @@ from mjlab.envs import ManagerBasedRlEnv
 from mjlab.tasks.registry import load_env_cfg
 from mjlab.utils.lab_api.math import quat_from_angle_axis, quat_from_euler_xyz, quat_mul
 
-import g3a_bench  # noqa: F401  (registers all tasks)
-from g3a_bench.tasks.ball.mdp.commands import BallCommand
-from g3a_bench.tasks.ball.variants import (
+import loot_bench  # noqa: F401  (registers all tasks)
+from loot_bench.tasks.ball.mdp.commands import BallCommand
+from loot_bench.tasks.ball.variants import (
     BALL_RADIUS,
     BALL_SPAWN_X,
     BALL_VARIANTS,
     TARGET_X,
 )
-from g3a_bench.tasks.common.env_cfg import CONTROL_STEP_S
-from g3a_bench.tasks.domino.mdp.commands import DominoCommand
-from g3a_bench.tasks.place.mdp.commands import PlaceCommand
-from g3a_bench.tasks.shape_sorter.assets import BOARD_POS, load_sorter_layout
-from g3a_bench.tasks.shape_sorter.mdp.commands import ShapeSorterCommand
-from g3a_bench.tasks.stack.mdp.commands import StackCommand
+from loot_bench.tasks.common.env_cfg import CONTROL_STEP_S
+from loot_bench.tasks.domino.mdp.commands import DominoCommand
+from loot_bench.tasks.place.mdp.commands import PlaceCommand
+from loot_bench.tasks.shape_sorter.assets import BOARD_POS, load_sorter_layout
+from loot_bench.tasks.shape_sorter.mdp.commands import ShapeSorterCommand
+from loot_bench.tasks.stack.mdp.commands import StackCommand
 
 _NUM_ENVS = 8
 _STEPS = 10
@@ -154,7 +154,7 @@ def _teleport_stack(
 
 
 def _check_stack3_easy(device: str, *, render: bool = False) -> str | None:
-    task_id = "G3A-Stack3-Easy-Dk1_uni"
+    task_id = "LOOT-Stack3-Easy-Dk1_uni"
     env = _make_env(task_id, device)
     cmd = cast(StackCommand, env.command_manager.get_term("task"))
     zeros = _zeros(env, device)
@@ -185,7 +185,7 @@ def _check_stack_held_block_excluded(
     others rest at half target height. Only the resting blocks may count until
     the gripper opens.
     """
-    task_id = "G3A-Stack3-Easy-Dk1_uni"
+    task_id = "LOOT-Stack3-Easy-Dk1_uni"
     env = _make_env(task_id, device)
     cmd = cast(StackCommand, env.command_manager.get_term("task"))
     robot = env.scene["robot"]
@@ -264,7 +264,7 @@ def _check_stack_empty_gripper_no_grip(
     ``grip_reach`` (e.g. a freshly placed stack top). Every block is sunk out
     of reach here, so any force can only be finger self-contact.
     """
-    env = _make_env("G3A-Stack3-Easy-Dk1_uni", device)
+    env = _make_env("LOOT-Stack3-Easy-Dk1_uni", device)
     cmd = cast(StackCommand, env.command_manager.get_term("task"))
     ne, dim = _NUM_ENVS, env.action_manager.action.shape[1]
     quat = _upright_quat(ne, device)
@@ -370,7 +370,7 @@ def _tip_first_domino(cmd: DominoCommand, env: ManagerBasedRlEnv, device: str) -
 
 
 def _check_domino_3pieces(device: str, *, render: bool = False) -> str | None:
-    task_id = "G3A-Domino-3Pieces-Dk1_uni"
+    task_id = "LOOT-Domino-3Pieces-Dk1_uni"
     env = _make_env(task_id, device)
     cmd = cast(DominoCommand, env.command_manager.get_term("task"))
     zeros = _zeros(env, device)
@@ -392,7 +392,7 @@ def _check_domino_knockover(device: str, *, render: bool = False) -> str | None:
     seeded past its tip point, so the rest must fall from the actual contact
     cascade, along the row axis, in row order, for ``progress`` to reach 1.0.
     """
-    task_id = "G3A-Domino-3Pieces-KnockOver-Dk1_uni"
+    task_id = "LOOT-Domino-3Pieces-KnockOver-Dk1_uni"
     env = _make_env(task_id, device)
     cmd = cast(DominoCommand, env.command_manager.get_term("task"))
     zeros = _zeros(env, device)
@@ -445,7 +445,7 @@ def _check_shape_sorter_full(device: str, *, render: bool = False) -> str | None
     interior at once and the latch not clearing on relocation means this
     doesn't affect what's being verified.
     """
-    task_id = "G3A-Sorter-3Shapes-Full-Dk1_uni"
+    task_id = "LOOT-Sorter-3Shapes-Full-Dk1_uni"
     env = _make_env(task_id, device)
     cmd = cast(ShapeSorterCommand, env.command_manager.get_term("task"))
     zeros = _zeros(env, device)
@@ -606,7 +606,7 @@ def _check_minigolf_using_wall_blocks_direct_shots() -> str | None:
 
 
 def _check_ball_minigolf_using_wall(device: str, *, render: bool = False) -> str | None:
-    task_id = "G3A-Ball-Minigolf-UsingWall-Dk1_uni"
+    task_id = "LOOT-Ball-Minigolf-UsingWall-Dk1_uni"
     err = _check_ball_at_target(device, task_id, render=render)
     if err is not None:
         return err
@@ -618,10 +618,10 @@ def _check_ball_minigolf_using_wall(device: str, *, render: bool = False) -> str
 # ---------------------------------------------------------------------------
 
 _PLACE_TASK_IDS: dict[str, str] = {
-    "place_rands_randt": "G3A-Place-RandS-RandT-Dk1_uni",
-    "place_rands_fixedt": "G3A-Place-RandS-FixedT-Dk1_uni",
-    "place_fixeds_randt": "G3A-Place-FixedS-RandT-Dk1_uni",
-    "place_fixeds_fixedt": "G3A-Place-FixedS-FixedT-Dk1_uni",
+    "place_rands_randt": "LOOT-Place-RandS-RandT-Dk1_uni",
+    "place_rands_fixedt": "LOOT-Place-RandS-FixedT-Dk1_uni",
+    "place_fixeds_randt": "LOOT-Place-FixedS-RandT-Dk1_uni",
+    "place_fixeds_fixedt": "LOOT-Place-FixedS-FixedT-Dk1_uni",
 }
 
 _CHECKS: list[tuple[str, str]] = [
@@ -658,18 +658,18 @@ def _dispatch(key: str, device: str, *, render: bool = False) -> str | None:
         return _check_shape_sorter_full(device, render=render)
     if key == "ball_minigolf_direct":
         return _check_ball_at_target(
-            device, "G3A-Ball-Minigolf-Direct-Dk1_uni", render=render
+            device, "LOOT-Ball-Minigolf-Direct-Dk1_uni", render=render
         )
     if key == "ball_minigolf_using_wall":
         return _check_ball_minigolf_using_wall(device, render=render)
     if key == "ball_throw_u":
-        return _check_ball_at_target(device, "G3A-Ball-Throw-U-Dk1_uni", render=render)
+        return _check_ball_at_target(device, "LOOT-Ball-Throw-U-Dk1_uni", render=render)
     return f"Unknown check key: {key}"
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Verify success metrics fire for representative G3A tasks."
+        description="Verify success metrics fire for representative LOOT tasks."
     )
     parser.add_argument("--cpu", action="store_true", help="Force CPU device.")
     parser.add_argument(

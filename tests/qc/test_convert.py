@@ -9,7 +9,7 @@ training to zero.
 import numpy as np
 import pytest
 
-from g3a_bench.qc.convert import (
+from loot_bench.qc.convert import (
     NUMERIC_STAMP_FIELDS,
     STAMP_KEYS,
     action_convention,
@@ -18,12 +18,12 @@ from g3a_bench.qc.convert import (
     convert,
     load_dataset,
 )
-from g3a_bench.qc.dataset import CONVENTION_NAME
-from g3a_bench.qc.transitions import QC_KEYS
+from loot_bench.qc.dataset import CONVENTION_NAME
+from loot_bench.qc.transitions import QC_KEYS
 
 OBS_DIM = 5
 ACTION_DIM = 7
-TASK_ID = "G3A-Stack3-Easy-Dk1_uni"
+TASK_ID = "LOOT-Stack3-Easy-Dk1_uni"
 START_POSE_NOISE = 0.0
 
 
@@ -220,7 +220,7 @@ class TestStampCheck:
 
     def test_a_different_task_id_is_rejected(self):
         data = self._dataset()
-        env = _env_from(data, task_id="G3A-Place-RandS-RandT-Dk1_uni")
+        env = _env_from(data, task_id="LOOT-Place-RandS-RandT-Dk1_uni")
         with pytest.raises(ValueError, match="task_id"):
             check_dataset_matches_env(data, env)
 
@@ -373,7 +373,7 @@ class TestReadingARecording:
         word."""
         first = self._write(tmp_path / "a", [[-0.5, 0.0]])
         second = self._write(
-            tmp_path / "b", [[-0.5, 0.0]], task="G3A-Place-RandS-RandT-Dk1_uni"
+            tmp_path / "b", [[-0.5, 0.0]], task="LOOT-Place-RandS-RandT-Dk1_uni"
         )
         with pytest.raises(ValueError, match="span"):
             convert([first, second], tmp_path / "demos.npz")
@@ -424,6 +424,6 @@ class TestLoadDataset:
         data = _build(SUCCESS_THEN_TIMEOUT)
         path = tmp_path / "demos.npz"
         np.savez(path, **data)
-        env = _env_from(data, task_id="G3A-Place-RandS-RandT-Dk1_uni")
+        env = _env_from(data, task_id="LOOT-Place-RandS-RandT-Dk1_uni")
         with pytest.raises(ValueError, match="task_id"):
             load_dataset(path, env)

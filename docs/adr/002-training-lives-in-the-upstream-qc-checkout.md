@@ -2,7 +2,7 @@
 
 QC-FQL training runs from a separate checkout of upstream `qc`
 (`ColinQiyangLi/qc`). This repository keeps only the seam to it: the gym
-adapter, the demo converter and the dataset contract in `g3a_bench/qc/`.
+adapter, the demo converter and the dataset contract in `loot_bench/qc/`.
 Commit `84cf304` deleted the in-repo reimplementation of QC-FQL, which was 39
 files, 3636 lines and an 81.7 MB `.npz`.
 

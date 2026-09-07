@@ -6,7 +6,7 @@ These pin the reward convention the offline pipeline depends on:
 
 import torch
 
-from g3a_bench.tasks.common.rewards import MIN_SHORTFALL, shaped_task_reward
+from loot_bench.tasks.common.rewards import MIN_SHORTFALL, shaped_task_reward
 
 
 class TestShapedTaskReward:

@@ -1,6 +1,6 @@
 # QC seam tests
 
-Unit and contract tests for the QC training seam (`g3a_bench/qc/`), plus the
+Unit and contract tests for the QC training seam (`loot_bench/qc/`), plus the
 two standalone scripts that measure or feed it. Run everything from the
 **repo root**.
 
@@ -54,7 +54,7 @@ uv run pytest tests/qc/test_transitions.py -v
 
 ### `test_convert.py`
 
-The `g3a-convert-demos` entry point (`qc/convert.py`) and the reader that
+The `loot-convert-demos` entry point (`qc/convert.py`) and the reader that
 checks a dataset back against an environment (`qc/dataset.py`). The episode
 structure rules are `test_transitions.py`'s; what is left here is everything
 the converter adds around them.
@@ -110,13 +110,13 @@ the failure mode when one breaks is a flat training curve, not an exception.
 
 | Test class | What it checks |
 |------------|----------------|
-| `TestTaskPrefix` | `is_g3a_task` accepts `G3A-` ids and rejects others |
+| `TestTaskPrefix` | `is_loot_task` accepts `LOOT-` ids and rejects others |
 | `TestSpaces` | the action space is the unit box, the observation space matches what `reset` returns |
 | `TestStepContract` | the gym five-tuple, the reward convention, actions clipped rather than rejected, scalar `success`, flat contact keys, and that the returned observation is **not a view** on simulator memory |
 | `TestObjectContact` | the object-filtered sensor, and that a gripper closing on air loads the pads only |
 | `TestEpisodeBoundaries` | auto-reset is **off**, `reset` clears the stats, and `start_pose_noise` of zero repeats the same start while a non-zero value varies it |
 
-`G3A-Place-RandS-RandT-Dk1_uni` is used for the object-contact tests because
+`LOOT-Place-RandS-RandT-Dk1_uni` is used for the object-contact tests because
 Place scores exactly one free object. Stack declares no such sensor and is the
 negative control.
 
@@ -168,9 +168,9 @@ drift apart. That is why it runs from the **qc venv** with both checkouts on
 `PYTHONPATH`, not under `uv run`:
 
 ```bash
-PYTHONPATH=<g3a-bench>:<qc> <qc>/.venv/bin/python tests/qc/bc_gate.py \
+PYTHONPATH=<loot-bench>:<qc> <qc>/.venv/bin/python tests/qc/bc_gate.py \
     out/qc/demos.npz
-PYTHONPATH=<g3a-bench>:<qc> <qc>/.venv/bin/python tests/qc/bc_gate.py \
+PYTHONPATH=<loot-bench>:<qc> <qc>/.venv/bin/python tests/qc/bc_gate.py \
     out/qc/demos.npz --holdout 10 --steps 100000 --out out/qc/bc
 ```
 
@@ -194,7 +194,7 @@ See ADR-012.
 ## Synthetic dataset (`make_smoke_dataset.py`)
 
 Not a test either. Writes an `.npz` the training path will accept, so the
-launcher, qc's `G3A-` branch, the dataset check, and the replay buffer's
+launcher, qc's `LOOT-` branch, the dataset check, and the replay buffer's
 shapes can be exercised end to end before a single demonstration exists.
 
 **The rows are made up.** Random observations, random actions, and a reward
@@ -204,9 +204,9 @@ so a dataset from here fails exactly where a stale recording would.
 
 ```bash
 uv run python tests/qc/make_smoke_dataset.py --cpu \
-    --task G3A-Stack3-Easy-Dk1_uni --output out/qc/smoke.npz
+    --task LOOT-Stack3-Easy-Dk1_uni --output out/qc/smoke.npz
 
-RUN_DIR=/var/tmp/$USER/qc-runs WANDB_MODE=offline G3A_ALLOW_NO_TMUX=1 \
-    ./train_qc.sh G3A-Stack3-Easy-Dk1_uni out/qc/smoke.npz \
+RUN_DIR=/var/tmp/$USER/qc-runs WANDB_MODE=offline LOOT_ALLOW_NO_TMUX=1 \
+    ./train_qc.sh LOOT-Stack3-Easy-Dk1_uni out/qc/smoke.npz \
     --offline_steps 2 --online_steps 0 --eval_episodes 1
 ```

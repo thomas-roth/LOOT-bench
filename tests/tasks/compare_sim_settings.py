@@ -66,7 +66,7 @@ Measurements per profile:
              dropped cube shows up as ~0.2 m instead of a few mm.
 
    ``stack`` and ``grasp`` reach into ``StackCommand`` for the block
-   entities, so they need a G3A-Stack<n>-* task; on other tasks they are
+   entities, so they need a LOOT-Stack<n>-* task; on other tasks they are
    skipped with a note. Contact-rich trajectories diverge chaotically, so
    the absolute deviation grows with sim time for *every* profile. Read
    objDev comparatively (smaller = closer to reference), and lean on div@
@@ -88,7 +88,7 @@ Usage:
     uv run python tests/tasks/compare_sim_settings.py --viewer
     uv run python tests/tasks/compare_sim_settings.py --scenarios grasp
     uv run python tests/tasks/compare_sim_settings.py \\
-        --task G3A-Sorter-Cube-Circle-Dk1_uni --profiles train play
+        --task LOOT-Sorter-Cube-Circle-Dk1_uni --profiles train play
 """
 
 import argparse
@@ -103,10 +103,10 @@ import torch
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.tasks.registry import load_env_cfg
 
-import g3a_bench  # noqa: F401  (registers tasks)
-from g3a_bench.tasks.stack.mdp.commands import StackCommand
+import loot_bench  # noqa: F401  (registers tasks)
+from loot_bench.tasks.stack.mdp.commands import StackCommand
 
-DEFAULT_TASK = "G3A-Stack3-Easy-Dk1_uni"
+DEFAULT_TASK = "LOOT-Stack3-Easy-Dk1_uni"
 SAMPLE_DT = 0.02  # sim-time spacing of accuracy samples; every profile's
 # step_dt must divide this so all profiles are compared at identical times.
 OBJECT_DRIFT_THRESHOLD = 1e-3  # 1 mm / 1 mrad: "first divergence" marker
@@ -248,7 +248,7 @@ def _stack_command(env: ManagerBasedRlEnv, scenario: str) -> StackCommand:
     cmd = env.command_manager.get_term("task")
     if not isinstance(cmd, StackCommand):
         raise ScenarioUnavailable(
-            f"scenario '{scenario}' needs a G3A-Stack<n>-* task (command term is "
+            f"scenario '{scenario}' needs a LOOT-Stack<n>-* task (command term is "
             f"{type(cmd).__name__})"
         )
     return cmd
@@ -466,13 +466,13 @@ def run_viewer(
 ) -> tuple[float, float]:
     """Return (median fps, median steps/s) of a metered native-viewer run.
 
-    Uses the play config (what g3a-play / live_record build) with the
+    Uses the play config (what loot-play / live_record build) with the
     profile's physics applied on top, the same scripted sweep as the headless
     passes, and the repo's NativeViewerWrapper (uncapped frame rate).
     """
     from mjlab.rl import RslRlVecEnvWrapper
 
-    from g3a_bench.scripts.utils.viewer_wrapper import NativeViewerWrapper
+    from loot_bench.scripts.utils.viewer_wrapper import NativeViewerWrapper
 
     cfg = load_env_cfg(task, play=True)
     apply_profile(cfg, profile)
@@ -649,7 +649,7 @@ def main() -> int:
         nargs="+",
         choices=sorted(SCENARIOS),
         default=["sweep", "stack", "grasp"],
-        help="accuracy scenarios (stack/grasp need a G3A-Stack<n>-* task)",
+        help="accuracy scenarios (stack/grasp need a LOOT-Stack<n>-* task)",
     )
     ap.add_argument(
         "--sim-seconds",

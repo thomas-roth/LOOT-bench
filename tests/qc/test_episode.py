@@ -1,6 +1,6 @@
-"""Unit tests for ``g3a_bench/qc/episode.py``."""
+"""Unit tests for ``loot_bench/qc/episode.py``."""
 
-from g3a_bench.qc.episode import CONTACT_THRESHOLD, EpisodeStats
+from loot_bench.qc.episode import CONTACT_THRESHOLD, EpisodeStats
 
 
 class TestEpisodeStats:

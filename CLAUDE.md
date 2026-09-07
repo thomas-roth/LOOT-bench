@@ -4,17 +4,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`g3a-bench` is a suite of long-horizon robot-manipulation benchmark tasks for the
-KIT "G3A Praktikum" course, built on the **mjlab** framework (MuJoCo + PyTorch
-vectorized sim). It is an installable package (`g3a_bench`, hatchling,
-flat layout) whose job is to **register tasks into mjlab's global registry** and
-provide the robot assets and task definitions; the play loop is mjlab's, and
-training is QC-FQL (offline-to-online RL), which lives in a **separate `qc`
-checkout** reached by `PYTHONPATH` — this repo holds only the seam to it, in
-`g3a_bench/qc/`.
+`loot-bench` is a suite of long-horizon robot-manipulation benchmark tasks for
+the KIT "Generative AI for Autonomous Agents Praktikum" course, built on the
+**mjlab** framework (MuJoCo + PyTorch vectorized sim). It is an installable
+package (`loot_bench`, hatchling, flat layout) whose job is to **register tasks
+into mjlab's global registry** and provide the robot assets and task definitions;
+the play loop is mjlab's, and training is QC-FQL (offline-to-online RL), which
+lives in a **separate `qc` checkout** reached by `PYTHONPATH` — this repo holds
+only the seam to it, in `loot_bench/qc/`.
 
 Five task categories, 44 tasks total, currently registered for one robot
-(`-Dk1_uni`) → task ids look like `G3A-<Category>-<Task>[-<Variation>]-<Robot>`:
+(`-Dk1_uni`) → task ids look like `LOOT-<Category>-<Task>[-<Variation>]-<Robot>`:
 `tasks/stack` (stack blocks to a target height; the height is part of the
 category segment, so it registers as `Stack3`/`Stack4`/`Stack5` x
 `Easy`/`Medium`/`Hard`),
@@ -29,7 +29,7 @@ back into a sampled row, and the domino *spawns* stay random in all of them),
 on — 15 s, i.e. 300 steps at 20 Hz, no difficulty axis; its four variants
 instead switch the two
 randomness axes independently (`RandS`/`FixedS` for the cube spawn,
-`RandT`/`FixedT` for the target), e.g. `G3A-Place-FixedS-RandT-Dk1_uni`.
+`RandT`/`FixedT` for the target), e.g. `LOOT-Place-FixedS-RandT-Dk1_uni`.
 `tasks/peg_insertion` is an archived, unregistered category kept importable
 for reference (see its README).
 
@@ -56,21 +56,21 @@ uv run ruff format         # format
 uv run pyright             # type check (config in pyrightconfig.json, basic mode)
 uv run pre-commit run --all-files
 
-# Play a task (wraps mjlab's player after importing g3a_bench to register tasks)
-uv run g3a-play G3A-Stack3-Easy-Dk1_uni
+# Play a task (wraps mjlab's player after importing loot_bench to register tasks)
+uv run loot-play LOOT-Stack3-Easy-Dk1_uni
 
 # List all registered task IDs (mjlab's built-ins included; --filter/--count narrow it)
-uv run g3a-list-tasks
-uv run g3a-list-tasks --filter Domino
-uv run g3a-list-tasks --filter G3A --count
+uv run loot-list-tasks
+uv run loot-list-tasks --filter Domino
+uv run loot-list-tasks --filter LOOT --count
 
 # Teleop recording -> the .npz QC-FQL trains on (several sessions at once)
-uv run g3a-convert-demos --success-dir dataset/demos/<task>/<stamp> \
+uv run loot-convert-demos --success-dir dataset/demos/<task>/<stamp> \
     --failure-dir dataset/demos/<task>/<stamp>_failure --output dataset/qc/demos.npz
 
 # One hard recording -> a demo set per easier same-family task, no re-simulation
-uv run g3a-split-demos --source-dir dataset/demos/<task>/<stamp> \
-    --source-task G3A-Stack5-Easy-Dk1_uni --output-dir dataset/demos_split
+uv run loot-split-demos --source-dir dataset/demos/<task>/<stamp> \
+    --source-task LOOT-Stack5-Easy-Dk1_uni --output-dir dataset/demos_split
 
 # Verification scripts (see tests/tasks/README.md), not installed as console scripts
 uv run python tests/tasks/build_sim_registered_tasks.py
@@ -83,11 +83,11 @@ uv run python tests/viewer/check_viewer_shutdown.py
 
 # Read a demo set before spending a training run on it (ADR-012, ~2 minutes).
 # Runs from the qc venv (it needs JAX), with both checkouts on the path.
-PYTHONPATH=<g3a-bench>:<qc> <qc>/.venv/bin/python tests/qc/bc_gate.py out/qc/demos.npz
+PYTHONPATH=<loot-bench>:<qc> <qc>/.venv/bin/python tests/qc/bc_gate.py out/qc/demos.npz
 
 # Launch a QC-FQL run in the separate qc checkout (must run inside tmux)
-./train_qc.sh G3A-Place-FixedS-FixedT-Dk1_uni out/qc/demos.npz --offline_steps=100000
-run_scripts/G3A-Place/critic-variants/critic-off_100k-100k.sh   # one critic variant
+./train_qc.sh LOOT-Place-FixedS-FixedT-Dk1_uni out/qc/demos.npz --offline_steps=100000
+run_scripts/LOOT-Place/critic-variants/critic-off_100k-100k.sh   # one critic variant
 ```
 
 The pytest suite (`uv run pytest tests/`) unit-tests the pure kernels in
@@ -104,7 +104,7 @@ manual native-viewer checks (FPS cap, shutdown segfault).
 ## Architecture
 
 ### Task category pattern (most work happens here)
-Every category under `g3a_bench/tasks/<cat>/` follows the **same layout**, so
+Every category under `loot_bench/tasks/<cat>/` follows the **same layout**, so
 adding/editing a category means mirroring an existing one:
 
 - `variants.py` — frozen dataclass `*VariantCfg` enumerating the task variations
@@ -169,15 +169,15 @@ which walks the category packages, imports each `config` subpackage and
 triggers `register_mjlab_task`. The `.mdp`/`common` blacklist entries keep
 the MDP and shared-helper modules from being scanned as task configs;
 `peg_insertion` is blacklisted because it's an archived, unregistered
-category. Top-level `g3a_bench/__init__.py` imports `g3a_bench.tasks`, so a
-single `import g3a_bench` registers everything.
+category. Top-level `loot_bench/__init__.py` imports `loot_bench.tasks`, so a
+single `import loot_bench` registers everything.
 
-### The QC training seam (`g3a_bench/qc/`)
+### The QC training seam (`loot_bench/qc/`)
 Training is QC-FQL and it runs from a **separate checkout of upstream `qc`**
 (`ColinQiyangLi/qc`). This repo keeps only the seam (ADR-002). The in-repo
 copy of the trainer is deleted; do not bring one back.
 
-- `env.py` — `G3aEnv`, a single gymnasium env over one mjlab task. It is
+- `env.py` — `LootEnv`, a single gymnasium env over one mjlab task. It is
   a seam and nothing else: no reward shaping, no observation rewriting, no
   action remapping (ADR-009). Four choices there are load-bearing: auto-reset
   is **off** (mjlab would return the *next* episode's first observation next to
@@ -197,7 +197,7 @@ copy of the trainer is deleted; do not bring one back.
   same column (ADR-010). Every episode end is a boundary, only a success is
   absorbing. A timed-out episode's final row is **dropped**, because the
   recorder stored no successor for it.
-- `convert.py` — the `g3a-convert-demos` entry point. It copies the recorded
+- `convert.py` — the `loot-convert-demos` entry point. It copies the recorded
   action through rather than re-deriving it (a delta is meaningless without the
   pose it was measured against), sorts rows by `(episode, frame)`, and stamps
   the convention record into the `.npz` (ADR-011). It raises on an action
@@ -209,14 +209,14 @@ copy of the trainer is deleted; do not bring one back.
   datasets and must stay free of the recording stack.
 
 `train_qc.sh` launches a run. It checks the things that are invisible in the
-code and cost a whole run when wrong (ADR-004): `g3a-bench` reached by
+code and cost a whole run when wrong (ADR-004): `loot-bench` reached by
 `PYTHONPATH` and never pip-installed in the `qc` venv, a CUDA-12 torch,
 `XLA_PYTHON_CLIENT_PREALLOCATE=false`, a run directory off NFS, a wandb login,
 and a tmux session. `run_scripts/<task>/` holds the per-experiment launchers
 that call it; each one is a single run (one seed) and tags its wandb run with
-its own file name through `G3A_RUN_SCRIPT`. `G3A-Place/critic-variants/` varies
+its own file name through `LOOT_RUN_SCRIPT`. `LOOT-Place/critic-variants/` varies
 how much the critic acts (off / selection / steering) at two step budgets;
-`G3A-Place/fixed-variants/` varies the spawn/target randomness and the
+`LOOT-Place/fixed-variants/` varies the spawn/target randomness and the
 offline/online split. `run_scripts/sweep.sh` is the exception to the one-run
 rule: it launches a sweep and owns its own `--wandb_tags`, so `train_qc.sh`
 skips the tag it would otherwise add.
@@ -341,7 +341,7 @@ actuated).
   gripper is never sampled. Only `place` passes a value explicitly
   (`place_env_cfg.py`, currently `0.0`); every other category takes
   `make_manipulation_env_cfg`'s `0.0` default. A run can override the task
-  value with `train_qc.sh --start_pose_noise` or `G3A_START_POSE_NOISE`, but
+  value with `train_qc.sh --start_pose_noise` or `LOOT_START_POSE_NOISE`, but
   the dataset stamp then has to agree (ADR-011). Keep any value inside the recorder's
   alignment gate, which is one action box wide (`mapper.leader_is_aligned`). Measure start-state variety with peak-to-peak range,
   never standard deviation.
@@ -382,9 +382,9 @@ actuated).
   committed, with the failure half of the same session as the sibling
   `dataset/demos/<task>/<stamp>_failure/` (the `success/`+`failure/` split becomes a
   suffix there). Read demos from `dataset/demos/`; record new ones into
-  `out/demos/`. `g3a-convert-demos` is run against already-kept sessions, so its
+  `out/demos/`. `loot-convert-demos` is run against already-kept sessions, so its
   `.npz` goes straight to `dataset/qc/`, committed like the demos it came from.
-- **Split demos before recording easier tasks by hand.** `g3a-split-demos`
+- **Split demos before recording easier tasks by hand.** `loot-split-demos`
   (`scripts/split_demos.py`) relabels a hard Stack/Domino/Sorter recording into
   every easier same-family task offline, reusing the categories' own success
   kernels and `tasks/common/rewards.shaped_task_reward`. It reproduces the

@@ -3,7 +3,7 @@
   "reportOptionalMemberAccess": "none", // don't flag attempts to access attribute/method of variable that could be None
   "reportAttributeAccessIssue": "none", // mujoco ships no type stubs (MjSpec, mjt* enums, ...); stubs would have to be generated for every new mujoco release
   "pythonVersion": "3.10",
-  "include": ["g3a_bench", "tests"],
+  "include": ["loot_bench", "tests"],
   "exclude": [
     "**/__pycache__",
     ".venv",

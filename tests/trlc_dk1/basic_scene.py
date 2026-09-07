@@ -7,7 +7,7 @@ import mujoco
 import mujoco.viewer
 from mjlab.entity.entity import Entity
 
-from g3a_bench.robots.trlc_dk1 import get_unimanual_dk1_robot_cfg
+from loot_bench.robots.trlc_dk1 import get_unimanual_dk1_robot_cfg
 
 entity = Entity(get_unimanual_dk1_robot_cfg())
 

@@ -1,4 +1,4 @@
-"""Build, reset, and step every registered G3A task. See tests/tasks/README.md."""
+"""Build, reset, and step every registered LOOT task. See tests/tasks/README.md."""
 
 import argparse
 import sys
@@ -10,7 +10,7 @@ from _render import domain_of, save_env_render
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.tasks.registry import list_tasks, load_env_cfg
 
-import g3a_bench  # noqa: F401  (registers all tasks)
+import loot_bench  # noqa: F401  (registers all tasks)
 
 _NUM_ENVS = 4
 _STEPS = 2
@@ -56,7 +56,7 @@ def _run(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Smoke-test all G3A tasks.")
+    parser = argparse.ArgumentParser(description="Smoke-test all LOOT tasks.")
     parser.add_argument("--cpu", action="store_true", help="Force CPU device.")
     parser.add_argument(
         "--no-render",
@@ -66,7 +66,7 @@ def main() -> None:
     args = parser.parse_args()
 
     device = "cpu" if args.cpu else ("cuda" if torch.cuda.is_available() else "cpu")
-    tasks = sorted(t for t in list_tasks() if t.startswith("G3A"))
+    tasks = sorted(t for t in list_tasks() if t.startswith("LOOT"))
     render_dir = None if args.no_render else _RENDER_DIR
 
     print(f"Device: {device}   Tasks: {len(tasks)}")

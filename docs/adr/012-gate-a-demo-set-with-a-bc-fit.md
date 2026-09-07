@@ -35,10 +35,10 @@ reads the whole body of every held-out episode.
 
 0.0766 is measured, not inherited. It is what this gate reads on the same
 legacy file the old numbers came from, the pre-rebuild export
-`G3A-Place-Easy-Dk1_uni_qc_physical.npz`, with ten episodes held out. The same
+`LOOT-Place-Easy-Dk1_uni_qc_physical.npz`, with ten episodes held out. The same
 fit read 0.0075 on the episodes it saw. That file is a single legacy export,
 **not** the committed sessions under
-`dataset/demos/G3A-Place-RandS-RandT-Dk1_uni`: that directory has grown past
+`dataset/demos/LOOT-Place-RandS-RandT-Dk1_uni`: that directory has grown past
 the set the number was read on, so the gate will not reproduce 0.0766 there.
 
 ## Consequences
@@ -47,8 +47,8 @@ the set the number was read on, so the gate will not reproduce 0.0766 there.
   observation in, the `horizon_length` action chunk out, the same body,
   learning rate and batch size as the flow actor, standardized observations,
   and a cosine learning-rate schedule, because a constant rate makes the tail
-  oscillate. An earlier implementation shipped as `g3a_bench.bc` and the
-  `g3a-fit-bc` command, and it was lost with its branch.
+  oscillate. An earlier implementation shipped as `loot_bench.bc` and the
+  `loot-fit-bc` command, and it was lost with its branch.
 - **Amended: the gate now lives at `tests/qc/bc_gate.py`.** It sits in `tests/`
   because it measures, and it is not part of the package. It imports qc's own
   `MLP` body, so the regressor and the flow actor cannot drift apart, and it
@@ -56,7 +56,7 @@ the set the number was read on, so the gate will not reproduce 0.0766 there.
   under `uv run` and never under pytest:
 
   ```bash
-  PYTHONPATH=<g3a-bench>:<qc> <qc>/.venv/bin/python tests/qc/bc_gate.py \
+  PYTHONPATH=<loot-bench>:<qc> <qc>/.venv/bin/python tests/qc/bc_gate.py \
       out/qc/demos.npz
   ```
 

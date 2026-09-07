@@ -1,10 +1,10 @@
-# G3A Benchmark
+# LOOT Benchmark
 
 Long-horizon robot-manipulation benchmark tasks (block stacking, domino
 placement, shape insertion, ball-to-target, cube placing) registered into
 mjlab. Training is QC-FQL (offline-to-online RL), which runs from a separate
 upstream `qc` checkout; this repo holds only the seam to it, in
-`g3a_bench/qc/`. mjlab's registry also requires a PPO cfg per task, but that
+`loot_bench/qc/`. mjlab's registry also requires a PPO cfg per task, but that
 RSL-RL PPO cfg is only a registration requirement, not the training path used.
 See `docs/task_categories.md` and each category's `README.md` for the
 per-category deep dives.
@@ -22,7 +22,7 @@ _Avoid_: domain (overloaded with domain randomization)
 **Variant**:
 A frozen configuration enumerating one concrete task of a category (piece
 set + arrangement, socket set, target kind). Registered as
-`G3A-<Category>-<Task>[-<Variation>]-<Robot>`.
+`LOOT-<Category>-<Task>[-<Variation>]-<Robot>`.
 
 **Workbench**:
 The shared tabletop-manipulation environment skeleton every task is built
@@ -62,7 +62,7 @@ would use. See ADR-008.
 **Start-pose noise**:
 Half-width of the uniform sample added around the home pose at reset
 (`start_pose_noise`, default `0.0`). A task fact first; `train_qc.sh
---start_pose_noise` (or `G3A_START_POSE_NOISE`) can override it for a run,
+--start_pose_noise` (or `LOOT_START_POSE_NOISE`) can override it for a run,
 and the dataset stamp then has to agree or the load aborts.
 
 ### Control
@@ -166,12 +166,12 @@ harder.
 
 **Seam**:
 The whole of what this repo gives the trainer: the gym adapter, the demo
-converter and the dataset contract in `g3a_bench/qc/`. It changes no part of
+converter and the dataset contract in `loot_bench/qc/`. It changes no part of
 the MDP, because the recorder must see the same MDP as the trainer. See
 ADR-002 and ADR-009.
 
 **Adapter**:
-`g3a_bench/qc/env.py`, one mjlab task presented to `qc` as a plain single
+`loot_bench/qc/env.py`, one mjlab task presented to `qc` as a plain single
 gymnasium environment. Auto-reset off, corruption off, `terminated` and
 `truncated` kept apart, observations copied out of simulator memory.
 

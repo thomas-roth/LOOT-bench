@@ -5,7 +5,7 @@ import math
 import torch
 from mjlab.utils.lab_api.math import quat_from_matrix
 
-from g3a_bench.tasks.common.observations import rot6d_from_matrix
+from loot_bench.tasks.common.observations import rot6d_from_matrix
 
 
 def _rot_z(angle: float) -> torch.Tensor:

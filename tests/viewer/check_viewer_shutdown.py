@@ -17,7 +17,7 @@ def run_child(safe: bool, coredump: bool) -> None:
     import mujoco
     import mujoco.viewer
 
-    from g3a_bench.scripts.utils.viewer_wrapper import wait_for_viewer_teardown
+    from loot_bench.scripts.utils.viewer_wrapper import wait_for_viewer_teardown
 
     if not coredump:
         # A show-bug child is expected to segfault; suppress the core dump

@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import numpy as np
 import torch
 
-from g3a_bench.scripts.live_bridge.debug_panel import (
+from loot_bench.scripts.live_bridge.debug_panel import (
     LiveDebugPanel,
     _aggregate_buffered,
     _ObsLayout,

@@ -5,7 +5,7 @@ import math
 import pytest
 import torch
 
-from g3a_bench.tasks.common.scatter import ScatterGrid
+from loot_bench.tasks.common.scatter import ScatterGrid
 
 
 class TestSamplePoses:

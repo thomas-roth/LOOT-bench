@@ -13,7 +13,7 @@ import numpy as np
 import pytest
 import torch
 
-from g3a_bench.scripts.live_bridge.recording_mixin import (
+from loot_bench.scripts.live_bridge.recording_mixin import (
     GHOST_COLOR,
     GHOST_COLOR_FAILURE,
     GHOST_COLOR_PROMPT,
@@ -365,7 +365,7 @@ class TestResetPhaseAlignmentGate:
         assert h._in_reset_phase
         h.policy.latest_leader_action = np.zeros(7, dtype=np.float32)
         monkeypatch.setattr(
-            "g3a_bench.scripts.live_bridge.recording_mixin.leader_is_aligned",
+            "loot_bench.scripts.live_bridge.recording_mixin.leader_is_aligned",
             lambda _pose: True,
         )
         assert h._execute_step()
@@ -376,7 +376,7 @@ class TestResetPhaseAlignmentGate:
         h._handle_done(is_success=True, extras={})
         h.policy.latest_leader_action = np.zeros(7, dtype=np.float32)
         monkeypatch.setattr(
-            "g3a_bench.scripts.live_bridge.recording_mixin.leader_is_aligned",
+            "loot_bench.scripts.live_bridge.recording_mixin.leader_is_aligned",
             lambda _pose: False,
         )
         assert h._execute_step()
@@ -390,7 +390,7 @@ class TestResetPhaseAlignmentGate:
         h._handle_done(is_success=True, extras={})
         h.policy.latest_leader_action = None
         monkeypatch.setattr(
-            "g3a_bench.scripts.live_bridge.recording_mixin.leader_is_aligned",
+            "loot_bench.scripts.live_bridge.recording_mixin.leader_is_aligned",
             lambda _pose: pytest.fail("the gate must not run without a leader pose"),
         )
         assert h._execute_step()

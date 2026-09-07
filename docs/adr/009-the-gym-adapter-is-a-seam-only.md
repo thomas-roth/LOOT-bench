@@ -1,6 +1,6 @@
 # The gym adapter is a seam and nothing else
 
-`g3a_bench/qc/env.py` presents one mjlab task to `qc` as a plain single
+`loot_bench/qc/env.py` presents one mjlab task to `qc` as a plain single
 gymnasium environment. It does no reward shaping, no observation rewriting and
 no action remapping. Anything that changes the MDP belongs in the task
 definition, where the recorder sees it too.
@@ -49,7 +49,7 @@ columns of a run recorded before `dda5b2a` with those of a run recorded after
 it.
 
 The key names are a **cross-repo contract**: the adapter produces them in
-`g3a_bench/qc/episode.py` and `qc/evaluation.py` consumes them by name. The two
+`loot_bench/qc/episode.py` and `qc/evaluation.py` consumes them by name. The two
 live in separate repositories with no version pin between them, and a drift is
 silent: the consumer falls through to `None` and the counters read 0.0
 rather than raising. After changing either side, run a short eval and check

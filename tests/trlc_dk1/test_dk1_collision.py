@@ -10,12 +10,12 @@ import re
 
 import mujoco
 
-from g3a_bench.robots.trlc_dk1.dk1_collision import (
+from loot_bench.robots.trlc_dk1.dk1_collision import (
     DK1_GRIPPER_GEOMS_PATTERN,
     DK1_PAD_GEOM_PATTERN,
     GRIPPER_ONLY_COLLISION,
 )
-from g3a_bench.robots.trlc_dk1.dk1_constants import get_unimanual_spec
+from loot_bench.robots.trlc_dk1.dk1_constants import get_unimanual_spec
 
 # Deliberately restated tuned pad values (independent oracle for the numbers;
 # the geom patterns are shared single sources by design, not re-derived here).

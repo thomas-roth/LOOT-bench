@@ -9,7 +9,7 @@ a sampled sequence run out of one episode and into the next. Neither raises.
 import numpy as np
 import pytest
 
-from g3a_bench.qc.transitions import QC_KEYS, assemble_transitions
+from loot_bench.qc.transitions import QC_KEYS, assemble_transitions
 
 
 def _episode(

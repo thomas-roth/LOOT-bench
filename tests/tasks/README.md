@@ -33,7 +33,7 @@ uv run pytest tests/tasks/test_scatter.py -v
 
 ## Build, reset, step every task (`build_sim_registered_tasks.py`)
 
-Builds every registered `G3A-*` task, resets it, and steps it a few times with zero actions.
+Builds every registered `LOOT-*` task, resets it, and steps it a few times with zero actions.
 A fast smoke test that the env, managers, and MJCF assemble without error.
 Run it after touching any `*_env_cfg.py`, `assets.py`, or robot config.
 
@@ -66,7 +66,7 @@ time: a contact-free arm `sweep`, a teleported block tower at rest (`stack`,
 reports the tower's absolute `drift`), and a `grasp` where a cube is pinned into
 the closing gripper and then lifted and shaken (reports the absolute grip
 `slip`; a dropped cube reads ~0.2 m). The contact scenarios need a
-`G3A-Stack<n>-*` task and are skipped elsewhere. Speed is headless `env.step()`
+`LOOT-Stack<n>-*` task and are skipped elsewhere. Speed is headless `env.step()`
 throughput after Warp warmup.
 `--viewer` adds a native-viewer play-mode pass (1x real-time and max speed).
 Needs a display, like the `tests/viewer/` checks.

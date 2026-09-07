@@ -27,7 +27,7 @@ _CAM_AZIMUTH = 90.0
 
 
 def domain_of(task_id: str) -> str:
-    """Task domain from a ``G3A-<Domain>-<Task>[-<Variation>]-<Robot>`` id, lower-cased.
+    """Task domain from a ``LOOT-<Domain>-<Task>[-<Variation>]-<Robot>`` id, lower-cased.
 
     Maps straight onto an ``out/render/<domain>/`` folder. Domains are *not*
     enumerated anywhere: a new task category is picked up automatically from

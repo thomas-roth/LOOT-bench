@@ -1,10 +1,10 @@
-# G3A-Bench
+# LOOT (Long-horizon Offline-to-Online Tabletop-manipulation) Benchmark
 
 ## Installation
 1. Clone the repo:
    ```bash
-   git clone git@github.com:thomas-roth/g3a-bench.git
-   cd g3a-bench
+   git clone git@github.com:thomas-roth/LOOT-bench.git
+   cd LOOT-bench
    ```
 2. Execute the install script depending on your operating system:
    
@@ -21,36 +21,36 @@
 ## Task Commands
 
 ### Listing Tasks
-The `g3a-list-tasks` command lists all task IDs registered into mjlab (the `G3A-*` benchmark tasks plus mjlab's built-ins).
+The `loot-list-tasks` command lists all task IDs registered into mjlab (the `LOOT-*` benchmark tasks plus mjlab's built-ins).
 Narrow it with a substring using `--filter`, or count the tasks using `--count`:
 ```shell
-uv run g3a-list-tasks
-uv run g3a-list-tasks --filter Domino
-uv run g3a-list-tasks --filter G3A --count
+uv run loot-list-tasks
+uv run loot-list-tasks --filter Domino
+uv run loot-list-tasks --filter LOOT --count
 ```
 
 ### Playing a Task
-The `g3a-play` command starts mjlab's player on one task ID, so you can look at the scene and the robot. Give a checkpoint to see a policy, or `--agent zero` to hold the robot still.
+The `loot-play` command starts mjlab's player on one task ID, so you can look at the scene and the robot. Give a checkpoint to see a policy, or `--agent zero` to hold the robot still.
 ```shell
-uv run g3a-play G3A-Stack3-Easy-Dk1_uni --agent zero --viewer native --num-envs 1
+uv run loot-play LOOT-Stack3-Easy-Dk1_uni --agent zero --viewer native --num-envs 1
 ```
 
 ## Data Collection
 
 ### Recording Demos
-The `g3a-record-demos` command records teleop demonstrations into a LeRobot dataset. A GELLO leader arm drives the simulation, and you label each episode a success or a failure with a key. The script requires the leader hardware and a display.
+The `loot-record-demos` command records teleop demonstrations into a LeRobot dataset. A GELLO leader arm drives the simulation, and you label each episode a success or a failure with a key. The script requires the leader hardware and a display.
 ```shell
-uv run g3a-record-demos --task <TASK_ID>
+uv run loot-record-demos --task <TASK_ID>
 ```
 
-For the keys, the savedir, the ports and the other bridge scripts, read `g3a_bench/scripts/live_bridge/README.md`.
+For the keys, the savedir, the ports and the other bridge scripts, read `loot_bench/scripts/live_bridge/README.md`.
 
 ### Converting Demos
-The `g3a-convert-demos` command reads teleop recordings and converts them into an `.npz` file that QC-FQL trains on.
+The `loot-convert-demos` command reads teleop recordings and converts them into an `.npz` file that QC-FQL trains on.
 
 Give one or more success roots with `--success-dir`, optionally the sibling failure roots with `--failure-dir`, and the output file with `--output`:
 ```shell
-uv run g3a-convert-demos \
+uv run loot-convert-demos \
     --success-dir dataset/demos/<task>/<timestamp_success> \
     --failure-dir dataset/demos/<task>/<timestamp_failure> \
     --output dataset/qc/demos.npz
@@ -59,12 +59,12 @@ uv run g3a-convert-demos \
 All recordings must come from the same task ID. The command writes that ID into the `.npz`, together with the action convention, so a training run can detect a dataset that does not agree with its environment.
 
 ### Splitting Demos
-The `g3a-split-demos` command turns one recording of a hard task into a demo set for each easier task in the same family, without re-simulating anything. Stack, Domino and Sorter all tail-extend: the easier task's objects are the first `k` of the harder one's, and the reset draws per object in index order, so the easier rollout is already inside the recording.
+The `loot-split-demos` command turns one recording of a hard task into a demo set for each easier task in the same family, without re-simulating anything. Stack, Domino and Sorter all tail-extend: the easier task's objects are the first `k` of the harder one's, and the reset draws per object in index order, so the easier rollout is already inside the recording.
 
 ```shell
-uv run g3a-split-demos \
+uv run loot-split-demos \
     --source-dir dataset/demos/<task>/<timestamp> \
-    --source-task G3A-Stack5-Easy-Dk1_uni \
+    --source-task LOOT-Stack5-Easy-Dk1_uni \
     --output-dir dataset/demos_split
 ```
 
@@ -74,7 +74,7 @@ Every episode is truncated to the target's objects and cut on the frame the targ
 
 `run_scripts/` holds ready-made QC-FQL launches (Linux/cluster only, they need a `qc` checkout next to this repo). They consist of different run scripts, each pinning task, dataset, and configuration, as well as a generic sweep script to start a task experiment run with multiple alphas and seeds:
 ```shell
-bash run_scripts/G3A-Place/fixed-s_fixed-t_200k-0.sh
+bash run_scripts/LOOT-Place/fixed-s_fixed-t_200k-0.sh
 bash run_scripts/sweep.sh --help
 ```
 
@@ -95,7 +95,7 @@ To run the formatter on the current working directory (recursively):
 uv run ruff format
 ```
 
-To run the type checker on the `g3a_bench` directory:
+To run the type checker on the `loot_bench` directory:
 ```bash
 uv run pyright
 ```

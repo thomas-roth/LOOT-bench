@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import torch
 
-from g3a_bench.scripts.live_bridge.recorder import Recorder
+from loot_bench.scripts.live_bridge.recorder import Recorder
 
 
 def _add_dummy_frame(rec: Recorder, reward: float = 0.0, done: bool = False) -> None:
@@ -11,8 +11,8 @@ def _add_dummy_frame(rec: Recorder, reward: float = 0.0, done: bool = False) -> 
 
 
 class TestRecorder:
-    @patch("g3a_bench.scripts.live_bridge.recorder.write_extra_info")
-    @patch("g3a_bench.scripts.live_bridge.recorder.LeRobotDataset")
+    @patch("loot_bench.scripts.live_bridge.recorder.write_extra_info")
+    @patch("loot_bench.scripts.live_bridge.recorder.LeRobotDataset")
     def test_create_dataset_lazily(self, mock_dataset_cls, _mock_write_extra_info):
         """No dataset is created on init or on staging. Only when a staged
         episode is committed, so an all-undone session leaves nothing on disk."""
@@ -28,8 +28,8 @@ class TestRecorder:
         assert rec.dataset_success is mock_ds
         assert rec.dataset_failure is None
 
-    @patch("g3a_bench.scripts.live_bridge.recorder.write_extra_info")
-    @patch("g3a_bench.scripts.live_bridge.recorder.LeRobotDataset")
+    @patch("loot_bench.scripts.live_bridge.recorder.write_extra_info")
+    @patch("loot_bench.scripts.live_bridge.recorder.LeRobotDataset")
     def test_add_frame_buffers_until_save(
         self, mock_dataset_cls, _mock_write_extra_info
     ):
@@ -52,8 +52,8 @@ class TestRecorder:
         assert frame["action"].shape == (7,)
         assert frame["next.reward"] == np.array([0.5], dtype=np.float32)
 
-    @patch("g3a_bench.scripts.live_bridge.recorder.write_extra_info")
-    @patch("g3a_bench.scripts.live_bridge.recorder.LeRobotDataset")
+    @patch("loot_bench.scripts.live_bridge.recorder.write_extra_info")
+    @patch("loot_bench.scripts.live_bridge.recorder.LeRobotDataset")
     def test_save_episode_stages_without_writing(
         self, mock_dataset_cls, _mock_write_extra_info
     ):
@@ -69,8 +69,8 @@ class TestRecorder:
         assert rec.has_staged
         assert rec.num_frames_in_episode == 0
 
-    @patch("g3a_bench.scripts.live_bridge.recorder.write_extra_info")
-    @patch("g3a_bench.scripts.live_bridge.recorder.LeRobotDataset")
+    @patch("loot_bench.scripts.live_bridge.recorder.write_extra_info")
+    @patch("loot_bench.scripts.live_bridge.recorder.LeRobotDataset")
     def test_next_save_commits_staged(self, mock_dataset_cls, _mock_write_extra_info):
         """Staging episode 2 commits episode 1 with its original label."""
         mock_ds = MagicMock()
@@ -88,8 +88,8 @@ class TestRecorder:
         mock_ds.save_episode.assert_called_once()
         assert rec.has_staged
 
-    @patch("g3a_bench.scripts.live_bridge.recorder.write_extra_info")
-    @patch("g3a_bench.scripts.live_bridge.recorder.LeRobotDataset")
+    @patch("loot_bench.scripts.live_bridge.recorder.write_extra_info")
+    @patch("loot_bench.scripts.live_bridge.recorder.LeRobotDataset")
     def test_close_commits_staged(self, mock_dataset_cls, _mock_write_extra_info):
         """close() commits the still-staged last episode before finalizing."""
         mock_ds = MagicMock()
@@ -104,8 +104,8 @@ class TestRecorder:
         mock_ds.save_episode.assert_called_once()
         mock_ds.finalize.assert_called_once()
 
-    @patch("g3a_bench.scripts.live_bridge.recorder.write_extra_info")
-    @patch("g3a_bench.scripts.live_bridge.recorder.LeRobotDataset")
+    @patch("loot_bench.scripts.live_bridge.recorder.write_extra_info")
+    @patch("loot_bench.scripts.live_bridge.recorder.LeRobotDataset")
     def test_undo_drops_staged_episode(self, mock_dataset_cls, _mock_write_extra_info):
         """undo_last_save() drops the staged episode and reports its label.
         An undone episode must never reach the dataset."""
@@ -121,7 +121,7 @@ class TestRecorder:
         mock_ds.add_frame.assert_not_called()
         mock_ds.save_episode.assert_not_called()
 
-    @patch("g3a_bench.scripts.live_bridge.recorder.LeRobotDataset")
+    @patch("loot_bench.scripts.live_bridge.recorder.LeRobotDataset")
     def test_undo_without_staged_returns_none(self, mock_dataset_cls):
         """Single-level undo: a second undo has nothing to drop."""
         rec = Recorder(repo_id="test/ds", fps=30, obs_dim=10)
@@ -131,8 +131,8 @@ class TestRecorder:
         assert rec.undo_last_save() is False
         assert rec.undo_last_save() is None
 
-    @patch("g3a_bench.scripts.live_bridge.recorder.write_extra_info")
-    @patch("g3a_bench.scripts.live_bridge.recorder.LeRobotDataset")
+    @patch("loot_bench.scripts.live_bridge.recorder.write_extra_info")
+    @patch("loot_bench.scripts.live_bridge.recorder.LeRobotDataset")
     def test_undo_is_single_level(self, mock_dataset_cls, _mock_write_extra_info):
         """Only the last save is undoable: staging episode 2 committed episode 1,
         so undo drops only episode 2."""
@@ -148,8 +148,8 @@ class TestRecorder:
         # Episode 1 was committed and stays; episode 2 was dropped.
         assert mock_ds.save_episode.call_count == 1
 
-    @patch("g3a_bench.scripts.live_bridge.recorder.write_extra_info")
-    @patch("g3a_bench.scripts.live_bridge.recorder.LeRobotDataset")
+    @patch("loot_bench.scripts.live_bridge.recorder.write_extra_info")
+    @patch("loot_bench.scripts.live_bridge.recorder.LeRobotDataset")
     def test_save_episode_flushes_all_frames(
         self, mock_dataset_cls, _mock_write_extra_info
     ):
@@ -164,8 +164,8 @@ class TestRecorder:
         rec.close()
         assert mock_ds.add_frame.call_count == 3
 
-    @patch("g3a_bench.scripts.live_bridge.recorder.write_extra_info")
-    @patch("g3a_bench.scripts.live_bridge.recorder.LeRobotDataset")
+    @patch("loot_bench.scripts.live_bridge.recorder.write_extra_info")
+    @patch("loot_bench.scripts.live_bridge.recorder.LeRobotDataset")
     def test_discard_episode_drops_buffer_not_staged(
         self, mock_dataset_cls, _mock_write_extra_info
     ):
@@ -183,8 +183,8 @@ class TestRecorder:
         rec.close()
         assert mock_ds.save_episode.call_count == 1
 
-    @patch("g3a_bench.scripts.live_bridge.recorder.write_extra_info")
-    @patch("g3a_bench.scripts.live_bridge.recorder.LeRobotDataset")
+    @patch("loot_bench.scripts.live_bridge.recorder.write_extra_info")
+    @patch("loot_bench.scripts.live_bridge.recorder.LeRobotDataset")
     def test_save_episode_empty_is_noop(self, mock_dataset_cls, _mock_write_extra_info):
         """Saving with nothing buffered must not stage an empty episode.
         And must not even create a dataset directory."""
@@ -197,8 +197,8 @@ class TestRecorder:
         mock_dataset_cls.create.assert_not_called()
         mock_ds.save_episode.assert_not_called()
 
-    @patch("g3a_bench.scripts.live_bridge.recorder.write_extra_info")
-    @patch("g3a_bench.scripts.live_bridge.recorder.LeRobotDataset")
+    @patch("loot_bench.scripts.live_bridge.recorder.write_extra_info")
+    @patch("loot_bench.scripts.live_bridge.recorder.LeRobotDataset")
     def test_discard_then_save_new_episode(
         self, mock_dataset_cls, _mock_write_extra_info
     ):
@@ -289,7 +289,7 @@ def test_close_stores_operator_id(tmp_path):
     """operator_id passed to close() must appear in the sidecar extra-info
     file after finalize, alongside the episode seeds staged earlier — later
     writes must not clobber earlier ones."""
-    from g3a_bench.scripts.live_bridge.dataset_extra_info import load_extra_info
+    from loot_bench.scripts.live_bridge.dataset_extra_info import load_extra_info
 
     root = tmp_path / "ds_op" / "success"
     rec = Recorder(repo_id="test_op", fps=20, obs_dim=53, success_root=str(root))

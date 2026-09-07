@@ -12,22 +12,22 @@ import torch
 from mjlab.entity import Entity
 from mjlab.sensor import ContactSensor
 
-from g3a_bench.tasks.ball.mdp.success import ball_in_target_zone
-from g3a_bench.tasks.common.commands import (
+from loot_bench.tasks.ball.mdp.success import ball_in_target_zone
+from loot_bench.tasks.common.commands import (
     ContactReleaseGate,
     GripperGateCommandCfg,
     GripperOpenGate,
 )
-from g3a_bench.tasks.common.success import SuccessGate
-from g3a_bench.tasks.domino.mdp.success import (
+from loot_bench.tasks.common.success import SuccessGate
+from loot_bench.tasks.domino.mdp.success import (
     chain_topple_success,
     domino_fallen_along_row,
     domino_upright_aligned,
 )
-from g3a_bench.tasks.place.mdp.success import place_progress, place_reached
-from g3a_bench.tasks.shape_sorter.mdp.success import SorterLatch
-from g3a_bench.tasks.shape_sorter.variants import SHAPE_SORTER_VARIANTS, allowed_faces
-from g3a_bench.tasks.stack.mdp.success import (
+from loot_bench.tasks.place.mdp.success import place_progress, place_reached
+from loot_bench.tasks.shape_sorter.mdp.success import SorterLatch
+from loot_bench.tasks.shape_sorter.variants import SHAPE_SORTER_VARIANTS, allowed_faces
+from loot_bench.tasks.stack.mdp.success import (
     block_top_heights,
     stack_progress,
     stack_reached,

@@ -21,7 +21,7 @@ compared with it: ``docs/adr/012-gate-a-demo-set-with-a-bc-fit.md``.
 
 Runs from the qc venv (it needs JAX), with both checkouts on the path::
 
-    PYTHONPATH=<g3a-bench>:<qc> <qc>/.venv/bin/python tests/qc/bc_gate.py \\
+    PYTHONPATH=<loot-bench>:<qc> <qc>/.venv/bin/python tests/qc/bc_gate.py \\
         out/qc/demos.npz
 
 Exit status is the verdict: 0 when the held-out interior error beats
@@ -50,7 +50,7 @@ from numpy.typing import NDArray
 TARGET = 0.0766
 """Held-out interior error of the old 100-demonstration set, read by this gate.
 
-Measured on the legacy ``G3A-Place-Easy-Dk1_uni_qc_physical.npz`` with
+Measured on the legacy ``LOOT-Place-Easy-Dk1_uni_qc_physical.npz`` with
 ``--holdout 10`` and defaults elsewhere. See
 ``docs/adr/012-gate-a-demo-set-with-a-bc-fit.md`` for why that file, not
 today's demo directory, owns the number.
@@ -267,7 +267,7 @@ def load_columns(path: Path) -> dict[str, NDArray]:
         if missing:
             raise ValueError(
                 f"{path} has no {', '.join(missing)}; it did not come from "
-                "g3a-convert-demos"
+                "loot-convert-demos"
             )
         return {key: np.asarray(loaded[key]) for key in needed}
 
@@ -297,7 +297,7 @@ def fit(
     except ImportError as error:  # pragma: no cover - depends on the environment
         raise ImportError(
             "the gate uses qc's actor body, so the qc checkout has to be on "
-            "PYTHONPATH: PYTHONPATH=<g3a-bench>:<qc>"
+            "PYTHONPATH: PYTHONPATH=<loot-bench>:<qc>"
         ) from error
 
     model = MLP(
@@ -370,7 +370,7 @@ def fit(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("dataset", help=".npz from g3a-convert-demos")
+    parser.add_argument("dataset", help=".npz from loot-convert-demos")
     parser.add_argument(
         "--target",
         type=float,

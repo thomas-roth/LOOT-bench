@@ -4,9 +4,9 @@ import math
 
 import pytest
 
-from g3a_bench.tasks.common.scatter import ScatterGrid
-from g3a_bench.tasks.stack.mdp.commands import StackCommandCfg
-from g3a_bench.tasks.stack.variants import (
+from loot_bench.tasks.common.scatter import ScatterGrid
+from loot_bench.tasks.stack.mdp.commands import StackCommandCfg
+from loot_bench.tasks.stack.variants import (
     DIFFICULTIES,
     STACK_VARIANTS,
     TARGET_BLOCKS,

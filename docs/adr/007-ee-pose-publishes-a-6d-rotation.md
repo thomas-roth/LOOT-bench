@@ -9,7 +9,7 @@ it was 7. Body pose observations keep their quaternion.
 mjlab builds a site quaternion with `quat_from_matrix`, which picks its branch
 by an `argmax` over four candidates that are equal in exact arithmetic. The
 DK1 grasp site sits on that tie, so float noise decides the sign. Measured on
-`G3A-Stack-Low-Dk1_uni`, the sign flipped on 14 of 120 consecutive steps of one
+`LOOT-Stack-Low-Dk1_uni`, the sign flipped on 14 of 120 consecutive steps of one
 smooth motion: a jump of 2.0 against a median step change of 0.005. The same
 physical state reached the policy as two different observations.
 

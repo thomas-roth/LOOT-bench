@@ -17,7 +17,7 @@ has no such split.
 
 ## What it actually changed
 
-Nothing on either QC path. Both the adapter in `g3a_bench/qc/env.py` and the
+Nothing on either QC path. Both the adapter in `loot_bench/qc/env.py` and the
 `play` cfg the recorder builds already forced the flag off, so the noise had
 never reached a demonstration or a training observation. It survived only as a
 default that two callers had to undo, and as noise declared on terms where a

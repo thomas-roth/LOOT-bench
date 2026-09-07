@@ -1,6 +1,6 @@
 # Native-viewer verification
 
-Manual checks for the native MuJoCo viewer as wrapped by `g3a-play`. Both
+Manual checks for the native MuJoCo viewer as wrapped by `loot-play`. Both
 need a display and are **not for CI**; run them from the **repo root**.
 
 ---
@@ -9,7 +9,7 @@ need a display and are **not for CI**; run them from the **repo root**.
 
 Measures the real frame rate of the native MuJoCo viewer wrapper: it prints
 the smoothed FPS samples the viewer computes every 0.5 s and reports the median.
-Run it after touching `g3a_bench/scripts/utils/viewer_wrapper.py` / `play.py` or
+Run it after touching `loot_bench/scripts/utils/viewer_wrapper.py` / `play.py` or
 bumping mjlab, and on any machine where the viewer seems stuck at the monitor
 refresh rate.
 
@@ -32,7 +32,7 @@ uv run python tests/viewer/measure_viewer_fps.py --frame-rate 20 # capped low
 
 Checks that closing the native viewer and exiting immediately (the Ctrl+C
 path) does not segfault. Run it after touching
-`g3a_bench/scripts/utils/viewer_wrapper.py` or upgrading mjlab/mujoco/glfw. The
+`loot_bench/scripts/utils/viewer_wrapper.py` or upgrading mjlab/mujoco/glfw. The
 fix relies on mujoco's private `Handle._sim` weakref, so a dependency upgrade
 can silently disable it (it warns on stderr if that happens).
 
@@ -49,7 +49,7 @@ core (frozen window, stutter), so there the parent just waits, without a
 timeout, and reports how long the crash-to-exit took.
 
 The why and the fix live in the module docstring of
-`g3a_bench/scripts/utils/viewer_wrapper.py`: `Handle.close()` only *requests*
+`loot_bench/scripts/utils/viewer_wrapper.py`: `Handle.close()` only *requests*
 teardown, and exiting while the GLFW thread is still rendering segfaults in
 mesa's exit-time destructors. `NativeViewerWrapper` waits for the teardown
 before returning from `close()`; every native-viewer subclass in this repo

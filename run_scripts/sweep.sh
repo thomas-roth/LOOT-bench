@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Alpha x seed sweep of one g3a-bench task on QC-FQL. Why it is shaped this
+# Alpha x seed sweep of one loot-bench task on QC-FQL. Why it is shaped this
 # way: run_scripts/README.md.
 #
 #   sweep.sh <RUN_GROUP> <TASK_ID> <DATASET.npz> [options] [main.py flags...] [-- fixed flags...]
@@ -7,7 +7,7 @@
 # Arguments:
 #   RUN_GROUP        what this sweep is called; the flags typed on top of a
 #                    wrapper are appended to it
-#   TASK_ID          a G3A- task id
+#   TASK_ID          a LOOT- task id
 #   DATASET.npz      a relative path is read from the repository root
 #
 # Options:
@@ -38,7 +38,7 @@
 # The repository and the dataset are read over Kerberized NFS here, so the
 # sweep renews the Kerberos ticket for as long as it runs.
 #
-# Environment: RUN_DIR (default /var/tmp/$USER/qc-runs), G3A_RUN_SCRIPT (the
+# Environment: RUN_DIR (default /var/tmp/$USER/qc-runs), LOOT_RUN_SCRIPT (the
 # script-<name> tag; a wrapper sets it), SWEEP_RENEW_INTERVAL (seconds between
 # ticket renewals, default 1800; 0 turns the renewal off), plus what
 # train_qc.sh reads.
@@ -49,8 +49,8 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUN_DIR="${RUN_DIR:-/var/tmp/${USER:-$(id -un)}/qc-runs}"
 export RUN_DIR
 
-G3A_RUN_SCRIPT="${G3A_RUN_SCRIPT:-$(basename "${BASH_SOURCE[0]}" .sh)}"
-export G3A_RUN_SCRIPT
+LOOT_RUN_SCRIPT="${LOOT_RUN_SCRIPT:-$(basename "${BASH_SOURCE[0]}" .sh)}"
+export LOOT_RUN_SCRIPT
 
 DEFAULT_NUM_SEEDS=3
 DEFAULT_ALPHAS="1000,10000"
@@ -222,8 +222,8 @@ while [ $# -gt 0 ]; do
 done
 
 case "$TASK_ID" in
-G3A-*) ;;
-*) die "'$TASK_ID' is not a G3A task id" ;;
+LOOT-*) ;;
+*) die "'$TASK_ID' is not a LOOT task id" ;;
 esac
 
 case "$DATASET" in /*) ;; *) DATASET="$REPO/$DATASET" ;; esac
@@ -304,7 +304,7 @@ if [ "${#RUN_GROUP}" -gt "$TAG_MAX" ]; then
   echo "[sweep] WARNING: pass a shorter --run-group if that collides." >&2
 fi
 
-# No `task-`/`script-` tags: main.py has --env_name and $G3A_RUN_SCRIPT and tags
+# No `task-`/`script-` tags: main.py has --env_name and $LOOT_RUN_SCRIPT and tags
 # both itself.
 SWEEP_TAGS=(
   "$(clamp "data-$(sanitize "$(basename "$DATASET" .npz)")")"

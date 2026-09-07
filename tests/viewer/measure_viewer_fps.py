@@ -12,10 +12,10 @@ from mjlab.rl import RslRlVecEnvWrapper
 from mjlab.tasks.registry import load_env_cfg, load_rl_cfg
 from mjlab.viewer import NativeMujocoViewer
 
-import g3a_bench  # noqa: F401  (registers tasks)
-from g3a_bench.scripts.utils.viewer_wrapper import NativeViewerWrapper
+import loot_bench  # noqa: F401  (registers tasks)
+from loot_bench.scripts.utils.viewer_wrapper import NativeViewerWrapper
 
-DEFAULT_TASK = "G3A-Stack3-Easy-Dk1_uni"
+DEFAULT_TASK = "LOOT-Stack3-Easy-Dk1_uni"
 
 
 def main() -> int:
@@ -25,7 +25,7 @@ def main() -> int:
         "--viewer",
         choices=["stock", "wrapper"],
         default="wrapper",
-        help="'stock' is MuJoCo's native viewer; 'wrapper' is G3A's wrapper of MuJoCo's native viewer",
+        help="'stock' is MuJoCo's native viewer; 'wrapper' is LOOT's wrapper of MuJoCo's native viewer",
     )
     ap.add_argument("--frame-rate", type=float, default=240.0)
     ap.add_argument("--steps", type=int, default=25, help="env steps before exit")

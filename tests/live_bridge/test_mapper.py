@@ -8,9 +8,9 @@ action a policy emits mean the same motion.
 import numpy as np
 import pytest
 
-from g3a_bench.robots.trlc_dk1.dk1_actuators import GRIPPER_COMMAND_RANGE
-from g3a_bench.robots.trlc_dk1.dk1_constants import START_JOINT_POS
-from g3a_bench.scripts.live_bridge.mapper import (
+from loot_bench.robots.trlc_dk1.dk1_actuators import GRIPPER_COMMAND_RANGE
+from loot_bench.robots.trlc_dk1.dk1_constants import START_JOINT_POS
+from loot_bench.scripts.live_bridge.mapper import (
     ACTUATED_JOINT_NAMES,
     GRIPPER_ACTION_INDEX,
     gripper_scale_offset,
@@ -22,7 +22,7 @@ from g3a_bench.scripts.live_bridge.mapper import (
     mjlab_gripper_meters,
     reset_grasp_pose,
 )
-from g3a_bench.tasks.common.actions import DELTA_POS_SCALE
+from loot_bench.tasks.common.actions import DELTA_POS_SCALE
 
 
 def _start_pose(gripper: float = 0.0) -> np.ndarray:

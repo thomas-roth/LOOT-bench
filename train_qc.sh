@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Launch a QC-FQL run against one g3a-bench task.
+# Launch a QC-FQL run against one loot-bench task.
 #
 #   ./train_qc.sh <TASK_ID> <DATASET.npz> [extra main.py flags...]
-#   ./train_qc.sh G3A-Stack3-Easy-Dk1_uni out/qc/stack.npz --offline_steps 100000
+#   ./train_qc.sh LOOT-Stack3-Easy-Dk1_uni out/qc/stack.npz --offline_steps 100000
 #
 # Training lives in a separate checkout of upstream qc; this repository holds
 # only the seam to it (docs/adr/002). The script exists for the settings that
@@ -16,11 +16,11 @@
 #   QC_PYTHON             its interpreter          (default: $QC_DIR/.venv/bin/python)
 #   RUN_DIR               where runs are written   (default: /var/tmp/$USER/qc-runs)
 #   WANDB_MODE            online | offline | disabled  (default: online)
-#   G3A_RUN_SCRIPT        names the launching script; becomes the script-<name>
+#   LOOT_RUN_SCRIPT        names the launching script; becomes the script-<name>
 #                         wandb tag                (default: train_qc)
-#   G3A_START_POSE_NOISE  override task start-pose noise [rad] (default: task value)
+#   LOOT_START_POSE_NOISE  override task start-pose noise [rad] (default: task value)
 #                         or pass --start_pose_noise
-#   G3A_ALLOW_NO_TMUX     set to 1 to run outside tmux
+#   LOOT_ALLOW_NO_TMUX     set to 1 to run outside tmux
 #   CUDA_VISIBLE_DEVICES, and any other variable the run should inherit
 
 set -euo pipefail
@@ -31,8 +31,8 @@ QC_PYTHON="${QC_PYTHON:-$QC_DIR/.venv/bin/python}"
 RUN_DIR="${RUN_DIR:-/var/tmp/${USER:-$(id -un)}/qc-runs}"
 WANDB_MODE="${WANDB_MODE:-online}"
 
-G3A_RUN_SCRIPT="${G3A_RUN_SCRIPT:-$(basename "${BASH_SOURCE[0]}" .sh)}"
-export G3A_RUN_SCRIPT
+LOOT_RUN_SCRIPT="${LOOT_RUN_SCRIPT:-$(basename "${BASH_SOURCE[0]}" .sh)}"
+export LOOT_RUN_SCRIPT
 
 die() {
   echo "train_qc.sh: $1" >&2
@@ -55,20 +55,20 @@ shift 2
 
 # Optional start-pose noise override (ADR-008). The task default is 0.0; a
 # dataset recorded at 0.05 must run with the same value or
-# g3a_bench.qc.dataset.check_dataset_matches_env aborts at load time.
-# Accepts --start_pose_noise as a flag, or the G3A_START_POSE_NOISE env var.
-# The value is passed to qc/main.py:main under --g3a_start_pose_noise.
-G3A_START_POSE_NOISE="${G3A_START_POSE_NOISE:-}"
+# loot_bench.qc.dataset.check_dataset_matches_env aborts at load time.
+# Accepts --start_pose_noise as a flag, or the LOOT_START_POSE_NOISE env var.
+# The value is passed to qc/main.py:main under --loot_start_pose_noise.
+LOOT_START_POSE_NOISE="${LOOT_START_POSE_NOISE:-}"
 EXTRA_ARGS=()
 while [ $# -gt 0 ]; do
   case "$1" in
   --start_pose_noise)
     [ $# -ge 2 ] || die "$1 needs a value (half-width [rad])"
-    G3A_START_POSE_NOISE="$2"
+    LOOT_START_POSE_NOISE="$2"
     shift 2
     ;;
   --start_pose_noise=*)
-    G3A_START_POSE_NOISE="${1#*=}"
+    LOOT_START_POSE_NOISE="${1#*=}"
     shift
     ;;
   --help | -h) usage ;;
@@ -79,20 +79,20 @@ while [ $# -gt 0 ]; do
   esac
 done
 set -- ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}
-if [ -n "$G3A_START_POSE_NOISE" ]; then
-  case "$G3A_START_POSE_NOISE" in
-  '' | *[!0-9.\-+eE]*) die "G3A_START_POSE_NOISE='$G3A_START_POSE_NOISE' is not a number" ;;
+if [ -n "$LOOT_START_POSE_NOISE" ]; then
+  case "$LOOT_START_POSE_NOISE" in
+  '' | *[!0-9.\-+eE]*) die "LOOT_START_POSE_NOISE='$LOOT_START_POSE_NOISE' is not a number" ;;
   esac
-  EXTRA_ARGS+=("--g3a_start_pose_noise=$G3A_START_POSE_NOISE")
+  EXTRA_ARGS+=("--loot_start_pose_noise=$LOOT_START_POSE_NOISE")
   set -- "${EXTRA_ARGS[@]}"
 fi
 
 case "$TASK_ID" in
-G3A-*) ;;
-*) die "'$TASK_ID' is not a G3A task id; qc dispatches on the G3A- prefix" ;;
+LOOT-*) ;;
+*) die "'$TASK_ID' is not a LOOT task id; qc dispatches on the LOOT- prefix" ;;
 esac
 
-[ -f "$DATASET" ] || die "no dataset at $DATASET (write one with g3a-convert-demos)"
+[ -f "$DATASET" ] || die "no dataset at $DATASET (write one with loot-convert-demos)"
 DATASET="$(cd "$(dirname "$DATASET")" && pwd)/$(basename "$DATASET")"
 case "$DATASET" in
 *.npz) ;;
@@ -131,7 +131,7 @@ done
 
 # --- the venv ----------------------------------------------------------------
 #
-# g3a-bench is reached by PYTHONPATH and must never be installed here: the
+# loot-bench is reached by PYTHONPATH and must never be installed here: the
 # install pulls a cu130 torch, and JAX then aborts at import. Both halves are
 # checked, because an installed copy also shadows the checkout silently.
 
@@ -148,21 +148,21 @@ from importlib import metadata, util
 
 repo = os.environ["REPO"]
 try:
-    metadata.distribution("g3a-bench")
+    metadata.distribution("loot-bench")
 except metadata.PackageNotFoundError:
     pass
 else:
     sys.exit(
-        "train_qc.sh: g3a-bench is pip-installed in the qc venv. It drags in a "
+        "train_qc.sh: loot-bench is pip-installed in the qc venv. It drags in a "
         "cu130 torch that makes JAX abort at import. Uninstall it and let "
         "PYTHONPATH do the work."
     )
 
-spec = util.find_spec("g3a_bench")
+spec = util.find_spec("loot_bench")
 if spec is None or spec.origin is None:
-    sys.exit(f"train_qc.sh: the qc venv cannot import g3a_bench from {repo}")
+    sys.exit(f"train_qc.sh: the qc venv cannot import loot_bench from {repo}")
 if not os.path.realpath(spec.origin).startswith(os.path.realpath(repo)):
-    sys.exit(f"train_qc.sh: g3a_bench resolves to {spec.origin}, not {repo}")
+    sys.exit(f"train_qc.sh: loot_bench resolves to {spec.origin}, not {repo}")
 
 import torch
 
@@ -172,7 +172,7 @@ if not cuda.startswith("12"):
         f"train_qc.sh: the qc venv has a CUDA-{cuda or '?'} torch. Keep it "
         "CUDA-12 only, or JAX aborts at import."
     )
-print(f"[preflight] torch {torch.__version__}, g3a_bench from {repo}")
+print(f"[preflight] torch {torch.__version__}, loot_bench from {repo}")
 PY
 
 # --- where the run writes ----------------------------------------------------
@@ -215,26 +215,26 @@ fi
 #
 # A run is hours long and the session is usually closed before it ends.
 
-if [ -z "${TMUX:-}" ] && [ -z "${STY:-}" ] && [ "${G3A_ALLOW_NO_TMUX:-0}" != "1" ]; then
-  die "not inside tmux; a closed terminal kills the run. Start 'tmux new', or set G3A_ALLOW_NO_TMUX=1."
+if [ -z "${TMUX:-}" ] && [ -z "${STY:-}" ] && [ "${LOOT_ALLOW_NO_TMUX:-0}" != "1" ]; then
+  die "not inside tmux; a closed terminal kills the run. Start 'tmux new', or set LOOT_ALLOW_NO_TMUX=1."
 fi
 
 # --- launch ------------------------------------------------------------------
 
 echo "[launch] task     $TASK_ID"
 echo "[launch] dataset  $DATASET"
-if [ -n "${G3A_START_POSE_NOISE:-}" ]; then
-  echo "[launch] start_pose_noise $G3A_START_POSE_NOISE"
+if [ -n "${LOOT_START_POSE_NOISE:-}" ]; then
+  echo "[launch] start_pose_noise $LOOT_START_POSE_NOISE"
 fi
 echo "[launch] runs     $RUN_DIR  ($RUN_FS)"
 echo "[launch] wandb    $WANDB_MODE"
-echo "[launch] script   $G3A_RUN_SCRIPT"
+echo "[launch] script   $LOOT_RUN_SCRIPT"
 
 cd "$QC_DIR"
 set -x
 exec "$QC_PYTHON" main.py \
   --env_name "$TASK_ID" \
-  --g3a_dataset "$DATASET" \
+  --loot_dataset "$DATASET" \
   --save_dir "$RUN_DIR" \
   ${TAGS[@]+"${TAGS[@]}"} \
   "$@"

@@ -5,7 +5,7 @@ they are the only place that checks the convention actually reached the
 compiled model, and a wrong action range does not raise -- it just puts the
 task out of reach and reads back as a policy that never learns.
 
-``G3A-Place-FixedS-FixedT-Dk1_uni`` rather than a stack variant, because the
+``LOOT-Place-FixedS-FixedT-Dk1_uni`` rather than a stack variant, because the
 episode-budget and observation-width assertions below are ``place``'s own.
 """
 
@@ -13,7 +13,7 @@ import numpy as np
 import pytest
 import torch
 
-from g3a_bench.tasks.common.actions import (
+from loot_bench.tasks.common.actions import (
     DELTA_ORI_SCALE,
     DELTA_POS_SCALE,
     EE_DELTA_ACTION_NAME,
@@ -22,9 +22,9 @@ from g3a_bench.tasks.common.actions import (
     normalized_scale_offset,
     pose_within_one_delta,
 )
-from g3a_bench.tasks.common.env_cfg import CONTROL_STEP_S
+from loot_bench.tasks.common.env_cfg import CONTROL_STEP_S
 
-TASK_ID = "G3A-Place-FixedS-FixedT-Dk1_uni"
+TASK_ID = "LOOT-Place-FixedS-FixedT-Dk1_uni"
 PLACE_EPISODE_LENGTH_S = 15.0
 PLACE_OBS_WIDTH = 35
 SUCCESS_TOLERANCE_M = 0.02
@@ -109,7 +109,7 @@ def built_env():
     from mjlab.envs import ManagerBasedRlEnv
     from mjlab.tasks.registry import load_env_cfg
 
-    import g3a_bench  # noqa: F401  (registers the tasks)
+    import loot_bench  # noqa: F401  (registers the tasks)
 
     cfg = load_env_cfg(TASK_ID, play=False)
     cfg.scene.num_envs = 1
@@ -282,7 +282,7 @@ class TestCompiledTask:
         0.04 rad per physics tick, so it would need a tolerance loose enough to
         stop testing anything.
         """
-        from g3a_bench.scripts.live_bridge.mapper import (
+        from loot_bench.scripts.live_bridge.mapper import (
             leader_grasp_pose,
             leader_to_delta_action,
         )

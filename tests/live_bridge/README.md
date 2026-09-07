@@ -1,7 +1,7 @@
 # live_bridge tests
 
 Unit and integration tests for the live-bridge pipeline
-(`g3a_bench/scripts/live_bridge/`). No real hardware or GPU needed.
+(`loot_bench/scripts/live_bridge/`). No real hardware or GPU needed.
 
 ---
 
