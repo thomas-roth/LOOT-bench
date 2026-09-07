@@ -22,10 +22,11 @@ All of it is **Linux/cluster-only** (`train_qc.sh` needs bash, tmux,
 `sweep.sh --help` lists the options. `--dry-run` prints every `train_qc.sh`
 invocation and starts none, use it before spending a night of GPU.
 
-Defaults: alphas `1000,10000`, 3 random seeds, 3 runs at a time. **The
-seeds are drawn once and reused for every alpha**, so the alphas are compared on
-the same seeds and a difference between them is not a difference between seed
-draws.
+Defaults: alphas `0.03,0.1,0.3,1,3,10`, 1 random seed, 3 runs at a time. Those
+alphas are the FQL set, which is the scale a normalized Q loss puts them on.
+**The seeds are drawn once and reused for every alpha**, so the alphas are
+compared on the same seeds and a difference between them is not a difference
+between seed draws.
 
 Runs go through a pool of `--max-parallel`, in alpha-major order and with no
 barrier between alphas: a finished seed of one alpha starts a seed of the next
@@ -53,12 +54,12 @@ exec "$HERE/../sweep.sh" \
   fixed configuration — passed to `main.py` and neither tagged nor named.
   Without the split, the wrapper's own six lines would end up in every group
   name. Your flags are re-emitted *after* the wrapper's block, so they win.
-- `sweep.sh` trains QC-FQL by default, evaluated over 50 episodes with 6
-  recorded as video, so a wrapper only spells out what makes it different
-  from the others. It adds no other defaults: whatever neither it nor the
-  wrapper sets falls back to `main.py`'s, which are much longer runs with no
-  video. A wrapper overrides a default the same way your flags override the
-  wrapper's.
+- `sweep.sh` trains QC-FQL by default, with the Q loss normalized, evaluated
+  over 50 episodes with 6 recorded as video, so a wrapper only spells out what
+  makes it different from the others. It adds no other defaults: whatever
+  neither it nor the wrapper sets falls back to `main.py`'s, which are much
+  longer runs with no video. A wrapper overrides a default the same way your
+  flags override the wrapper's.
 
 ## Names and tags
 
@@ -98,5 +99,8 @@ tag — wandb groups runs by it already.
 
 `critic-variants/` predates `sweep.sh`: eight single-seed runs that call
 `train_qc.sh` directly, each pinning one critic configuration. They are the
-record of a closed experiment (ADR-014) and are left as they were rather than
-ported.
+record of a closed experiment (ADR-014) and are not ported to `sweep.sh`. Only
+flags that restated a `main.py` or `acfql` default have been dropped from them;
+every flag that names what the arm *is* stays written out, including the step
+counts the file names carry and `--agent.normalize_q_loss=True`, which these
+scripts still need because `sweep.sh`'s default never reaches them.

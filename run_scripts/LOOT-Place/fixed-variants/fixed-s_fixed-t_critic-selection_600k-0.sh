@@ -45,7 +45,6 @@ exec "$HERE/../../sweep.sh" \
   "$@" \
   -- \
   --agent.actor_type=best-of-n \
-  --agent.actor_num_samples=32 \
   --offline_steps 600000 \
   --online_steps 0 \
   --eval_interval 50000

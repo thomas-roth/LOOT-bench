@@ -12,9 +12,9 @@
 #
 # Options:
 #   --run-group NAME   replace RUN_GROUP
-#   --num-seeds N      how many random seeds       (default: 3)
+#   --num-seeds N      how many random seeds       (default: 1)
 #   --seeds A,B,C      exact seeds, instead of random ones
-#   --alphas A,B,C     the alphas to sweep         (default: 1000,10000)
+#   --alphas A,B,C     the alphas to sweep         (default: 0.03,0.1,0.3,1,3,10)
 #   --max-parallel N   runs going at once          (default: 3)
 #   --tag TAG          an extra wandb tag; repeatable
 #   --dry-run          print the runs that would start, start none
@@ -52,8 +52,8 @@ export RUN_DIR
 LOOT_RUN_SCRIPT="${LOOT_RUN_SCRIPT:-$(basename "${BASH_SOURCE[0]}" .sh)}"
 export LOOT_RUN_SCRIPT
 
-DEFAULT_NUM_SEEDS=3
-DEFAULT_ALPHAS="1000,10000"
+DEFAULT_NUM_SEEDS=1
+DEFAULT_ALPHAS="0.03,0.1,0.3,1,3,10"  # FQL default
 DEFAULT_MAX_PARALLEL=3
 
 die() {
@@ -423,7 +423,10 @@ start_run() {
   # last occurrence). The sweep's own flags come last: --seed, the alpha
   # and the group are what the sweep *is*, and are not overridable from either.
   set -- "$TASK_ID" "$DATASET" \
-    --agent=agents/acfql.py --eval_episodes 50 --video_episodes 6 \
+    --agent=agents/acfql.py \
+    --agent.normalize_q_loss=True \
+    --eval_episodes 50 \
+    --video_episodes 6 \
     ${BASE_FLAGS[@]+"${BASE_FLAGS[@]}"} \
     ${USER_FLAGS[@]+"${USER_FLAGS[@]}"} \
     --seed="$seed" \

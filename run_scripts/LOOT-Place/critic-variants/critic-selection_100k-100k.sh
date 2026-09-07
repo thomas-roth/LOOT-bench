@@ -17,9 +17,7 @@ export LOOT_RUN_SCRIPT="$(basename "${BASH_SOURCE[0]}" .sh)"
 
 exec "$REPO/train_qc.sh" LOOT-Place-RandS-RandT-Dk1 \
   "$REPO/dataset/qc/place_rand-s_rand-t_100-demos_2026-09-04_14-09-57.npz" \
-  --agent=agents/acfql.py \
   --agent.actor_type=best-of-n \
-  --agent.actor_num_samples=32 \
   --agent.normalize_q_loss=True \
   --seed=42 \
   --offline_steps=100000 \
