@@ -31,23 +31,9 @@ toppling doesn't count.
 Every registered variant uses `ordered=True` (fixed domino-index -> slot-index
 assignment), but dominoes previously all rendered identically and spawned at
 a uniformly random position independent of index -- so a teleoperator had no
-way to tell which physical domino was which index (see
-`docs/DominoTask-Analysis.md` for the full root-cause analysis). Each domino
-now gets a distinct identity color, `DOMINO_COLORS` in `variants.py`, indexed
-0 through `HARDEST_COUNT - 1` (4):
-
-| Index | Palette name | RGB (0-255) |
-| --- | --- | --- |
-| 0 | `sky` | `rgb(38, 217, 217)` |
-| 1 | `cobalt` | `rgb(24, 61, 170)` |
-| 2 | `indigo` | `rgb(71, 20, 123)` |
-| 3 | `violet` | `rgb(86, 16, 68)` |
-
-A cool-hue arc with monotonically decreasing brightness (index 0 lightest,
-index 3 darkest) -- two independent ordering cues (hue position and
-brightness), colorblind-safe (avoids the red-green confusion axis; the rare
-alternative, blue-yellow, isn't in play either). Green is deliberately
-excluded since it's reserved for the placed/success marker states below.
+way to tell which physical domino belonged in which slot. Each domino now
+gets a distinct identity color from the shared color palette, indexed 0 through
+`HARDEST_COUNT - 1` (5).
 
 The matching row-slot ghost marker (`DominoCommand._debug_vis_impl`,
 `mdp/commands.py`) is drawn as two overlaid boxes, since mjlab's debug
@@ -84,10 +70,10 @@ zero.
 
 | Task id (`-Dk1_uni`)                              | Description                                        |
 | -------------------------------------------------- | -------------------------------------------------- |
-| `G3A-Domino-{2,3,4}Pieces`                         | place n standard dominoes in the fixed row          |
-| `G3A-Domino-{2,3,4}Pieces-RandomRow`               | row start pose and yaw redrawn every reset          |
-| `G3A-Domino-{2,3,4}Pieces-DifferentDominoes`       | dominoes progressively thinner and lighter          |
-| `G3A-Domino-{2,3,4}Pieces-KnockOver`               | topple the completed line after building it         |
+| `G3A-Domino-{2,3,4,5,6}Pieces`                     | place n standard dominoes in the fixed row          |
+| `G3A-Domino-{2,3,4,5,6}Pieces-RandomRow`           | row start pose and yaw redrawn every reset          |
+| `G3A-Domino-{2,3,4,5,6}Pieces-DifferentDominoes`   | dominoes progressively thinner and lighter          |
+| `G3A-Domino-{2,3,4,5,6}Pieces-KnockOver`           | topple the completed line after building it         |
 
 Play e.g. with:
 

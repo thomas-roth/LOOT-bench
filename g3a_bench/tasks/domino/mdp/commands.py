@@ -13,7 +13,7 @@ from mjlab.managers.command_manager import CommandTerm
 from mjlab.sensor import ContactSensor
 from mjlab.utils.lab_api.math import quat_from_euler_xyz
 
-from g3a_bench.tasks.common.colors import PALETTE
+from g3a_bench.tasks.common.colors import COLOR_NAMES, COLOR_VALUES
 from g3a_bench.tasks.common.commands import (
     GRIP_CONTACT_SENSOR_NAME,
     ContactReleaseGate,
@@ -35,7 +35,6 @@ from g3a_bench.tasks.domino.mdp.success import (
 )
 from g3a_bench.tasks.domino.variants import (
     BASE_HALF_EXTENTS,
-    DOMINO_COLORS,
     HARDEST_COUNT,
     SPACING,
     DominoVariantCfg,
@@ -325,7 +324,7 @@ class DominoCommand(CommandTerm):
             for i, half in enumerate(self.variant.half_extents):
                 goal = self.slot_goal_pos[batch, i].cpu().numpy()
                 placed = bool(self.slot_at_goal[batch, i] > 0.5)
-                base_rgba = PALETTE[DOMINO_COLORS[i]]
+                base_rgba = COLOR_VALUES[COLOR_NAMES[i]]
                 color = marker_color(
                     base_rgba, placed, success, pending_alpha=_PENDING_ALPHA
                 )

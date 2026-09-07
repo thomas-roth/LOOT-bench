@@ -73,10 +73,14 @@ class TestDominoUprightAligned:
         quat = _quat_axis_angle((0.0, 0.0, 1.0), yaw)
         assert self._check(quat, yaw)
 
-    @pytest.mark.parametrize("tilt_deg,expected", [(14.0, True), (16.0, False)])
+    @pytest.mark.parametrize(
+        "tilt_deg,expected",
+        [(14.0, True), (16.0, False), (166.0, True), (164.0, False)],
+    )
     def test_tilt_boundary(self, tilt_deg: float, expected: bool):
         # Tilt about the row direction keeps the thin side aligned, so only
-        # the upright check decides.
+        # the upright check decides. The band is symmetric about both poles:
+        # a domino tilted near 180 deg is standing upside-down, not fallen.
         yaw = math.pi / 2
         row_axis = (math.cos(yaw), math.sin(yaw), 0.0)
         quat = _quat_mul(
@@ -84,6 +88,17 @@ class TestDominoUprightAligned:
             _quat_axis_angle((0.0, 0.0, 1.0), yaw),
         )
         assert self._check(quat, yaw) is expected
+
+    def test_upside_down_passes(self):
+        # A domino has no visual/physical top-bottom distinction, so a clean
+        # 180 deg flip about the row-aligned axis still counts as standing.
+        yaw = math.pi / 2
+        row_axis = (math.cos(yaw), math.sin(yaw), 0.0)
+        quat = _quat_mul(
+            _quat_axis_angle(row_axis, math.pi),
+            _quat_axis_angle((0.0, 0.0, 1.0), yaw),
+        )
+        assert self._check(quat, yaw)
 
     @pytest.mark.parametrize("off_deg,expected", [(14.0, True), (16.0, False)])
     def test_yaw_alignment_boundary(self, off_deg: float, expected: bool):
@@ -439,6 +454,35 @@ class TestDominoFallenAlongRow:
         q = _quat_axis_angle((1.0, 0.0, 0.0), math.radians(80.0))
         fallen, sign = self._fallen(q.view(1, 1, 4), row_yaw=math.pi / 2)
         assert fallen.all() and (sign == -1.0).all()
+
+    def test_upside_down_is_not_fallen(self):
+        q = _quat_axis_angle((1.0, 0.0, 0.0), math.pi)
+        fallen, sign = self._fallen(q.view(1, 1, 4))
+        assert not fallen.any() and (sign == 0).all()
+
+    def test_near_upside_down_is_not_fallen(self):
+        torch.manual_seed(0)
+        n = 2000
+        phi = torch.rand(n) * 2 * math.pi
+        eps = (torch.rand(n) * 2 - 1) * math.radians(
+            1.0
+        )  # up to +/-1 deg off horizontal
+        axis = torch.stack(
+            [
+                torch.cos(phi) * torch.cos(eps),
+                torch.sin(phi) * torch.cos(eps),
+                torch.sin(eps),
+            ],
+            dim=-1,
+        )
+        half = math.pi / 2  # 180 deg flip
+        quat = torch.cat(
+            [torch.full((n, 1), math.cos(half)), axis * math.sin(half)], dim=-1
+        )
+        fallen, sign = domino_fallen_along_row(
+            quat.view(1, n, 4), torch.zeros(1), tilt_deg=45.0
+        )
+        assert not fallen.any() and (sign == 0).all()
 
 
 class TestChainToppleSuccess:

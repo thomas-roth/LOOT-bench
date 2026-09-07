@@ -25,7 +25,7 @@ CUBE_MASS = 0.10
 
 CUBE_HEIGHT = 2.0 * CUBE_HALF_EXTENTS[2]
 
-CUBE_COLOR = "red"
+CUBE_COLOR = "teal"
 
 
 @dataclass(frozen=True)

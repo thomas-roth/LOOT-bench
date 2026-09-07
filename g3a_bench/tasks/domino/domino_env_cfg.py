@@ -7,12 +7,13 @@ from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.termination_manager import TerminationTermCfg
 from mjlab.sensor import ContactMatch, ContactSensorCfg
 
+from g3a_bench.tasks.common.colors import COLOR_NAMES
 from g3a_bench.tasks.common.commands import GRIP_CONTACT_SENSOR_NAME
 from g3a_bench.tasks.common.env_cfg import make_manipulation_env_cfg
 from g3a_bench.tasks.common.table import table_entity_cfg
 from g3a_bench.tasks.domino import mdp as domino_mdp
 from g3a_bench.tasks.domino.assets import get_domino_spec
-from g3a_bench.tasks.domino.variants import DOMINO_COLORS, DominoVariantCfg
+from g3a_bench.tasks.domino.variants import DominoVariantCfg
 
 COMMAND_NAME = "task"
 
@@ -31,7 +32,7 @@ def make_domino_env_cfg(
     for i, name in enumerate(domino_names):
         entities[name] = EntityCfg(
             spec_fn=lambda i=i, n=name: get_domino_spec(
-                i, variant.different, color=DOMINO_COLORS[i], name=n
+                i, variant.different, color=COLOR_NAMES[i], name=n
             )
         )
 
@@ -67,7 +68,7 @@ def make_domino_env_cfg(
     }
 
     num_dominoes = variant.num_dominoes
-    episode_length_s = 8.0 * num_dominoes + (8.0 if variant.knock_over else 0.0)
+    episode_length_s = 30.0 * num_dominoes + (30.0 if variant.knock_over else 0.0)
     sensors = (
         ContactSensorCfg(
             name=GRIP_CONTACT_SENSOR_NAME,

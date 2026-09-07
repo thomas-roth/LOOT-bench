@@ -65,7 +65,7 @@ def block_mass(difficulty: Difficulty) -> float:
 @dataclass(frozen=True)
 class BlockCfg:
     difficulty: Difficulty = "Medium"
-    color: str = "red"
+    color: str = "teal"
 
     @property
     def half_extents(self) -> tuple[float, float, float]:

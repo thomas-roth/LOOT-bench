@@ -4,12 +4,12 @@
 
 import mujoco
 
-from g3a_bench.tasks.common.colors import PALETTE
+from g3a_bench.tasks.common.colors import COLOR_VALUES
 from g3a_bench.tasks.domino.variants import domino_half_extents, domino_mass
 
 
 def get_domino_spec(
-    index: int, different: bool, color: str = "orange", name: str = "domino"
+    index: int, different: bool, color: str, name: str = "domino"
 ) -> mujoco.MjSpec:
     spec = mujoco.MjSpec()
     body = spec.worldbody.add_body(name=name)
@@ -19,7 +19,7 @@ def get_domino_spec(
         type=mujoco.mjtGeom.mjGEOM_BOX,
         size=domino_half_extents(index, different),
         mass=domino_mass(index, different),
-        rgba=PALETTE[color],
+        rgba=COLOR_VALUES[color],
         condim=6,
         friction=(1.0, 0.01, 0.0001),
     )

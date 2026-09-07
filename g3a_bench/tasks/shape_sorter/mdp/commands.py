@@ -17,7 +17,7 @@ from mjlab.utils.lab_api.math import (
     quat_mul,
 )
 
-from g3a_bench.tasks.common.colors import PALETTE
+from g3a_bench.tasks.common.colors import COLOR_VALUES
 from g3a_bench.tasks.common.commands import (
     GRIP_CONTACT_SENSOR_NAME,
     ContactReleaseGate,
@@ -301,7 +301,9 @@ class ShapeSorterCommand(CommandTerm):
             for i in range(self.num_pieces):
                 mouth = self.socket_mouth_w[batch, i].cpu().numpy()
                 done = bool(self.latched[batch, i])
-                color = marker_color(PALETTE[self.variant.colors[i]], done, success)
+                color = marker_color(
+                    COLOR_VALUES[self.variant.colors[i]], done, success
+                )
                 visualizer.add_sphere(
                     center=mouth,
                     radius=0.015,

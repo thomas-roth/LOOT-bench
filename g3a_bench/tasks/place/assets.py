@@ -4,11 +4,11 @@
 
 import mujoco
 
-from g3a_bench.tasks.common.colors import PALETTE
+from g3a_bench.tasks.common.colors import COLOR_VALUES
 from g3a_bench.tasks.place.variants import CUBE_HALF_EXTENTS, CUBE_MASS
 
 
-def get_cube_spec(color: str = "red", name: str = "cube") -> mujoco.MjSpec:
+def get_cube_spec(color: str, name: str = "cube") -> mujoco.MjSpec:
     spec = mujoco.MjSpec()
     body = spec.worldbody.add_body(name=name)
     body.add_freejoint(name=f"{name}_joint")
@@ -17,7 +17,7 @@ def get_cube_spec(color: str = "red", name: str = "cube") -> mujoco.MjSpec:
         type=mujoco.mjtGeom.mjGEOM_BOX,
         size=CUBE_HALF_EXTENTS,
         mass=CUBE_MASS,
-        rgba=PALETTE[color],
+        rgba=COLOR_VALUES[color],
         condim=6,
         friction=(1.0, 0.01, 0.0001),
     )
