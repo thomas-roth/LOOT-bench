@@ -25,7 +25,7 @@ from pathlib import Path
 
 import mujoco
 
-from g3a_bench.tasks.common.colors import PALETTE
+from g3a_bench.tasks.common.colors import COLOR_VALUES
 from g3a_bench.tasks.shape_sorter.variants import Shape
 
 _XML_DIR = Path(__file__).resolve().parent / "xmls"
@@ -99,7 +99,7 @@ def get_sorter_spec() -> mujoco.MjSpec:
 def get_sorter_piece_spec(shape: Shape, color: str) -> mujoco.MjSpec:
     """A free-body STL sorter piece, tinted with its socket colour."""
     spec = mujoco.MjSpec.from_file(str(_XML_DIR / f"piece_{shape}.xml"))
-    rgba = PALETTE[color]
+    rgba = COLOR_VALUES[color]
     for geom in spec.geoms:
         if geom.name in ("piece_geom", "piece_visual"):
             geom.rgba = rgba

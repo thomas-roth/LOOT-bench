@@ -33,7 +33,7 @@ Block lists tail-extend across the target-height axis within one difficulty
 randomness in index order, so demos for easier tasks can be cut from the
 hardest task's recordings (see `docs/task_categories.md`). The blocks are
 colored by that cut boundary (`order_color`): Stack5's ten blocks read six
-black, two gray, two white.
+navy, two teal, two white.
 
 ## Observations (state-based)
 

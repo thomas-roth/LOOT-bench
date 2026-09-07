@@ -25,7 +25,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from g3a_bench.tasks.common.colors import SPLIT_TIERS, order_color
+from g3a_bench.tasks.common.colors import order_color
 
 Shape = Literal["circle", "square", "rect", "triangle", "hexagon"]
 SpawnMode = Literal["fixed", "no_rotation", "full"]
@@ -48,13 +48,6 @@ _SHAPES_BY_COUNT: dict[int, tuple[Shape, ...]] = {
     4: ("circle", "rect", "square", "hexagon"),
     5: ("circle", "rect", "square", "hexagon", "triangle"),
 }
-
-# Split tier -> piece color. Positional, not a color match: the light-wood
-# sorter cube swallows the black/gray/white ramp, so the tiers take the three
-# darkest domino colors in the same order.
-_TIER_COLOR: dict[str, str] = dict(
-    zip(SPLIT_TIERS, ("cobalt", "indigo", "violet"), strict=True)
-)
 
 
 def allowed_faces(shapes: tuple[Shape, ...]) -> tuple[int, ...]:
@@ -81,7 +74,7 @@ class ShapeSorterVariantCfg:
     @property
     def colors(self) -> tuple[str, ...]:
         # Tier boundaries are the easier variants' piece counts (3 and 4).
-        return tuple(_TIER_COLOR[order_color(i, 3, 4)] for i in range(self.num_pieces))
+        return tuple(order_color(i, 3, 4) for i in range(self.num_pieces))
 
 
 SHAPE_SORTER_VARIANTS: dict[str, ShapeSorterVariantCfg] = {

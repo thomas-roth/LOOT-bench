@@ -31,24 +31,9 @@ toppling doesn't count.
 Every registered variant uses `ordered=True` (fixed domino-index -> slot-index
 assignment), but dominoes previously all rendered identically and spawned at
 a uniformly random position independent of index -- so a teleoperator had no
-way to tell which physical domino was which index. Each domino now gets a
-distinct identity color, `DOMINO_COLORS` in `variants.py`, indexed 0 through
-`HARDEST_COUNT - 1` (6):
-
-| Index | Palette name | RGB (0-255) |
-| --- | --- | --- |
-| 0 | `sky` | `rgb(38, 217, 217)` |
-| 1 | `cobalt` | `rgb(35, 61, 138)` |
-| 2 | `indigo` | `rgb(87, 9, 165)` |
-| 3 | `violet` | `rgb(109, 16, 86)` |
-| 4 | `plum` | `rgb(50, 6, 25)` |
-| 5 | `wine` | `rgb(0, 0, 0)` |
-
-A hue-rotating arc with monotonically decreasing brightness (index 0
-lightest, index 5 darkest) -- two independent ordering cues (hue position and
-brightness), colorblind-safe (avoids the red-green confusion axis; the rare
-alternative, blue-yellow, isn't in play either). Green is deliberately
-excluded since it's reserved for the placed/success marker states below.
+way to tell which physical domino belonged in which slot. Each domino now
+gets a distinct identity color from the shared color palette, indexed 0 through
+`HARDEST_COUNT - 1` (5).
 
 The matching row-slot ghost marker (`DominoCommand._debug_vis_impl`,
 `mdp/commands.py`) is drawn as two overlaid boxes, since mjlab's debug

@@ -4,7 +4,7 @@
 
 import mujoco
 
-from g3a_bench.tasks.common.colors import PALETTE
+from g3a_bench.tasks.common.colors import COLOR_VALUES
 from g3a_bench.tasks.stack.variants import BlockCfg
 
 
@@ -17,7 +17,7 @@ def get_block_spec(block: BlockCfg, name: str = "block") -> mujoco.MjSpec:
         type=mujoco.mjtGeom.mjGEOM_BOX,
         size=block.half_extents,
         mass=block.mass,
-        rgba=PALETTE[block.color],
+        rgba=COLOR_VALUES[block.color],
         condim=6,
         friction=(1.0, 0.01, 0.0001),
     )

@@ -112,29 +112,29 @@ INSERTION_VARIANTS: dict[str, InsertionVariantCfg] = {
         InsertionVariantCfg(
             name="PegCylinder",
             kind="peg",
-            sockets=(SocketCfg("circle", "blue"),),
+            sockets=(SocketCfg("circle", "navy"),),
         ),
         InsertionVariantCfg(
             name="PegCuboid",
             kind="peg",
-            sockets=(SocketCfg("rect", "red"),),
+            sockets=(SocketCfg("rect", "teal"),),
         ),
         InsertionVariantCfg(
             name="PegHex",
             kind="peg",
-            sockets=(SocketCfg("hexagon", "green"),),
+            sockets=(SocketCfg("hexagon", "teal"),),
         ),
         # Same peg but the bore faces the robot (horizontal insertion).
         InsertionVariantCfg(
             name="PegCylinderH",
             kind="peg",
-            sockets=(SocketCfg("circle", "blue", "horizontal"),),
+            sockets=(SocketCfg("circle", "navy", "horizontal"),),
         ),
         # --- Two-sheet alignment: slide the top sheet, then insert. ---
         InsertionVariantCfg(
             name="TwoSheet",
             kind="two_sheet",
-            sockets=(SocketCfg("circle", "blue"),),
+            sockets=(SocketCfg("circle", "navy"),),
         ),
     )
 }

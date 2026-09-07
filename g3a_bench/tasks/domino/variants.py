@@ -23,6 +23,8 @@ stay random in every variant.
 
 from dataclasses import dataclass
 
+from g3a_bench.tasks.common.colors import COLOR_NAMES
+
 BASE_HALF_EXTENTS = (0.0075, 0.015, 0.035)
 """Half extents (hx, hy, hz) of a base domino."""
 
@@ -36,12 +38,15 @@ HARDEST_COUNT = 6
 """The row is always laid out for this count — the random row's reach-band
 clamp and the fixed row's centring both size for it — so the start pose does
 not depend on the variant's actual n (seed-prefix rule). Keep this equal to
-the largest ``num_dominoes`` in ``DOMINO_VARIANTS`` and ``DOMINO_COLORS`` at
-least this long, or a new hardest variant either shifts every shorter
-variant's fixed row off-centre or crashes on an out-of-range color index."""
+the largest ``num_dominoes`` in ``DOMINO_VARIANTS``, or a new hardest variant
+shifts every shorter variant's fixed row off-centre."""
 
-DOMINO_COLORS: tuple[str, ...] = ("sky", "cobalt", "indigo", "violet", "plum", "wine")
-
+# The shared color palette must hold at least ``HARDEST_COUNT`` many colors;
+# the assert below fails at import if it does not, rather than at env build on
+# an out-of-range index.
+assert len(COLOR_NAMES) >= HARDEST_COUNT, (
+    "the shared palette is too short to give every domino its own color"
+)
 
 _THICKNESS_DECAY = 0.8
 

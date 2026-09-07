@@ -10,7 +10,7 @@ from dataclasses import dataclass
 import mujoco
 import numpy as np
 
-from g3a_bench.tasks.common.colors import PALETTE
+from g3a_bench.tasks.common.colors import COLOR_VALUES
 from g3a_bench.tasks.peg_insertion.variants import (
     PEG_HALF_LEN,
     SHAPE_GEOMS,
@@ -165,7 +165,7 @@ def get_peg_spec(shape: Shape, color: str, name: str = "peg") -> mujoco.MjSpec:
     body = spec.worldbody.add_body(name=name)
     body.add_freejoint(name=f"{name}_joint")
     geom = SHAPE_GEOMS[shape]
-    rgba = PALETTE[color]
+    rgba = COLOR_VALUES[color]
 
     if shape == "circle":
         body.add_geom(
@@ -272,9 +272,9 @@ def get_sheet_board_spec(
         np.array([0.0, 0.0, 2 * SHEET_HALF_Z]),
         np.array([0.0, 0.0, 1.0]),
         s.shape,
-        "gray",
+        "white",
     )
-    _add_walls(board, frame, 2 * SHEET_HALF_Z, PALETTE["gray"])
+    _add_walls(board, frame, 2 * SHEET_HALF_Z, COLOR_VALUES["white"])
     return spec
 
 
@@ -297,6 +297,6 @@ def get_sheet_spec(variant: InsertionVariantCfg, name: str = "sheet") -> mujoco.
             quat=quat,
             size=size,
             mass=mass_each,
-            rgba=PALETTE[s.color],
+            rgba=COLOR_VALUES[s.color],
         )
     return spec

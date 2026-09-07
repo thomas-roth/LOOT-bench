@@ -23,7 +23,7 @@ from g3a_bench.tasks.common.success import (
 )
 from g3a_bench.tasks.peg_insertion.assets import (
     BOARD_POS,
-    PALETTE,
+    COLOR_VALUES,
     SHEET_TOP_ROOT_Z,
     frame_axes,
     socket_layout,
@@ -106,7 +106,7 @@ class InsertionCommand(CommandTerm):
         self.lateral_tol = variant.lateral_tol
         self.tilt_cos = math.cos(math.radians(variant.tilt_tol_deg))
         self._socket_shapes: tuple[Shape, ...] = tuple(f.shape for f in frames)
-        self._socket_colors = tuple(PALETTE[f.color] for f in frames)
+        self._socket_colors = tuple(COLOR_VALUES[f.color] for f in frames)
         self._socket_mats = [np.stack(frame_axes(f.axis_out), axis=1) for f in frames]
 
         self.peg_pos_w = torch.zeros(E, self.num_pegs, 3, device=dev)
