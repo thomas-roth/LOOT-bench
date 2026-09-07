@@ -33,6 +33,25 @@ The lag is identical when recording and when evaluating, so it cancels. Do not
 correct it on one side alone, and make any tool that recomputes a reward along
 a recording read the pre-step row.
 
+
+### It does not survive into a recorded dataset
+
+A recorded row is `(obs_t, action_t, reward_t)` with **no shift between its own
+columns**. `live_bridge/recording_mixin.py` reads the observation *before*
+`env.step()` and stores the reward that step returns; because the reward manager
+runs before the command manager, both describe the same command state. The lag
+above is real inside the env, and the recorder's capture order is exactly what
+cancels it. A tool reading a recording must not re-apply it — `qc/transitions.py`
+already assumes this alignment, and `scripts/split_demos.py` did not, which is
+what its source self-check caught on the first real Domino-6 sessions (mean
+residual 1.3e-3 shifted, 2e-8 aligned).
+
+`observation.qpos` / `observation.qvel` are the one exception: they are cloned
+*after* the step (documented in `live_bridge/verify_replay.py`), so row `t`'s sim
+state belongs with observation row `t + 1`. Anything that gates an observation
+row on recorded velocity or gripper state has to shift them back one.
+
+
 ## Consequences
 
 - Rewards are not scaled by the timestep. `make_manipulation_env_cfg` pins

@@ -9,7 +9,7 @@ from dataclasses import dataclass
 
 from mjlab.entity import EntityCfg
 
-_GRIPPER_OPEN_FRACTION = 2 / 3
+_GRIPPER_OPEN_FRACTION = 1 / 2
 "Fraction of the gripper joint stroke beyond which the gripper counts as open."
 
 

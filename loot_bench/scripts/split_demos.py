@@ -20,13 +20,20 @@ Each source episode is relabeled without re-simulating:
   ``observation.state`` and from ``qpos``/``qvel``,
 - recompute the target's reward from the stored state, through the same
   ``shaped_task_reward`` and success kernels the env uses,
-- cut one frame past the target's first success, which is the frame the env
-  would have paid ``0`` on and terminated (ADR-006).
+- cut at the target's first success, the frame it is paid ``0`` on.
+
+**Frame alignment.** A row is ``(obs_t, action_t, reward_t)`` with no shift:
+the recorder reads the observation before ``env.step()``, which cancels
+ADR-006's env-internal reward lag. Do not re-apply it here. ``qpos``/``qvel``
+are the exception -- cloned *after* the step (``verify_replay.py``), so row
+``t``'s sim state gates row ``t + 1`` and is shifted back one.
 
 Only the gripper-open half of the env's release gate survives offline: the
 finger-pad contact force is not recorded. A per-episode self-check recomputes
 the *source* reward and asserts it matches the recording, so a wrong obs/qpos
-layout, gripper index or threshold fails loudly on the first real run.
+layout, gripper index, threshold or alignment aborts the run instead of
+writing a corrupt dataset. ``--allow-stale-source-reward`` downgrades it to a
+warning, for a recording predating a deliberate success-definition change.
 
 Usage:
     uv run loot-split-demos \\
@@ -74,12 +81,12 @@ _EE_POSE_WIDTH = 9
 _ROBOT_GRIPPER_LEFT_QPOS_IDX = 6
 """Index of ``gripper_left`` inside the robot's qpos block."""
 
-_REWARD_SELF_CHECK_MEAN_TOL = 1e-4
+_REWARD_SELF_CHECK_MEAN_TOL = 1e-6
 """Mean per-frame reward residual allowed by the source self-check.
 
-A wrong layout, gripper index or threshold corrupts nearly every frame (mean
-residual 0.01 upwards). Only rare gripper-threshold float ties slip through,
-and they barely move the mean."""
+Measured over 102 real Domino-6 episodes: a correct recompute lands on the
+float32 noise floor at 2e-8, a one-frame slip at 1e-3, a wrong layout at 0.01
+upwards. This sits in that gap, with ~25x headroom over the floor."""
 
 # A dropped object counts as disturbed (the demo may have used it) once it
 # moves this far from its spawn pose before the target-success cut.
@@ -427,38 +434,38 @@ def frame_state(
     )
 
 
-def lagged_rewards(
+def episode_rewards(
     progress: torch.Tensor, gate: torch.Tensor, last_frame: int
 ) -> torch.Tensor:
-    """Rewards for frames ``0..last_frame``, under the env's reward lag.
+    """Rewards for frames ``0..last_frame``, each from its own state.
 
-    mjlab runs the reward manager before the command manager, so the reward at
-    frame ``t`` is what the state at ``t - 1`` earned (ADR-006). Frame 0's
-    predecessor is the unrecorded reset state, for which the spawn poses at
-    frame 0 stand in -- exact whenever nothing has moved yet.
+    The recording carries no obs/reward shift, so nothing is re-aligned here.
     """
-    paid = shaped_task_reward(progress[:last_frame], gate[:last_frame])
-    return torch.cat([paid[:1], paid])
+    return shaped_task_reward(progress[: last_frame + 1], gate[: last_frame + 1])
 
 
 def _check_source_reward(
-    plan: SplitPlan, state: FrameState, recorded: torch.Tensor
-) -> None:
+    plan: SplitPlan, state: FrameState, recorded: torch.Tensor, *, strict: bool
+) -> float:
     """Assert the recompute reproduces the source episode's own reward.
 
-    The one thing that validates the obs/qpos layout, the gripper index and
-    threshold, and every success kernel against real recorded data. Compared
-    over frames 1.. because of the reward lag; frame 0's predecessor state was
-    never recorded.
+    The only check that validates the obs/qpos layout, the gripper index and
+    threshold, the frame alignment and the success kernels against real
+    recorded data. A failure aborts the split; nothing is written.
+
+    Returns the mean residual either way; ``strict=False`` skips the assert.
     """
     progress, gate = plan.adapter.progress_and_gate(plan.source, state)
-    residual = (shaped_task_reward(progress[:-1], gate[:-1]) - recorded[1:]).abs()
+    residual = (shaped_task_reward(progress, gate) - recorded).abs()
     mean = residual.mean().item()
-    assert mean <= _REWARD_SELF_CHECK_MEAN_TOL, (
-        f"source reward self-check failed (mean residual {mean:.2e}, max "
-        f"{residual.max().item():.2e}); the obs/qpos layout, the gripper index "
-        "or threshold, or a success kernel disagrees with the recording"
-    )
+    if strict:
+        assert mean <= _REWARD_SELF_CHECK_MEAN_TOL, (
+            f"source reward self-check failed (mean residual {mean:.2e}, max "
+            f"{residual.max().item():.2e}); the obs/qpos layout, the gripper "
+            "index or threshold, the frame alignment, or a success kernel "
+            "disagrees with the recording"
+        )
+    return mean
 
 
 def _count_disturbed(state: FrameState, dropped_start: int, last_frame: int) -> int:
@@ -489,6 +496,8 @@ class RelabeledEpisode:
     n_dropped_disturbed: int
     cut_frame: int
     """Index of the last frame kept: the one the target's success is paid on."""
+    source_reward_residual: float
+    """Mean per-frame residual of the source self-check, reported either way."""
 
 
 def relabel_episode(
@@ -500,6 +509,7 @@ def relabel_episode(
     robot_state: np.ndarray,
     reward: np.ndarray,
     plan: SplitPlan,
+    strict_reward_check: bool = True,
 ) -> RelabeledEpisode | None:
     """Relabel one source episode into the target task.
 
@@ -515,6 +525,12 @@ def relabel_episode(
     qpos_t = torch.from_numpy(qpos.astype(np.float64))
     qvel_t = torch.from_numpy(qvel.astype(np.float64))
     recorded = torch.from_numpy(reward.astype(np.float64)).reshape(-1)
+
+    # Sim state is post-step, the observation pre-step: shift it onto the row
+    # it gates, row 0 standing in for the unrecorded reset. Only these copies
+    # shift -- the written dataset keeps the recorder's post-step columns.
+    qpos_t = torch.cat([qpos_t[:1], qpos_t[:-1]])
+    qvel_t = torch.cat([qvel_t[:1], qvel_t[:-1]])
 
     # qpos/qvel layout: [fixed leading free bodies | objects | robot], each free
     # body 7 qpos and 6 qvel.
@@ -533,18 +549,17 @@ def relabel_episode(
             take=take,
         )
 
-    _check_source_reward(plan, state_of(n_src), recorded)
+    residual = _check_source_reward(
+        plan, state_of(n_src), recorded, strict=strict_reward_check
+    )
 
     target = state_of(k)
     progress, gate = adapter.progress_and_gate(plan.target, target)
     if not bool(gate.any()):
         return None
-    # The env pays a success one frame late, on the frame it also terminates,
-    # so that frame has to be kept. A gate that first holds on the final
-    # recorded frame has no such successor.
-    cut = int(torch.argmax(gate.int()).item()) + 1
-    if cut >= len(gate):
-        return None
+    # The success is paid on the frame the gate first holds, which is also the
+    # frame the env terminates on, so that frame is the last one kept.
+    cut = int(torch.argmax(gate.int()).item())
     kept = slice(0, cut + 1)
 
     done = np.zeros((cut + 1, 1), dtype=bool)
@@ -556,7 +571,7 @@ def relabel_episode(
     for width in adapter.obs_section_widths:
         obs_parts.append(obs[kept, offset : offset + k * width])
         offset += n_src * width
-    rewards = lagged_rewards(progress, gate, cut).numpy().reshape(-1, 1)
+    rewards = episode_rewards(progress, gate, cut).numpy().reshape(-1, 1)
 
     return RelabeledEpisode(
         obs=np.concatenate(obs_parts, axis=1).astype(np.float32),
@@ -572,6 +587,7 @@ def relabel_episode(
         ).astype(np.float32),
         n_dropped_disturbed=_count_disturbed(state_of(n_src), k, cut),
         cut_frame=cut,
+        source_reward_residual=residual,
     )
 
 
@@ -634,6 +650,7 @@ def split_to_task(
     target_task: str,
     out_root: str,
     fps: int,
+    strict_reward_check: bool = True,
 ) -> dict:
     """Relabel every source episode into ``target_task`` and write it out.
 
@@ -648,6 +665,7 @@ def split_to_task(
     skipped: list[int] = []
     disturbed: list[int] = []
     kept_frames, source_frames = 0, 0
+    worst_residual = 0.0
 
     for source_episode, group in source_episodes:
         source_frames += len(group)
@@ -661,10 +679,12 @@ def split_to_task(
                 -1
             ),
             plan=plan,
+            strict_reward_check=strict_reward_check,
         )
         if episode is None:
             skipped.append(source_episode)
             continue
+        worst_residual = max(worst_residual, episode.source_reward_residual)
         if episode.n_dropped_disturbed:
             disturbed.append(source_episode)
         kept_frames += len(episode.obs)
@@ -715,6 +735,7 @@ def split_to_task(
         "disturbed_eps": disturbed,
         "mean_cut_frames": (kept_frames / written) if written else 0,
         "source_frames": source_frames,
+        "worst_reward_residual": worst_residual,
     }
 
 
@@ -724,6 +745,7 @@ def split_dataset(
     output_dir: str,
     target_tasks: list[str] | None = None,
     stamp: str | None = None,
+    strict_reward_check: bool = True,
 ) -> list[dict]:
     adapter = adapter_for(source_task)
     source_variant = variant_from_task_id(source_task)
@@ -748,7 +770,13 @@ def split_dataset(
         plan = SplitPlan(adapter, source_variant, variant_from_task_id(target_task))
         out_root = str(Path(output_dir) / target_task / stamp)
         summary = split_to_task(
-            source_episodes, source_extra, plan, target_task, out_root, fps
+            source_episodes,
+            source_extra,
+            plan,
+            target_task,
+            out_root,
+            fps,
+            strict_reward_check=strict_reward_check,
         )
         summary["out_root"] = out_root
         summaries.append(summary)
@@ -763,6 +791,14 @@ def _print_summary(source_task: str, summaries: list[dict]) -> None:
             f"(mean {summary['mean_cut_frames']:.0f} frames/ep), "
             f"skipped {len(summary['skipped'])} (target success never paid)"
         )
+        if summary["worst_reward_residual"] > _REWARD_SELF_CHECK_MEAN_TOL:
+            print(
+                "     WARN source reward self-check bypassed (worst mean "
+                f"residual {summary['worst_reward_residual']:.2e} > "
+                f"{_REWARD_SELF_CHECK_MEAN_TOL:.0e}); the recording was made "
+                "under a different success definition than the one just used "
+                "to relabel it"
+            )
         if summary["disturbed_eps"]:
             print(
                 f"     WARN dropped objects moved in eps {summary['disturbed_eps']}; "
@@ -788,6 +824,15 @@ def main() -> None:
     parser.add_argument(
         "--output-dir", required=True, help="output root for the split datasets"
     )
+    parser.add_argument(
+        "--allow-stale-source-reward",
+        action="store_true",
+        help="downgrade the source reward self-check to a warning. Only for a "
+        "recording predating a deliberate success-definition change (e.g. the "
+        "gripper-open fraction); the outputs then follow the *current* "
+        "definition. Never use it on an unexplained residual -- that is the "
+        "check catching a real bug.",
+    )
     args = parser.parse_args()
 
     # Expected user errors (wrong or easiest source, non-easier target) get a
@@ -798,6 +843,7 @@ def main() -> None:
             source_task=args.source_task,
             output_dir=args.output_dir,
             target_tasks=args.target_task,
+            strict_reward_check=not args.allow_stale_source_reward,
         )
     except (ValueError, AssertionError) as error:
         raise SystemExit(f"[split] {error}") from None
