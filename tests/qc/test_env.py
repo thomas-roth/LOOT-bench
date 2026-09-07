@@ -17,9 +17,9 @@ from loot_bench.tasks.common.actions import (
     GRIPPER_ACTION_NAME,
 )
 
-TASK_ID = "LOOT-Stack3-Easy-Dk1_uni"
+TASK_ID = "LOOT-Stack3-Easy-Dk1"
 
-PLACE_TASK_ID = "LOOT-Place-RandS-RandT-Dk1_uni"
+PLACE_TASK_ID = "LOOT-Place-RandS-RandT-Dk1"
 """The one category that declares the object-filtered contact sensor.
 
 Place scores exactly one free object, so "contact with the object" is a
@@ -115,7 +115,7 @@ def _peak_to_peak(block: np.ndarray) -> float:
 class TestTaskPrefix:
     def test_recognizes_loot_tasks(self):
         assert is_loot_task(TASK_ID)
-        assert is_loot_task("LOOT-Ball-Throw-U-Dk1_uni")
+        assert is_loot_task("LOOT-Ball-Throw-U-Dk1")
 
     def test_rejects_other_env_names(self):
         assert not is_loot_task("antmaze-large-diverse-v2")

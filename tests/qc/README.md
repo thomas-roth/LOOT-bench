@@ -116,7 +116,7 @@ the failure mode when one breaks is a flat training curve, not an exception.
 | `TestObjectContact` | the object-filtered sensor, and that a gripper closing on air loads the pads only |
 | `TestEpisodeBoundaries` | auto-reset is **off**, `reset` clears the stats, and `start_pose_noise` of zero repeats the same start while a non-zero value varies it |
 
-`LOOT-Place-RandS-RandT-Dk1_uni` is used for the object-contact tests because
+`LOOT-Place-RandS-RandT-Dk1` is used for the object-contact tests because
 Place scores exactly one free object. Stack declares no such sensor and is the
 negative control.
 
@@ -204,9 +204,9 @@ so a dataset from here fails exactly where a stale recording would.
 
 ```bash
 uv run python tests/qc/make_smoke_dataset.py --cpu \
-    --task LOOT-Stack3-Easy-Dk1_uni --output out/qc/smoke.npz
+    --task LOOT-Stack3-Easy-Dk1 --output out/qc/smoke.npz
 
 RUN_DIR=/var/tmp/$USER/qc-runs WANDB_MODE=offline LOOT_ALLOW_NO_TMUX=1 \
-    ./train_qc.sh LOOT-Stack3-Easy-Dk1_uni out/qc/smoke.npz \
+    ./train_qc.sh LOOT-Stack3-Easy-Dk1 out/qc/smoke.npz \
     --offline_steps 2 --online_steps 0 --eval_episodes 1
 ```

@@ -35,10 +35,10 @@ reads the whole body of every held-out episode.
 
 0.0766 is measured, not inherited. It is what this gate reads on the same
 legacy file the old numbers came from, the pre-rebuild export
-`LOOT-Place-Easy-Dk1_uni_qc_physical.npz`, with ten episodes held out. The same
+`LOOT-Place-Easy-Dk1_qc_physical.npz`, with ten episodes held out. The same
 fit read 0.0075 on the episodes it saw. That file is a single legacy export,
 **not** the committed sessions under
-`dataset/demos/LOOT-Place-RandS-RandT-Dk1_uni`: that directory has grown past
+`dataset/demos/LOOT-Place-RandS-RandT-Dk1`: that directory has grown past
 the set the number was read on, so the gate will not reproduce 0.0766 there.
 
 ## Consequences

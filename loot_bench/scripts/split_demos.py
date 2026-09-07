@@ -30,11 +30,11 @@ layout, gripper index or threshold fails loudly on the first real run.
 
 Usage:
     uv run loot-split-demos \\
-        --source-dir dataset/demos/LOOT-Stack5-Easy-Dk1_uni/<stamp> \\
-        --source-task LOOT-Stack5-Easy-Dk1_uni \\
+        --source-dir dataset/demos/LOOT-Stack5-Easy-Dk1/<stamp> \\
+        --source-task LOOT-Stack5-Easy-Dk1 \\
         --output-dir dataset/demos_split          # all easier same-family tasks
     # or an explicit subset:
-        --target-task LOOT-Domino-2Pieces-Dk1_uni
+        --target-task LOOT-Domino-2Pieces-Dk1
 """
 
 from __future__ import annotations
@@ -777,7 +777,7 @@ def main() -> None:
         "--source-dir", required=True, help="source LeRobot dataset root"
     )
     parser.add_argument(
-        "--source-task", required=True, help="e.g. LOOT-Stack5-Easy-Dk1_uni"
+        "--source-task", required=True, help="e.g. LOOT-Stack5-Easy-Dk1"
     )
     parser.add_argument(
         "--target-task",

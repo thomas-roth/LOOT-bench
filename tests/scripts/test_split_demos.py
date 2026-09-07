@@ -78,78 +78,78 @@ def _episode_frame(rel, task: str) -> pd.DataFrame:
 
 class TestTaskIds:
     def test_stack_family_is_one_difficulty(self):
-        assert parse_task_id("LOOT-Stack5-Easy-Dk1_uni") == (
+        assert parse_task_id("LOOT-Stack5-Easy-Dk1") == (
             "Stack5",
             "Easy",
             "",
-            "Dk1_uni",
+            "Dk1",
         )
         # The target height rides in the category segment and the block shape
         # is the task, so a split family is one difficulty.
-        assert easier_target_task_ids("LOOT-Stack5-Easy-Dk1_uni") == [
-            "LOOT-Stack4-Easy-Dk1_uni",
-            "LOOT-Stack3-Easy-Dk1_uni",
+        assert easier_target_task_ids("LOOT-Stack5-Easy-Dk1") == [
+            "LOOT-Stack4-Easy-Dk1",
+            "LOOT-Stack3-Easy-Dk1",
         ]
-        assert easier_target_task_ids("LOOT-Stack5-Hard-Dk1_uni") == [
-            "LOOT-Stack4-Hard-Dk1_uni",
-            "LOOT-Stack3-Hard-Dk1_uni",
+        assert easier_target_task_ids("LOOT-Stack5-Hard-Dk1") == [
+            "LOOT-Stack4-Hard-Dk1",
+            "LOOT-Stack3-Hard-Dk1",
         ]
-        assert easier_target_task_ids("LOOT-Stack3-Easy-Dk1_uni") == []
+        assert easier_target_task_ids("LOOT-Stack3-Easy-Dk1") == []
 
     def test_domino_variations_are_separate_families(self):
-        assert parse_task_id("LOOT-Domino-4Pieces-Dk1_uni") == (
+        assert parse_task_id("LOOT-Domino-4Pieces-Dk1") == (
             "Domino",
             "4Pieces",
             "",
-            "Dk1_uni",
+            "Dk1",
         )
-        assert easier_target_task_ids("LOOT-Domino-4Pieces-Dk1_uni") == [
-            "LOOT-Domino-3Pieces-Dk1_uni",
-            "LOOT-Domino-2Pieces-Dk1_uni",
+        assert easier_target_task_ids("LOOT-Domino-4Pieces-Dk1") == [
+            "LOOT-Domino-3Pieces-Dk1",
+            "LOOT-Domino-2Pieces-Dk1",
         ]
         assert easier_target_task_ids(
-            "LOOT-Domino-4Pieces-DifferentDominoes-Dk1_uni"
+            "LOOT-Domino-4Pieces-DifferentDominoes-Dk1"
         ) == [
-            "LOOT-Domino-3Pieces-DifferentDominoes-Dk1_uni",
-            "LOOT-Domino-2Pieces-DifferentDominoes-Dk1_uni",
+            "LOOT-Domino-3Pieces-DifferentDominoes-Dk1",
+            "LOOT-Domino-2Pieces-DifferentDominoes-Dk1",
         ]
         # The base row is fixed and RandomRow's is sampled, so neither is a
         # prefix of the other.
-        assert "LOOT-Domino-3Pieces-RandomRow-Dk1_uni" not in easier_target_task_ids(
-            "LOOT-Domino-4Pieces-Dk1_uni"
+        assert "LOOT-Domino-3Pieces-RandomRow-Dk1" not in easier_target_task_ids(
+            "LOOT-Domino-4Pieces-Dk1"
         )
         # KnockOver topples as one chain over all pieces: no prefix to cut.
-        assert easier_target_task_ids("LOOT-Domino-4Pieces-KnockOver-Dk1_uni") == []
+        assert easier_target_task_ids("LOOT-Domino-4Pieces-KnockOver-Dk1") == []
 
     def test_sorter_splits_within_a_spawn_variation(self):
-        assert parse_task_id("LOOT-Sorter-5Shapes-Full-Dk1_uni") == (
+        assert parse_task_id("LOOT-Sorter-5Shapes-Full-Dk1") == (
             "Sorter",
             "5Shapes",
             "Full",
-            "Dk1_uni",
+            "Dk1",
         )
         for variation in ("FixedOrientation", "NoRotation", "Full", "RandomPositions"):
             assert easier_target_task_ids(
-                f"LOOT-Sorter-5Shapes-{variation}-Dk1_uni"
+                f"LOOT-Sorter-5Shapes-{variation}-Dk1"
             ) == [
-                f"LOOT-Sorter-4Shapes-{variation}-Dk1_uni",
-                f"LOOT-Sorter-3Shapes-{variation}-Dk1_uni",
+                f"LOOT-Sorter-4Shapes-{variation}-Dk1",
+                f"LOOT-Sorter-3Shapes-{variation}-Dk1",
             ]
 
     def test_unsplittable_category_and_malformed_id(self):
         with pytest.raises(ValueError, match="not splittable"):
-            adapter_for("LOOT-Place-FixedS-FixedT-Dk1_uni")
+            adapter_for("LOOT-Place-FixedS-FixedT-Dk1")
         with pytest.raises(ValueError, match="not a LOOT task id"):
             parse_task_id("Stack5-Easy")
 
     def test_obs_section_widths(self):
-        assert adapter_for("LOOT-Stack3-Easy-Dk1_uni").obs_section_widths == (7,)
-        assert adapter_for("LOOT-Domino-3Pieces-Dk1_uni").obs_section_widths == (
+        assert adapter_for("LOOT-Stack3-Easy-Dk1").obs_section_widths == (7,)
+        assert adapter_for("LOOT-Domino-3Pieces-Dk1").obs_section_widths == (
             7,
             1,
             7,
         )
-        assert adapter_for("LOOT-Sorter-5Shapes-Full-Dk1_uni").obs_section_widths == (
+        assert adapter_for("LOOT-Sorter-5Shapes-Full-Dk1").obs_section_widths == (
             7,
             1,
         )
@@ -157,10 +157,10 @@ class TestTaskIds:
 
 class TestPlanValidation:
     def test_rejects_harder_target_and_other_family(self):
-        adapter = adapter_for("LOOT-Stack5-Easy-Dk1_uni")
-        stack5 = variant_from_task_id("LOOT-Stack5-Easy-Dk1_uni")
-        stack3 = variant_from_task_id("LOOT-Stack3-Easy-Dk1_uni")
-        stack3_hard = variant_from_task_id("LOOT-Stack3-Hard-Dk1_uni")
+        adapter = adapter_for("LOOT-Stack5-Easy-Dk1")
+        stack5 = variant_from_task_id("LOOT-Stack5-Easy-Dk1")
+        stack3 = variant_from_task_id("LOOT-Stack3-Easy-Dk1")
+        stack3_hard = variant_from_task_id("LOOT-Stack3-Hard-Dk1")
         SplitPlan(adapter, stack5, stack3).validate()
         with pytest.raises(AssertionError, match="not easier"):
             SplitPlan(adapter, stack3, stack5).validate()
@@ -168,11 +168,11 @@ class TestPlanValidation:
             SplitPlan(adapter, stack5, stack3_hard).validate()
 
     def test_rejects_knock_over_and_crossing_row_families(self):
-        adapter = adapter_for("LOOT-Domino-4Pieces-Dk1_uni")
-        four = variant_from_task_id("LOOT-Domino-4Pieces-Dk1_uni")
-        three = variant_from_task_id("LOOT-Domino-3Pieces-Dk1_uni")
-        knock = variant_from_task_id("LOOT-Domino-4Pieces-KnockOver-Dk1_uni")
-        three_random = variant_from_task_id("LOOT-Domino-3Pieces-RandomRow-Dk1_uni")
+        adapter = adapter_for("LOOT-Domino-4Pieces-Dk1")
+        four = variant_from_task_id("LOOT-Domino-4Pieces-Dk1")
+        three = variant_from_task_id("LOOT-Domino-3Pieces-Dk1")
+        knock = variant_from_task_id("LOOT-Domino-4Pieces-KnockOver-Dk1")
+        three_random = variant_from_task_id("LOOT-Domino-3Pieces-RandomRow-Dk1")
         SplitPlan(adapter, four, three).validate()
         with pytest.raises(AssertionError):
             SplitPlan(adapter, knock, three).validate()
@@ -216,7 +216,7 @@ def _stack_episode(heights_per_frame, grasp_pos_per_frame=None, gripper_open=Tru
 
 
 def _stack_state(obs, qvel, take, gripper_open=True):
-    adapter = adapter_for("LOOT-Stack5-Easy-Dk1_uni")
+    adapter = adapter_for("LOOT-Stack5-Easy-Dk1")
     grip = torch.full((len(obs),), gripper_open, dtype=torch.bool)
     return frame_state(
         torch.from_numpy(obs.astype(np.float64)),
@@ -235,8 +235,8 @@ class TestStackRecompute:
         # which is Stack3's target height.
         rest, tower = 0.02, 0.10
         obs, _qpos, qvel = _stack_episode([[rest] * 10, [tower] + [rest] * 9])
-        adapter = adapter_for("LOOT-Stack3-Easy-Dk1_uni")
-        stack3 = variant_from_task_id("LOOT-Stack3-Easy-Dk1_uni")
+        adapter = adapter_for("LOOT-Stack3-Easy-Dk1")
+        stack3 = variant_from_task_id("LOOT-Stack3-Easy-Dk1")
         progress, gate = adapter.progress_and_gate(
             stack3, _stack_state(obs, qvel, take=6)
         )
@@ -250,8 +250,8 @@ class TestStackRecompute:
         frames = [[tower] + [rest] * 9] * 2
         grasps = [FAR_AWAY, np.array([0.25, -0.1, tower], np.float32)]
         obs, _qpos, qvel = _stack_episode(frames, grasps, gripper_open=False)
-        adapter = adapter_for("LOOT-Stack3-Easy-Dk1_uni")
-        stack3 = variant_from_task_id("LOOT-Stack3-Easy-Dk1_uni")
+        adapter = adapter_for("LOOT-Stack3-Easy-Dk1")
+        stack3 = variant_from_task_id("LOOT-Stack3-Easy-Dk1")
         progress, _gate = adapter.progress_and_gate(
             stack3, _stack_state(obs, qvel, take=6, gripper_open=False)
         )
@@ -266,9 +266,9 @@ class TestStackRecompute:
             [[rest] * 10, [tower] + [rest] * 9, [tower] + [rest] * 9]
         )
         plan = SplitPlan(
-            adapter_for("LOOT-Stack5-Easy-Dk1_uni"),
-            variant_from_task_id("LOOT-Stack5-Easy-Dk1_uni"),
-            variant_from_task_id("LOOT-Stack3-Easy-Dk1_uni"),
+            adapter_for("LOOT-Stack5-Easy-Dk1"),
+            variant_from_task_id("LOOT-Stack5-Easy-Dk1"),
+            variant_from_task_id("LOOT-Stack3-Easy-Dk1"),
         )
         source_progress, source_gate = plan.adapter.progress_and_gate(
             plan.source, _stack_state(obs, qvel, take=10)
@@ -299,9 +299,9 @@ class TestStackRecompute:
     def test_no_target_success_returns_none(self):
         obs, qpos, qvel = _stack_episode([[0.02] * 10] * 3)
         plan = SplitPlan(
-            adapter_for("LOOT-Stack5-Easy-Dk1_uni"),
-            variant_from_task_id("LOOT-Stack5-Easy-Dk1_uni"),
-            variant_from_task_id("LOOT-Stack3-Easy-Dk1_uni"),
+            adapter_for("LOOT-Stack5-Easy-Dk1"),
+            variant_from_task_id("LOOT-Stack5-Easy-Dk1"),
+            variant_from_task_id("LOOT-Stack3-Easy-Dk1"),
         )
         progress, gate = plan.adapter.progress_and_gate(
             plan.source, _stack_state(obs, qvel, take=10)
@@ -322,9 +322,9 @@ class TestStackRecompute:
     def test_self_check_rejects_a_mismatched_reward_column(self):
         obs, qpos, qvel = _stack_episode([[0.02] * 10, [0.10] + [0.02] * 9])
         plan = SplitPlan(
-            adapter_for("LOOT-Stack5-Easy-Dk1_uni"),
-            variant_from_task_id("LOOT-Stack5-Easy-Dk1_uni"),
-            variant_from_task_id("LOOT-Stack3-Easy-Dk1_uni"),
+            adapter_for("LOOT-Stack5-Easy-Dk1"),
+            variant_from_task_id("LOOT-Stack5-Easy-Dk1"),
+            variant_from_task_id("LOOT-Stack3-Easy-Dk1"),
         )
         with pytest.raises(AssertionError, match="self-check failed"):
             relabel_episode(
@@ -391,9 +391,9 @@ def _domino_episode(displaced_per_frame, row_yaw=math.pi / 2):
 def test_domino_recompute_and_truncation(row_yaw):
     # Piece 2 lands on frame 1 (completing the first three), piece 3 on frame 2.
     obs, qpos, qvel = _domino_episode([(2, 3), (3,), (), ()], row_yaw=row_yaw)
-    adapter = adapter_for("LOOT-Domino-4Pieces-Dk1_uni")
-    four = variant_from_task_id("LOOT-Domino-4Pieces-Dk1_uni")
-    three = variant_from_task_id("LOOT-Domino-3Pieces-Dk1_uni")
+    adapter = adapter_for("LOOT-Domino-4Pieces-Dk1")
+    four = variant_from_task_id("LOOT-Domino-4Pieces-Dk1")
+    three = variant_from_task_id("LOOT-Domino-3Pieces-Dk1")
     state = frame_state(
         torch.from_numpy(obs.astype(np.float64)),
         torch.from_numpy(qvel.astype(np.float64)),
@@ -428,9 +428,9 @@ def test_domino_dropped_piece_movement_is_reported():
     obs, qpos, qvel = _domino_episode([(), (), ()])
     # Move the dropped 4th piece well past the disturbance tolerance.
     obs[1:, PROPRIO + 3 * 7] += 0.1
-    adapter = adapter_for("LOOT-Domino-4Pieces-Dk1_uni")
-    four = variant_from_task_id("LOOT-Domino-4Pieces-Dk1_uni")
-    three = variant_from_task_id("LOOT-Domino-3Pieces-Dk1_uni")
+    adapter = adapter_for("LOOT-Domino-4Pieces-Dk1")
+    four = variant_from_task_id("LOOT-Domino-4Pieces-Dk1")
+    three = variant_from_task_id("LOOT-Domino-3Pieces-Dk1")
     state = frame_state(
         torch.from_numpy(obs.astype(np.float64)),
         torch.from_numpy(qvel.astype(np.float64)),
@@ -489,9 +489,9 @@ def _sorter_episode(latched_per_frame):
 
 
 def test_sorter_recompute_and_truncation():
-    adapter = adapter_for("LOOT-Sorter-5Shapes-Full-Dk1_uni")
-    five = variant_from_task_id("LOOT-Sorter-5Shapes-Full-Dk1_uni")
-    three = variant_from_task_id("LOOT-Sorter-3Shapes-Full-Dk1_uni")
+    adapter = adapter_for("LOOT-Sorter-5Shapes-Full-Dk1")
+    five = variant_from_task_id("LOOT-Sorter-5Shapes-Full-Dk1")
+    three = variant_from_task_id("LOOT-Sorter-3Shapes-Full-Dk1")
     obs, qpos, qvel = _sorter_episode(
         [[0, 0, 0, 0, 0], [1, 1, 1, 0, 0], [1, 1, 1, 1, 1], [1, 1, 1, 1, 1]]
     )
@@ -552,11 +552,11 @@ def test_write_roundtrip(tmp_path):
     obs, qpos, qvel = _stack_episode(
         [[0.02] * 10, [0.10] + [0.02] * 9, [0.10] + [0.02] * 9]
     )
-    adapter = adapter_for("LOOT-Stack5-Easy-Dk1_uni")
+    adapter = adapter_for("LOOT-Stack5-Easy-Dk1")
     plan = SplitPlan(
         adapter,
-        variant_from_task_id("LOOT-Stack5-Easy-Dk1_uni"),
-        variant_from_task_id("LOOT-Stack3-Easy-Dk1_uni"),
+        variant_from_task_id("LOOT-Stack5-Easy-Dk1"),
+        variant_from_task_id("LOOT-Stack3-Easy-Dk1"),
     )
     progress, gate = adapter.progress_and_gate(
         plan.source, _stack_state(obs, qvel, take=10)
@@ -572,7 +572,7 @@ def test_write_roundtrip(tmp_path):
         }
     )
 
-    target = "LOOT-Stack3-Easy-Dk1_uni"
+    target = "LOOT-Stack3-Easy-Dk1"
     out_root = str(tmp_path / target / "run")
     summary = split_to_task(
         [(0, source)],

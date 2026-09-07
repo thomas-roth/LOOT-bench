@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Stock QC-FQL on LOOT-Place-RandS-RandT-Dk1_uni: distill-ddpg trains the actor
+# Stock QC-FQL on LOOT-Place-RandS-RandT-Dk1: distill-ddpg trains the actor
 # with bc_flow + alpha * distill + q_loss, so the critic steers the actor's
 # gradient but does not pick the action.
 #
@@ -14,7 +14,7 @@ set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 export LOOT_RUN_SCRIPT="$(basename "${BASH_SOURCE[0]}" .sh)"
 
-exec "$REPO/train_qc.sh" LOOT-Place-RandS-RandT-Dk1_uni \
+exec "$REPO/train_qc.sh" LOOT-Place-RandS-RandT-Dk1 \
   "$REPO/dataset/qc/place_rand-s_rand-t_100-demos_2026-09-04_14-09-57.npz" \
   --agent=agents/acfql.py \
   --agent.normalize_q_loss=True \

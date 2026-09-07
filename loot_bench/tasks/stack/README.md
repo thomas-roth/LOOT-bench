@@ -53,7 +53,7 @@ non-success step can read a true zero.
 
 ## Variants
 
-| Task id (`-Dk1_uni`)              | Target height    | Blocks |
+| Task id (`-Dk1`)              | Target height    | Blocks |
 | --------------------------------- | ---------------- | ------ |
 | `LOOT-Stack3-{Easy,Medium,Hard}`   | 0.12/0.15/0.18 m | 6      |
 | `LOOT-Stack4-{Easy,Medium,Hard}`   | 0.16/0.20/0.24 m | 8      |
@@ -62,7 +62,7 @@ non-success step can read a true zero.
 Play e.g. with:
 
 ```bash
-uv run loot-play LOOT-Stack3-Easy-Dk1_uni
+uv run loot-play LOOT-Stack3-Easy-Dk1
 ```
 
 `loot-play` also draws a ghost target stack beside the workspace as a build

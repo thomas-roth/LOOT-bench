@@ -50,7 +50,7 @@ from numpy.typing import NDArray
 TARGET = 0.0766
 """Held-out interior error of the old 100-demonstration set, read by this gate.
 
-Measured on the legacy ``LOOT-Place-Easy-Dk1_uni_qc_physical.npz`` with
+Measured on the legacy ``LOOT-Place-Easy-Dk1_qc_physical.npz`` with
 ``--holdout 10`` and defaults elsewhere. See
 ``docs/adr/012-gate-a-demo-set-with-a-bc-fit.md`` for why that file, not
 today's demo directory, owns the number.

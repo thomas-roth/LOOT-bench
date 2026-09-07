@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Selection-only arm of LOOT-Place-FixedS-FixedT-Dk1_uni, offline only.
+# Selection-only arm of LOOT-Place-FixedS-FixedT-Dk1, offline only.
 #
 # Diagnostic: the middle point of the critic axis, between two arms already
 # measured on this dataset -- critic off (best-of-n, n=1; critic trained but
@@ -38,7 +38,7 @@ export LOOT_RUN_SCRIPT="$(basename "${BASH_SOURCE[0]}" .sh)"
 
 exec "$HERE/../../sweep.sh" \
   place_fixed-s_fixed-t_600k-0_critic-selection \
-  LOOT-Place-FixedS-FixedT-Dk1_uni \
+  LOOT-Place-FixedS-FixedT-Dk1 \
   dataset/qc/place_fixed-s_fixed-t_99-demos_2026-08-30_10-46-36.npz \
   --alphas 10000 \
   --seeds 864194177,195836927,628594327 \

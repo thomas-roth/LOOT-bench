@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pure-BC-flow arm of LOOT-Place-FixedS-FixedT-Dk1_uni, offline only.
+# Pure-BC-flow arm of LOOT-Place-FixedS-FixedT-Dk1, offline only.
 #
 # Diagnostic: isolates whether the stock arm's offline success collapse
 # (0.83 mean over steps 100k-300k -> 0.29 over 700k-1M, despite every
@@ -31,7 +31,7 @@ export LOOT_RUN_SCRIPT="$(basename "${BASH_SOURCE[0]}" .sh)"
 
 exec "$HERE/../../sweep.sh" \
   place_fixed-s_fixed-t_600k-0_critic-off \
-  LOOT-Place-FixedS-FixedT-Dk1_uni \
+  LOOT-Place-FixedS-FixedT-Dk1 \
   dataset/qc/place_fixed-s_fixed-t_99-demos_2026-08-30_10-46-36.npz \
   "$@" \
   -- \

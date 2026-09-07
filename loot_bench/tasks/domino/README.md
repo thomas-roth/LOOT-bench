@@ -68,7 +68,7 @@ zero.
 
 ## Variants
 
-| Task id (`-Dk1_uni`)                              | Description                                        |
+| Task id (`-Dk1`)                              | Description                                        |
 | -------------------------------------------------- | -------------------------------------------------- |
 | `LOOT-Domino-{2,3,4,5,6}Pieces`                         | place n standard dominoes in the fixed row          |
 | `LOOT-Domino-{2,3,4,5,6}Pieces-RandomRow`               | row start pose and yaw redrawn every reset          |
@@ -78,5 +78,5 @@ zero.
 Play e.g. with:
 
 ```bash
-uv run loot-play LOOT-Domino-3Pieces-Dk1_uni
+uv run loot-play LOOT-Domino-3Pieces-Dk1
 ```

@@ -7,7 +7,7 @@ export LOOT_RUN_SCRIPT="$(basename "${BASH_SOURCE[0]}" .sh)"
 
 exec "$HERE/../../sweep.sh" \
   place_rand-s_rand-t_50k-600k \
-  LOOT-Place-RandS-RandT-Dk1_uni \
+  LOOT-Place-RandS-RandT-Dk1 \
   dataset/qc/place_rand-s_rand-t_100-demos_2026-09-04_14-09-57.npz \
   "$@" \
   -- \

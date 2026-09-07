@@ -14,7 +14,7 @@ lives in a **separate `qc` checkout** reached by `PYTHONPATH` — this repo hold
 only the seam to it, in `loot_bench/qc/`.
 
 Five task categories, 44 tasks total, currently registered for one robot
-(`-Dk1_uni`) → task ids look like `LOOT-<Category>-<Task>[-<Variation>]-<Robot>`:
+(`-Dk1`) → task ids look like `LOOT-<Category>-<Task>[-<Variation>]-<Robot>`:
 `tasks/stack` (stack blocks to a target height; the height is part of the
 category segment, so it registers as `Stack3`/`Stack4`/`Stack5` x
 `Easy`/`Medium`/`Hard`),
@@ -29,7 +29,7 @@ back into a sampled row, and the domino *spawns* stay random in all of them),
 on — 15 s, i.e. 300 steps at 20 Hz, no difficulty axis; its four variants
 instead switch the two
 randomness axes independently (`RandS`/`FixedS` for the cube spawn,
-`RandT`/`FixedT` for the target), e.g. `LOOT-Place-FixedS-RandT-Dk1_uni`.
+`RandT`/`FixedT` for the target), e.g. `LOOT-Place-FixedS-RandT-Dk1`.
 `tasks/peg_insertion` is an archived, unregistered category kept importable
 for reference (see its README).
 
@@ -57,7 +57,7 @@ uv run pyright             # type check (config in pyrightconfig.json, basic mod
 uv run pre-commit run --all-files
 
 # Play a task (wraps mjlab's player after importing loot_bench to register tasks)
-uv run loot-play LOOT-Stack3-Easy-Dk1_uni
+uv run loot-play LOOT-Stack3-Easy-Dk1
 
 # List all registered task IDs (mjlab's built-ins included; --filter/--count narrow it)
 uv run loot-list-tasks
@@ -70,7 +70,7 @@ uv run loot-convert-demos --success-dir dataset/demos/<task>/<stamp> \
 
 # One hard recording -> a demo set per easier same-family task, no re-simulation
 uv run loot-split-demos --source-dir dataset/demos/<task>/<stamp> \
-    --source-task LOOT-Stack5-Easy-Dk1_uni --output-dir dataset/demos_split
+    --source-task LOOT-Stack5-Easy-Dk1 --output-dir dataset/demos_split
 
 # Verification scripts (see tests/tasks/README.md), not installed as console scripts
 uv run python tests/tasks/build_sim_registered_tasks.py
@@ -86,7 +86,7 @@ uv run python tests/viewer/check_viewer_shutdown.py
 PYTHONPATH=<loot-bench>:<qc> <qc>/.venv/bin/python tests/qc/bc_gate.py out/qc/demos.npz
 
 # Launch a QC-FQL run in the separate qc checkout (must run inside tmux)
-./train_qc.sh LOOT-Place-FixedS-FixedT-Dk1_uni out/qc/demos.npz --offline_steps=100000
+./train_qc.sh LOOT-Place-FixedS-FixedT-Dk1 out/qc/demos.npz --offline_steps=100000
 run_scripts/LOOT-Place/critic-variants/critic-off_100k-100k.sh   # one critic variant
 ```
 

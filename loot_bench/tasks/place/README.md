@@ -70,7 +70,7 @@ fraction of the spawn→target travel completed, normalized by the fixed
 
 ## Variants
 
-| Task id (`-Dk1_uni`)        | Cube spawn        | Target            |
+| Task id (`-Dk1`)        | Cube spawn        | Target            |
 | --------------------------- | ----------------- | ----------------- |
 | `LOOT-Place-RandS-RandT`     | sampled per reset | sampled per reset |
 | `LOOT-Place-RandS-FixedT`    | sampled per reset | pinned            |
@@ -80,5 +80,5 @@ fraction of the spawn→target travel completed, normalized by the fixed
 Play e.g. with:
 
 ```bash
-uv run loot-play LOOT-Place-RandS-RandT-Dk1_uni
+uv run loot-play LOOT-Place-RandS-RandT-Dk1
 ```

@@ -507,7 +507,7 @@ def main() -> None:
     parser.add_argument(
         "--task",
         type=str,
-        default="LOOT-Place-FixedS-FixedT-Dk1_uni",
+        default="LOOT-Place-FixedS-FixedT-Dk1",
         help="MJLab task the demo was recorded on",
     )
     parser.add_argument(

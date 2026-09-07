@@ -88,7 +88,7 @@ Usage:
     uv run python tests/tasks/compare_sim_settings.py --viewer
     uv run python tests/tasks/compare_sim_settings.py --scenarios grasp
     uv run python tests/tasks/compare_sim_settings.py \\
-        --task LOOT-Sorter-Cube-Circle-Dk1_uni --profiles train play
+        --task LOOT-Sorter-Cube-Circle-Dk1 --profiles train play
 """
 
 import argparse
@@ -106,7 +106,7 @@ from mjlab.tasks.registry import load_env_cfg
 import loot_bench  # noqa: F401  (registers tasks)
 from loot_bench.tasks.stack.mdp.commands import StackCommand
 
-DEFAULT_TASK = "LOOT-Stack3-Easy-Dk1_uni"
+DEFAULT_TASK = "LOOT-Stack3-Easy-Dk1"
 SAMPLE_DT = 0.02  # sim-time spacing of accuracy samples; every profile's
 # step_dt must divide this so all profiles are compared at identical times.
 OBJECT_DRIFT_THRESHOLD = 1e-3  # 1 mm / 1 mrad: "first divergence" marker

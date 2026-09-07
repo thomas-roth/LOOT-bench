@@ -12,7 +12,7 @@ from loot_bench.tasks.place.variants import PLACE_VARIANTS, PlaceVariantCfg
 
 def _task_id_parts(variant: PlaceVariantCfg) -> tuple[str, str]:
     # The two randomness axes fill the <task>-<variation> slots:
-    # LOOT-Place-RandS-FixedT-Dk1_uni.
+    # LOOT-Place-RandS-FixedT-Dk1.
     spawn, target = variant.name.split("-")
     return spawn, target
 

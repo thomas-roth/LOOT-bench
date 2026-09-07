@@ -2,7 +2,7 @@
 # Launch a QC-FQL run against one loot-bench task.
 #
 #   ./train_qc.sh <TASK_ID> <DATASET.npz> [extra main.py flags...]
-#   ./train_qc.sh LOOT-Stack3-Easy-Dk1_uni out/qc/stack.npz --offline_steps 100000
+#   ./train_qc.sh LOOT-Stack3-Easy-Dk1 out/qc/stack.npz --offline_steps 100000
 #
 # Training lives in a separate checkout of upstream qc; this repository holds
 # only the seam to it (docs/adr/002). The script exists for the settings that

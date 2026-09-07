@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pure BC flow on LOOT-Place-RandS-RandT-Dk1_uni: the critic trains but never
+# Pure BC flow on LOOT-Place-RandS-RandT-Dk1: the critic trains but never
 # acts. best-of-n zeroes the distill and Q terms in acfql.actor_loss, and with
 # actor_num_samples=1 the argmax has nothing to pick between.
 #
@@ -17,7 +17,7 @@ set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 export LOOT_RUN_SCRIPT="$(basename "${BASH_SOURCE[0]}" .sh)"
 
-exec "$REPO/train_qc.sh" LOOT-Place-RandS-RandT-Dk1_uni \
+exec "$REPO/train_qc.sh" LOOT-Place-RandS-RandT-Dk1 \
   "$REPO/dataset/qc/place_rand-s_rand-t_100-demos_2026-09-04_14-09-57.npz" \
   --agent=agents/acfql.py \
   --agent.actor_type=best-of-n \

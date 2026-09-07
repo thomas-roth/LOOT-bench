@@ -59,7 +59,7 @@ zero when every piece is latched and the gripper is open.
 
 ## Variants
 
-| Task id (`-Dk1_uni`)                                | Description                                     |
+| Task id (`-Dk1`)                                | Description                                     |
 | ----------------------------------------------------- | ------------------------------------------------ |
 | `LOOT-Sorter-{3,4,5}Shapes-FixedOrientation`            | cube pose fixed, position jittered          |
 | `LOOT-Sorter-{3,4,5}Shapes-NoRotation`                  | cube face-down on an unneeded hole + random yaw |
@@ -69,5 +69,5 @@ zero when every piece is latched and the gripper is open.
 Play e.g. with:
 
 ```bash
-uv run loot-play LOOT-Sorter-3Shapes-FixedOrientation-Dk1_uni
+uv run loot-play LOOT-Sorter-3Shapes-FixedOrientation-Dk1
 ```

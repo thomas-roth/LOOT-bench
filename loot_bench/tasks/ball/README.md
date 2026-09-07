@@ -61,7 +61,7 @@ There is no shaping, no penalty and no regularization.
 
 ## Variants
 
-| Task id (`-Dk1_uni`)                       | Description                                       |
+| Task id (`-Dk1`)                       | Description                                       |
 | --------------------------------------------- | -------------------------------------------------- |
 | `LOOT-Ball-Minigolf-Direct`                    | hit the ball straight into the pit                |
 | `LOOT-Ball-Minigolf-UsingWall`                  | bank the ball off a wall around a blocker          |
@@ -74,5 +74,5 @@ There is no shaping, no penalty and no regularization.
 Play e.g. with:
 
 ```bash
-uv run loot-play LOOT-Ball-Minigolf-Direct-Dk1_uni
+uv run loot-play LOOT-Ball-Minigolf-Direct-Dk1
 ```

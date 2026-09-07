@@ -26,7 +26,7 @@ from loot_bench.robots.trlc_dk1.dk1_collision import (
 
 # Interface identifiers.
 
-DK1_NAME_UNIMANUAL = "Dk1_uni"
+DK1_NAME_UNIMANUAL = "Dk1"
 DK1_NAME_BIMANUAL = "Dk1_bi"
 DK1_GRASP_SITE = "grasp_site"
 DK1_EE_SUBTREE = "link6-7"

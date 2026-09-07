@@ -154,7 +154,7 @@ def _teleport_stack(
 
 
 def _check_stack3_easy(device: str, *, render: bool = False) -> str | None:
-    task_id = "LOOT-Stack3-Easy-Dk1_uni"
+    task_id = "LOOT-Stack3-Easy-Dk1"
     env = _make_env(task_id, device)
     cmd = cast(StackCommand, env.command_manager.get_term("task"))
     zeros = _zeros(env, device)
@@ -185,7 +185,7 @@ def _check_stack_held_block_excluded(
     others rest at half target height. Only the resting blocks may count until
     the gripper opens.
     """
-    task_id = "LOOT-Stack3-Easy-Dk1_uni"
+    task_id = "LOOT-Stack3-Easy-Dk1"
     env = _make_env(task_id, device)
     cmd = cast(StackCommand, env.command_manager.get_term("task"))
     robot = env.scene["robot"]
@@ -264,7 +264,7 @@ def _check_stack_empty_gripper_no_grip(
     ``grip_reach`` (e.g. a freshly placed stack top). Every block is sunk out
     of reach here, so any force can only be finger self-contact.
     """
-    env = _make_env("LOOT-Stack3-Easy-Dk1_uni", device)
+    env = _make_env("LOOT-Stack3-Easy-Dk1", device)
     cmd = cast(StackCommand, env.command_manager.get_term("task"))
     ne, dim = _NUM_ENVS, env.action_manager.action.shape[1]
     quat = _upright_quat(ne, device)
@@ -370,7 +370,7 @@ def _tip_first_domino(cmd: DominoCommand, env: ManagerBasedRlEnv, device: str) -
 
 
 def _check_domino_3pieces(device: str, *, render: bool = False) -> str | None:
-    task_id = "LOOT-Domino-3Pieces-Dk1_uni"
+    task_id = "LOOT-Domino-3Pieces-Dk1"
     env = _make_env(task_id, device)
     cmd = cast(DominoCommand, env.command_manager.get_term("task"))
     zeros = _zeros(env, device)
@@ -392,7 +392,7 @@ def _check_domino_knockover(device: str, *, render: bool = False) -> str | None:
     seeded past its tip point, so the rest must fall from the actual contact
     cascade, along the row axis, in row order, for ``progress`` to reach 1.0.
     """
-    task_id = "LOOT-Domino-3Pieces-KnockOver-Dk1_uni"
+    task_id = "LOOT-Domino-3Pieces-KnockOver-Dk1"
     env = _make_env(task_id, device)
     cmd = cast(DominoCommand, env.command_manager.get_term("task"))
     zeros = _zeros(env, device)
@@ -445,7 +445,7 @@ def _check_shape_sorter_full(device: str, *, render: bool = False) -> str | None
     interior at once and the latch not clearing on relocation means this
     doesn't affect what's being verified.
     """
-    task_id = "LOOT-Sorter-3Shapes-Full-Dk1_uni"
+    task_id = "LOOT-Sorter-3Shapes-Full-Dk1"
     env = _make_env(task_id, device)
     cmd = cast(ShapeSorterCommand, env.command_manager.get_term("task"))
     zeros = _zeros(env, device)
@@ -606,7 +606,7 @@ def _check_minigolf_using_wall_blocks_direct_shots() -> str | None:
 
 
 def _check_ball_minigolf_using_wall(device: str, *, render: bool = False) -> str | None:
-    task_id = "LOOT-Ball-Minigolf-UsingWall-Dk1_uni"
+    task_id = "LOOT-Ball-Minigolf-UsingWall-Dk1"
     err = _check_ball_at_target(device, task_id, render=render)
     if err is not None:
         return err
@@ -618,10 +618,10 @@ def _check_ball_minigolf_using_wall(device: str, *, render: bool = False) -> str
 # ---------------------------------------------------------------------------
 
 _PLACE_TASK_IDS: dict[str, str] = {
-    "place_rands_randt": "LOOT-Place-RandS-RandT-Dk1_uni",
-    "place_rands_fixedt": "LOOT-Place-RandS-FixedT-Dk1_uni",
-    "place_fixeds_randt": "LOOT-Place-FixedS-RandT-Dk1_uni",
-    "place_fixeds_fixedt": "LOOT-Place-FixedS-FixedT-Dk1_uni",
+    "place_rands_randt": "LOOT-Place-RandS-RandT-Dk1",
+    "place_rands_fixedt": "LOOT-Place-RandS-FixedT-Dk1",
+    "place_fixeds_randt": "LOOT-Place-FixedS-RandT-Dk1",
+    "place_fixeds_fixedt": "LOOT-Place-FixedS-FixedT-Dk1",
 }
 
 _CHECKS: list[tuple[str, str]] = [
@@ -658,12 +658,12 @@ def _dispatch(key: str, device: str, *, render: bool = False) -> str | None:
         return _check_shape_sorter_full(device, render=render)
     if key == "ball_minigolf_direct":
         return _check_ball_at_target(
-            device, "LOOT-Ball-Minigolf-Direct-Dk1_uni", render=render
+            device, "LOOT-Ball-Minigolf-Direct-Dk1", render=render
         )
     if key == "ball_minigolf_using_wall":
         return _check_ball_minigolf_using_wall(device, render=render)
     if key == "ball_throw_u":
-        return _check_ball_at_target(device, "LOOT-Ball-Throw-U-Dk1_uni", render=render)
+        return _check_ball_at_target(device, "LOOT-Ball-Throw-U-Dk1", render=render)
     return f"Unknown check key: {key}"
 
 

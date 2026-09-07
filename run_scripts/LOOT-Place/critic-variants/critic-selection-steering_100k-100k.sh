@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Best-of-32 plus Q-steering on LOOT-Place-RandS-RandT-Dk1_uni: the critic does
+# Best-of-32 plus Q-steering on LOOT-Place-RandS-RandT-Dk1: the critic does
 # both jobs. distill-ddpg-select keeps the full actor loss (bc_flow +
 # alpha * distill + q_loss) and still lets the critic argmax over 32 sampled
 # chunks at every decision.
@@ -15,7 +15,7 @@ set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 export LOOT_RUN_SCRIPT="$(basename "${BASH_SOURCE[0]}" .sh)"
 
-exec "$REPO/train_qc.sh" LOOT-Place-RandS-RandT-Dk1_uni \
+exec "$REPO/train_qc.sh" LOOT-Place-RandS-RandT-Dk1 \
   "$REPO/dataset/qc/place_rand-s_rand-t_100-demos_2026-09-04_14-09-57.npz" \
   --agent=agents/acfql.py \
   --agent.actor_type=distill-ddpg-select \

@@ -5,7 +5,7 @@ they are the only place that checks the convention actually reached the
 compiled model, and a wrong action range does not raise -- it just puts the
 task out of reach and reads back as a policy that never learns.
 
-``LOOT-Place-FixedS-FixedT-Dk1_uni`` rather than a stack variant, because the
+``LOOT-Place-FixedS-FixedT-Dk1`` rather than a stack variant, because the
 episode-budget and observation-width assertions below are ``place``'s own.
 """
 
@@ -24,7 +24,7 @@ from loot_bench.tasks.common.actions import (
 )
 from loot_bench.tasks.common.env_cfg import CONTROL_STEP_S
 
-TASK_ID = "LOOT-Place-FixedS-FixedT-Dk1_uni"
+TASK_ID = "LOOT-Place-FixedS-FixedT-Dk1"
 PLACE_EPISODE_LENGTH_S = 15.0
 PLACE_OBS_WIDTH = 35
 SUCCESS_TOLERANCE_M = 0.02

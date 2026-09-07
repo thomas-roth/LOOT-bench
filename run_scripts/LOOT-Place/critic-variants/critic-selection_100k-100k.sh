@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Stock QC on LOOT-Place-RandS-RandT-Dk1_uni: the critic picks the action and
+# Stock QC on LOOT-Place-RandS-RandT-Dk1: the critic picks the action and
 # does nothing else. The actor is a pure BC flow, and each decision samples 32
 # chunks for the critic to argmax over its Q ensemble. alpha is inert here,
 # because best-of-n zeroes the distill and Q terms in acfql.actor_loss.
@@ -15,7 +15,7 @@ set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 export LOOT_RUN_SCRIPT="$(basename "${BASH_SOURCE[0]}" .sh)"
 
-exec "$REPO/train_qc.sh" LOOT-Place-RandS-RandT-Dk1_uni \
+exec "$REPO/train_qc.sh" LOOT-Place-RandS-RandT-Dk1 \
   "$REPO/dataset/qc/place_rand-s_rand-t_100-demos_2026-09-04_14-09-57.npz" \
   --agent=agents/acfql.py \
   --agent.actor_type=best-of-n \
