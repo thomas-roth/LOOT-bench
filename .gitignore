@@ -19,6 +19,9 @@ wheels/
 
 # Cache
 .ruff_cache/
-
 # Agent scratch dir
 .scratch
+
+# graphify
+graphify-out/cost.json
+graphify-out/cache/
