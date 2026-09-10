@@ -8,14 +8,12 @@ from typing import TYPE_CHECKING, cast
 
 import torch
 from mjlab.entity import Entity
-from mjlab.managers.command_manager import CommandTerm
+from mjlab.managers.command_manager import CommandTerm, CommandTermCfg
 from mjlab.sensor import ContactSensor
 
 from loot_bench.tasks.common.commands import (
     GRIP_CONTACT_SENSOR_NAME,
     ContactReleaseGate,
-    GripperGateCommandCfg,
-    GripperOpenGate,
 )
 from loot_bench.tasks.common.debug_markers import marker_color
 from loot_bench.tasks.common.scatter import ScatterGrid, write_upright_spawn
@@ -56,7 +54,7 @@ def get_command(env: ManagerBasedRlEnv, name: str) -> PlaceCommand:
 
 
 @dataclass(kw_only=True)
-class PlaceCommandCfg(GripperGateCommandCfg):
+class PlaceCommandCfg(CommandTermCfg):
     cube_name: str
     variant: PlaceVariantCfg
     spawn_x_range: tuple[float, float] = SPAWN_X_RANGE
@@ -98,7 +96,6 @@ class PlaceCommand(CommandTerm):
         self.reached = torch.zeros(E, device=dev, dtype=torch.bool)
         self.progress = torch.zeros(E, device=dev)
         self._gate = SuccessGate(E, dev, vel_threshold=cfg.cube_vel_threshold)
-        self._gripper_gate = GripperOpenGate(cfg)
         self._contact_gate = ContactReleaseGate()
         self._grip_sensor = cast(
             ContactSensor, env.scene.sensors[GRIP_CONTACT_SENSOR_NAME]
@@ -157,9 +154,7 @@ class PlaceCommand(CommandTerm):
         self.progress = place_progress(self.dist_to_target, self._max_travel_dist)
 
         speed = self.cube.data.root_link_lin_vel_w.norm(dim=-1)
-        released = self._gripper_gate(self._env.scene["robot"]) & self._contact_gate(
-            self._grip_sensor
-        )
+        released = self._contact_gate(self._grip_sensor)
         self._gate.update(self.reached, speed, released)
 
         # shaped_task_reward handles the exact zero on latched success.

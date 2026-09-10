@@ -3,7 +3,8 @@
 Everything runs on synthetic episodes: no recorded demo of a splittable
 category is committed, and a fabricated one pins the contract more sharply
 anyway. Each category's fixture builds an observation in the real layout --
-``[joint_pos 8 | joint_vel 8 | ee_pose 9 | object-major sections]``, nothing
+``[joint_pos 8 | joint_vel 8 | ee_pose 9 | pad_contact_force 1 |
+object-major sections]``, nothing
 after (ADR-016) -- and a reward column obeying the env's one-step lag, so the
 source self-check runs on every relabel.
 """
@@ -30,8 +31,9 @@ from loot_bench.scripts.split_demos import (
 )
 from loot_bench.tasks.common.rewards import shaped_task_reward
 
-PROPRIO = 25
-"""joint_pos 8 + joint_vel 8 + ee_pose 9, the DK1's proprioceptive head."""
+PROPRIO = 26
+"""joint_pos 8 + joint_vel 8 + ee_pose 9 + pad_contact_force 1, the DK1's
+proprioceptive head."""
 
 ROBOT_QPOS_OPEN = np.array([0, 1.7, 1.7, -1.5708, 0, 0, 0.04, 0.04], np.float32)
 ROBOT_QPOS_CLOSED = np.array([0, 1.7, 1.7, -1.5708, 0, 0, 0.0, 0.0], np.float32)
@@ -40,10 +42,12 @@ FAR_AWAY = np.array([9.0, 9.0, 9.0], np.float32)
 """Grasp-site position with no object near it, so nothing counts as held."""
 
 
-def _head(grasp_pos: np.ndarray) -> np.ndarray:
-    """Proprioceptive head with ``ee_pose`` as its last 9 values."""
+def _head(grasp_pos: np.ndarray, pad_force: float = 0.0) -> np.ndarray:
+    """Proprioceptive head with ``ee_pose`` then ``pad_contact_force`` last."""
     ee_pose = np.concatenate([grasp_pos, [1, 0, 0, 0, 1, 0]]).astype(np.float32)
-    return np.concatenate([np.zeros(PROPRIO - 9, np.float32), ee_pose])
+    return np.concatenate(
+        [np.zeros(PROPRIO - 10, np.float32), ee_pose, [pad_force]]
+    ).astype(np.float32)
 
 
 def _source_rewards(progress: torch.Tensor, gate: torch.Tensor) -> np.ndarray:
@@ -107,9 +111,7 @@ class TestTaskIds:
             "LOOT-Domino-3Pieces-Dk1",
             "LOOT-Domino-2Pieces-Dk1",
         ]
-        assert easier_target_task_ids(
-            "LOOT-Domino-4Pieces-DifferentDominoes-Dk1"
-        ) == [
+        assert easier_target_task_ids("LOOT-Domino-4Pieces-DifferentDominoes-Dk1") == [
             "LOOT-Domino-3Pieces-DifferentDominoes-Dk1",
             "LOOT-Domino-2Pieces-DifferentDominoes-Dk1",
         ]
@@ -129,9 +131,7 @@ class TestTaskIds:
             "Dk1",
         )
         for variation in ("FixedOrientation", "NoRotation", "Full", "RandomPositions"):
-            assert easier_target_task_ids(
-                f"LOOT-Sorter-5Shapes-{variation}-Dk1"
-            ) == [
+            assert easier_target_task_ids(f"LOOT-Sorter-5Shapes-{variation}-Dk1") == [
                 f"LOOT-Sorter-4Shapes-{variation}-Dk1",
                 f"LOOT-Sorter-3Shapes-{variation}-Dk1",
             ]
@@ -183,18 +183,32 @@ class TestPlanValidation:
 # --- Stack ----------------------------------------------------------------- #
 
 
-def _stack_episode(heights_per_frame, grasp_pos_per_frame=None, gripper_open=True):
+def _stack_episode(
+    heights_per_frame,
+    grasp_pos_per_frame=None,
+    gripper_open=True,
+    pad_force: float | list[float] | None = None,
+):
     """Synthetic Stack5-Easy episode: 10 cubes, only their z varying.
 
     ``heights_per_frame`` gives each frame's block-centre z, one list per
     frame. Blocks rest at their spawn xy; only height decides Stack success.
+    ``pad_force`` is the recorded finger-pad force, a scalar or one value per
+    frame; None derives it from ``gripper_open`` (open reads force-free).
     """
     n = 10
+    frames = len(heights_per_frame)
+    if pad_force is None:
+        forces = [0.0 if gripper_open else 5.0] * frames
+    elif isinstance(pad_force, list):
+        forces = [float(f) for f in pad_force]
+    else:
+        forces = [pad_force] * frames
     xy = np.array([[0.25 + 0.02 * i, -0.1 + 0.02 * i] for i in range(n)], np.float32)
     robot = ROBOT_QPOS_OPEN if gripper_open else ROBOT_QPOS_CLOSED
-    grasp = grasp_pos_per_frame or [FAR_AWAY] * len(heights_per_frame)
+    grasp = grasp_pos_per_frame or [FAR_AWAY] * frames
     obs, qpos, qvel = [], [], []
-    for heights, grasp_pos in zip(heights_per_frame, grasp, strict=True):
+    for heights, grasp_pos, force in zip(heights_per_frame, grasp, forces, strict=True):
         poses = np.concatenate(
             [xy, np.asarray(heights, np.float32).reshape(-1, 1)], axis=1
         )
@@ -203,7 +217,10 @@ def _stack_episode(heights_per_frame, grasp_pos_per_frame=None, gripper_open=Tru
         )
         obs.append(
             np.concatenate(
-                [_head(np.asarray(grasp_pos, np.float32)), poses.reshape(-1)]
+                [
+                    _head(np.asarray(grasp_pos, np.float32), float(force)),
+                    poses.reshape(-1),
+                ]
             )
         )
         qpos.append(np.concatenate([poses.reshape(-1), robot]))
@@ -215,13 +232,11 @@ def _stack_episode(heights_per_frame, grasp_pos_per_frame=None, gripper_open=Tru
     )
 
 
-def _stack_state(obs, qvel, take, gripper_open=True):
+def _stack_state(obs, qvel, take):
     adapter = adapter_for("LOOT-Stack5-Easy-Dk1")
-    grip = torch.full((len(obs),), gripper_open, dtype=torch.bool)
     return frame_state(
         torch.from_numpy(obs.astype(np.float64)),
         torch.from_numpy(qvel.astype(np.float64)),
-        grip,
         proprio=PROPRIO,
         adapter=adapter,
         n_layout=10,
@@ -253,7 +268,7 @@ class TestStackRecompute:
         adapter = adapter_for("LOOT-Stack3-Easy-Dk1")
         stack3 = variant_from_task_id("LOOT-Stack3-Easy-Dk1")
         progress, _gate = adapter.progress_and_gate(
-            stack3, _stack_state(obs, qvel, take=6, gripper_open=False)
+            stack3, _stack_state(obs, qvel, take=6)
         )
         # Out of reach it counts; in the closed gripper it falls back to the
         # tallest resting block.
@@ -295,6 +310,42 @@ class TestStackRecompute:
         assert rel.qvel.shape[1] == 6 * 6 + 8
         assert np.array_equal(rel.obs[:, :PROPRIO], obs[:3, :PROPRIO])
         assert np.array_equal(rel.qpos[:, 6 * 7 :], qpos[:3, 10 * 7 :])
+
+    def test_pads_loaded_to_the_end_credit_no_success(self):
+        """Pads loaded to the end: no success, even with the qpos wide open.
+
+        The old qpos proxy read an open gripper as released and would have cut
+        a success here; the contact gate holds the whole episode shut.
+        """
+        rest, tower = 0.02, 0.10
+        obs, qpos, qvel = _stack_episode(
+            [[rest] * 10, [tower] + [rest] * 9, [tower] + [rest] * 9],
+            gripper_open=True,  # qpos open throughout: the proxy's blind spot
+            pad_force=5.0,  # ... while the pads stay loaded
+        )
+        plan = SplitPlan(
+            adapter_for("LOOT-Stack5-Easy-Dk1"),
+            variant_from_task_id("LOOT-Stack5-Easy-Dk1"),
+            variant_from_task_id("LOOT-Stack3-Easy-Dk1"),
+        )
+        progress, gate = plan.adapter.progress_and_gate(
+            plan.source, _stack_state(obs, qvel, take=10)
+        )
+        # The tower stands, but release never holds.
+        assert progress.tolist() == pytest.approx([0.2, 0.6, 0.6])
+        assert gate.tolist() == [False, False, False]
+        assert (
+            relabel_episode(
+                obs=obs,
+                qpos=qpos,
+                qvel=qvel,
+                action=np.zeros((3, 7), np.float32),
+                robot_state=np.zeros((3, 7), np.float32),
+                reward=_source_rewards(progress, gate),
+                plan=plan,
+            )
+            is None
+        )
 
     def test_no_target_success_returns_none(self):
         obs, qpos, qvel = _stack_episode([[0.02] * 10] * 3)
@@ -397,7 +448,6 @@ def test_domino_recompute_and_truncation(row_yaw):
     state = frame_state(
         torch.from_numpy(obs.astype(np.float64)),
         torch.from_numpy(qvel.astype(np.float64)),
-        torch.ones(len(obs), dtype=torch.bool),
         proprio=PROPRIO,
         adapter=adapter,
         n_layout=4,
@@ -434,7 +484,6 @@ def test_domino_dropped_piece_movement_is_reported():
     state = frame_state(
         torch.from_numpy(obs.astype(np.float64)),
         torch.from_numpy(qvel.astype(np.float64)),
-        torch.ones(len(obs), dtype=torch.bool),
         proprio=PROPRIO,
         adapter=adapter,
         n_layout=4,
@@ -502,7 +551,6 @@ def test_sorter_recompute_and_truncation():
         return frame_state(
             torch.from_numpy(obs.astype(np.float64)),
             torch.from_numpy(qvel.astype(np.float64)),
-            torch.ones(len(obs), dtype=torch.bool),
             proprio=PROPRIO + 7,
             adapter=adapter,
             n_layout=5,

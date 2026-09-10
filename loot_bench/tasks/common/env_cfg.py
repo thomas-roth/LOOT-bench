@@ -29,7 +29,8 @@ from loot_bench.tasks.common.actions import (
     EndEffectorDeltaActionCfg,
     NormalizedJointPositionActionCfg,
 )
-from loot_bench.tasks.common.observations import ee_pose_w
+from loot_bench.tasks.common.commands import GRIP_CONTACT_SENSOR_NAME
+from loot_bench.tasks.common.observations import ee_pose_w, pad_contact_force_obs
 
 SIM_TIMESTEP = 0.005
 """[s] physics timestep, shared by every task."""
@@ -103,6 +104,19 @@ def make_manipulation_env_cfg(
         "joint_vel": ObservationTermCfg(func=mdp.joint_vel_rel),
         "ee_pose": ObservationTermCfg(
             func=ee_pose_w, params={"asset_cfg": SceneEntityCfg("robot", site_names=())}
+        ),
+        # The release gate's own number, so an episode never ends for a
+        # reason the policy cannot see. Only when the task declares the
+        # sensor: ball has no release gate and stays untouched.
+        **(
+            {
+                "pad_contact_force": ObservationTermCfg(
+                    func=pad_contact_force_obs,
+                    params={"sensor_name": GRIP_CONTACT_SENSOR_NAME},
+                )
+            }
+            if any(s.name == GRIP_CONTACT_SENSOR_NAME for s in sensors)
+            else {}
         ),
         **task_obs_terms,
         **(

@@ -5,7 +5,9 @@ from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.managers.observation_manager import ObservationTermCfg
 from mjlab.managers.reward_manager import RewardTermCfg
 from mjlab.managers.termination_manager import TerminationTermCfg
+from mjlab.sensor import ContactMatch, ContactSensorCfg
 
+from loot_bench.tasks.common.commands import GRIP_CONTACT_SENSOR_NAME
 from loot_bench.tasks.common.env_cfg import make_manipulation_env_cfg
 from loot_bench.tasks.common.table import table_entity_cfg
 from loot_bench.tasks.peg_insertion import mdp as ins_mdp
@@ -92,6 +94,13 @@ def make_insertion_env_cfg(
     }
 
     num_pegs = len(peg_names)
+    sensors = (
+        ContactSensorCfg(
+            name=GRIP_CONTACT_SENSOR_NAME,
+            primary=ContactMatch(mode="geom", pattern="", entity="robot"),
+            fields=("force",),
+        ),
+    )
     return make_manipulation_env_cfg(
         entities=entities,
         fixed_props=("table", "board"),
@@ -108,6 +117,7 @@ def make_insertion_env_cfg(
         command_obs=False,
         task_rewards=task_rewards,
         task_terminations=task_terminations,
+        sensors=sensors,
         env_spacing=2.0,
         # Two-sheet gets an extra time budget for the alignment sub-task
         episode_length_s=10.0 + 8.0 * variant.num_sockets + (8.0 if two_sheet else 0.0),

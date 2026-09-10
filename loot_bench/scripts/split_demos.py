@@ -23,10 +23,12 @@ Each source episode is relabeled without re-simulating:
 - cut one frame past the target's first success, which is the frame the env
   would have paid ``0`` on and terminated (ADR-006).
 
-Only the gripper-open half of the env's release gate survives offline: the
-finger-pad contact force is not recorded. A per-episode self-check recomputes
-the *source* reward and asserts it matches the recording, so a wrong obs/qpos
-layout, gripper index or threshold fails loudly on the first real run.
+The env's real release gate survives offline: the finger-pad contact force
+is a recorded observation term, so the relabel applies the env's own gate
+straight out of the observation. A per-episode self-check recomputes the
+*source* reward and asserts it matches the recording, so a wrong obs/qpos
+layout, pad-force column or success kernel fails loudly on the first real
+run.
 
 Usage:
     uv run loot-split-demos \\
@@ -52,11 +54,11 @@ import numpy as np
 import pandas as pd
 import torch
 
-from loot_bench.robots.trlc_dk1 import get_unimanual_dk1_interface
 from loot_bench.scripts.live_bridge.dataset_extra_info import (
     load_extra_info,
     write_extra_info,
 )
+from loot_bench.tasks.common.commands import MIN_GRIP_FORCE
 from loot_bench.tasks.common.rewards import shaped_task_reward
 from loot_bench.tasks.common.success import OBJECT_VEL_THRESHOLD
 from loot_bench.tasks.domino.mdp.success import domino_upright_aligned
@@ -69,10 +71,10 @@ from loot_bench.tasks.stack.mdp.success import (
 from loot_bench.tasks.stack.variants import TARGET_BLOCKS
 
 _EE_POSE_WIDTH = 9
-"""Width of ``ee_pose``, the last proprioceptive obs term (ADR-007)."""
+"""Width of ``ee_pose``, the second-to-last proprioceptive obs term (ADR-007)."""
 
-_ROBOT_GRIPPER_LEFT_QPOS_IDX = 6
-"""Index of ``gripper_left`` inside the robot's qpos block."""
+_PAD_FORCE_WIDTH = 1
+"""Width of ``pad_contact_force``, the last proprioceptive obs term."""
 
 _REWARD_SELF_CHECK_MEAN_TOL = 1e-4
 """Mean per-frame reward residual allowed by the source self-check.
@@ -90,8 +92,6 @@ _DROPPED_Z_TOL = 0.02
 _DOMINO_POS_THRESHOLD = 0.015
 _DOMINO_UPRIGHT_DEG = 15.0
 
-_GRIPPER_OPEN_THRESHOLD = get_unimanual_dk1_interface().gripper_open_threshold
-
 
 @dataclass(frozen=True)
 class FrameState:
@@ -104,13 +104,12 @@ class FrameState:
     sections: list[torch.Tensor]
     speed: torch.Tensor
     """(T, k) object linear speed."""
-    grip_open: torch.Tensor
-    """(T,) gripper past its open threshold.
+    released: torch.Tensor
+    """(T,) pads force-free: the recorded pad contact force at or below
+    ``MIN_GRIP_FORCE``.
 
-    Stands in for the env's whole release gate (gripper open *and* pads
-    force-free): pad contact force is not recorded. Since ``dk1.xml`` excludes
-    the finger-pad pair, an empty gripper no longer self-collides, so an open
-    gripper implies force-free pads unless something is still between them."""
+    The env's real release condition, read straight out of the observation
+    rather than reconstructed from the gripper joints."""
     grasp_pos: torch.Tensor
     """(T, 3) grasp-site position, env-local -- the obs poses' frame."""
 
@@ -136,19 +135,20 @@ def _stack_progress_and_gate(
         top_z, 0.0, variant.target_height, exclude=_held_block_mask(blocks, state)
     )
     at_rest = state.speed.amax(dim=-1) <= OBJECT_VEL_THRESHOLD
-    return progress, task_done & at_rest & state.grip_open
+    return progress, task_done & at_rest & state.released
 
 
 def _held_block_mask(blocks: torch.Tensor, state: FrameState) -> torch.Tensor:
     """(T, k) bool marking the block in the gripper, as ``StackCommand`` does.
 
     A held block earns no progress, so the offline reward has to find the same
-    one: the nearest block within ``GRIP_REACH`` while the gripper is closed.
+    one: the nearest block within ``GRIP_REACH`` while the pads report grip
+    force.
     """
     dist = (blocks[:, :, :3] - state.grasp_pos.unsqueeze(1)).norm(dim=-1)  # (T, k)
     nearest = dist.argmin(dim=-1)
     frame = torch.arange(dist.shape[0])
-    held = ~state.grip_open & (dist[frame, nearest] <= GRIP_REACH)
+    held = ~state.released & (dist[frame, nearest] <= GRIP_REACH)
     mask = torch.zeros_like(dist, dtype=torch.bool)
     mask[frame, nearest] = held
     return mask
@@ -171,7 +171,7 @@ def _domino_progress_and_gate(
     at_goal = (slot_pos - piece_pos).norm(dim=-1) < _DOMINO_POS_THRESHOLD * margin
     at_goal &= domino_upright_aligned(piece_quat, row_yaw, _DOMINO_UPRIGHT_DEG * margin)
     at_rest = state.speed.amax(dim=-1) <= OBJECT_VEL_THRESHOLD
-    gate = at_goal.all(dim=-1) & at_rest & state.grip_open
+    gate = at_goal.all(dim=-1) & at_rest & state.released
     return at_goal.double().mean(dim=-1), gate
 
 
@@ -187,7 +187,7 @@ def _sorter_progress_and_gate(
     """
     del variant  # every variant scores alike; only the piece count differs
     latched = state.sections[1][:, :, 0] > 0.5  # (T, k)
-    return latched.double().mean(dim=-1), latched.all(dim=-1) & state.grip_open
+    return latched.double().mean(dim=-1), latched.all(dim=-1) & state.released
 
 
 @dataclass(frozen=True)
@@ -398,7 +398,6 @@ def proprio_width(obs_dim: int, adapter: CategoryAdapter, n_objects: int) -> int
 def frame_state(
     obs: torch.Tensor,
     qvel: torch.Tensor,
-    grip_open: torch.Tensor,
     *,
     proprio: int,
     adapter: CategoryAdapter,
@@ -409,6 +408,10 @@ def frame_state(
 
     ``n_layout`` is the object count the recording is laid out with (the
     section spacing); ``take`` (<= ``n_layout``) is how many to keep.
+    Release reads out of the recorded observation: the pad force sits last
+    in the proprioceptive head, so it is ``obs`` at ``proprio - 1`` and the
+    grasp-site position (the first 3 of ``ee_pose``) sits one ``ee_pose``
+    width before that.
     """
     frames = obs.shape[0]
     sections, offset = [], proprio
@@ -418,11 +421,11 @@ def frame_state(
         offset += n_layout * width
     fixed = adapter.qpos_fixed_bodies
     speed = qvel[:, fixed * 6 : (fixed + take) * 6].reshape(frames, take, 6)
-    ee_pos = proprio - _EE_POSE_WIDTH
+    ee_pos = proprio - _PAD_FORCE_WIDTH - _EE_POSE_WIDTH
     return FrameState(
         sections=sections,
         speed=speed[:, :, :3].norm(dim=-1),
-        grip_open=grip_open,
+        released=obs[:, proprio - _PAD_FORCE_WIDTH] <= MIN_GRIP_FORCE,
         grasp_pos=obs[:, ee_pos : ee_pos + 3],
     )
 
@@ -446,8 +449,8 @@ def _check_source_reward(
 ) -> None:
     """Assert the recompute reproduces the source episode's own reward.
 
-    The one thing that validates the obs/qpos layout, the gripper index and
-    threshold, and every success kernel against real recorded data. Compared
+    The one thing that validates the obs/qpos layout, the pad-force column,
+    and every success kernel against real recorded data. Compared
     over frames 1.. because of the reward lag; frame 0's predecessor state was
     never recorded.
     """
@@ -456,8 +459,8 @@ def _check_source_reward(
     mean = residual.mean().item()
     assert mean <= _REWARD_SELF_CHECK_MEAN_TOL, (
         f"source reward self-check failed (mean residual {mean:.2e}, max "
-        f"{residual.max().item():.2e}); the obs/qpos layout, the gripper index "
-        "or threshold, or a success kernel disagrees with the recording"
+        f"{residual.max().item():.2e}); the obs/qpos layout, the pad-force "
+        "column, or a success kernel disagrees with the recording"
     )
 
 
@@ -512,21 +515,18 @@ def relabel_episode(
     proprio = proprio_width(obs.shape[1], adapter, n_src)
 
     obs_t = torch.from_numpy(obs.astype(np.float64))
-    qpos_t = torch.from_numpy(qpos.astype(np.float64))
     qvel_t = torch.from_numpy(qvel.astype(np.float64))
     recorded = torch.from_numpy(reward.astype(np.float64)).reshape(-1)
 
     # qpos/qvel layout: [fixed leading free bodies | objects | robot], each free
-    # body 7 qpos and 6 qvel.
+    # body 7 qpos and 6 qvel. Release reads out of the recorded observation,
+    # so the robot's qpos block is only truncated below, never interpreted.
     fixed = adapter.qpos_fixed_bodies
-    grip_left = qpos_t[:, (fixed + n_src) * 7 + _ROBOT_GRIPPER_LEFT_QPOS_IDX]
-    grip_open = grip_left > _GRIPPER_OPEN_THRESHOLD
 
     def state_of(take: int) -> FrameState:
         return frame_state(
             obs_t,
             qvel_t,
-            grip_open,
             proprio=proprio,
             adapter=adapter,
             n_layout=n_src,

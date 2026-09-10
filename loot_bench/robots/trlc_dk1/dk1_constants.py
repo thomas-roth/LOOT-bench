@@ -11,10 +11,8 @@ from pathlib import Path
 import mujoco
 from mjlab.entity import EntityArticulationInfoCfg, EntityCfg
 
-from loot_bench.robots.interface import gripper_open_threshold
 from loot_bench.robots.trlc_dk1.dk1_actuators import (
     ARM_JOINTS,
-    GRIPPER_MECHANICAL_RANGE,
     get_arm_actuators,
     get_gripper_actuator,
 )
@@ -31,9 +29,6 @@ DK1_NAME_BIMANUAL = "Dk1_bi"
 DK1_GRASP_SITE = "grasp_site"
 DK1_EE_SUBTREE = "link6-7"
 DK1_VIEWER_BODY = "base"
-DK1_GRIPPER_JOINTS_UNIMANUAL = ("gripper_left",)
-DK1_GRIPPER_JOINTS_BIMANUAL = ("left_gripper_left", "right_gripper_left")
-DK1_GRIPPER_OPEN_THRESHOLD = gripper_open_threshold(GRIPPER_MECHANICAL_RANGE)
 
 # The actuator split the two action terms are built from: the arm is the IK
 # chain, the gripper is the normalized stroke. Listed from ARM_JOINTS rather

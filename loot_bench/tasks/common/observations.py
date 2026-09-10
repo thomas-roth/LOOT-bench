@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import torch
 from mjlab.entity import Entity
 from mjlab.managers.scene_entity_config import SceneEntityCfg
+from mjlab.sensor import ContactSensor
 from mjlab.utils.lab_api.math import matrix_from_quat
+
+from loot_bench.tasks.common.commands import (
+    GRIP_CONTACT_SENSOR_NAME,
+    pad_contact_force,
+)
 
 if TYPE_CHECKING:
     from mjlab.envs import ManagerBasedRlEnv
@@ -66,6 +72,26 @@ def ee_pose_w(env: ManagerBasedRlEnv, asset_cfg: SceneEntityCfg) -> torch.Tensor
     quat = robot.data.site_quat_w[:, asset_cfg.site_ids].squeeze(1)
     pos = pos - env.scene.env_origins
     return torch.cat([pos, rot6d_from_matrix(matrix_from_quat(quat))], dim=-1)
+
+
+PAD_CONTACT_FORCE_WIDTH = 1
+"""Width of the ``pad_contact_force`` observation term."""
+
+
+def pad_contact_force_obs(
+    env: ManagerBasedRlEnv, sensor_name: str = GRIP_CONTACT_SENSOR_NAME
+) -> torch.Tensor:
+    """Strongest finger-pad contact force [N], as a width-1 term (E, 1).
+
+    The release gate's own number, published so an episode never ends for a
+    reason the policy cannot see. Calls the same
+    :func:`~loot_bench.tasks.common.commands.pad_contact_force` reduction the
+    :class:`~loot_bench.tasks.common.commands.ContactReleaseGate` thresholds
+    and ``qc/env.py`` reports as telemetry, so the observed value, the gate
+    value and the telemetry value are one number.
+    """
+    sensor = cast(ContactSensor, env.scene.sensors[sensor_name])
+    return pad_contact_force(sensor).unsqueeze(-1)
 
 
 def flatten_pose(

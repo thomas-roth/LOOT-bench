@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, cast
 import numpy as np
 import torch
 from mjlab.entity import Entity
-from mjlab.managers.command_manager import CommandTerm
+from mjlab.managers.command_manager import CommandTerm, CommandTermCfg
 from mjlab.sensor import ContactSensor
 from mjlab.utils.lab_api.math import quat_from_euler_xyz
 
@@ -17,8 +17,6 @@ from loot_bench.tasks.common.colors import COLOR_NAMES, COLOR_VALUES
 from loot_bench.tasks.common.commands import (
     GRIP_CONTACT_SENSOR_NAME,
     ContactReleaseGate,
-    GripperGateCommandCfg,
-    GripperOpenGate,
 )
 from loot_bench.tasks.common.debug_markers import (
     MARKER_INFLATE,
@@ -66,7 +64,7 @@ def get_command(env: ManagerBasedRlEnv, name: str) -> DominoCommand:
 
 
 @dataclass(kw_only=True)
-class DominoCommandCfg(GripperGateCommandCfg):
+class DominoCommandCfg(CommandTermCfg):
     domino_names: tuple[str, ...]
     """All domino entities, in row-slot index order."""
     variant: DominoVariantCfg
@@ -121,7 +119,6 @@ class DominoCommand(CommandTerm):
         self.progress = torch.zeros(E, device=dev)
         self.fall_order = torch.full((E, G), _NEVER_FELL, device=dev)
         self._gate = SuccessGate(E, dev, vel_threshold=cfg.domino_vel_threshold)
-        self._gripper_gate = GripperOpenGate(cfg)
         self._contact_gate = ContactReleaseGate()
         self._grip_sensor = cast(
             ContactSensor, env.scene.sensors[GRIP_CONTACT_SENSOR_NAME]
@@ -144,7 +141,7 @@ class DominoCommand(CommandTerm):
 
     @property
     def success(self) -> torch.Tensor:
-        """(E,) float: task done, dominoes at rest, gripper open."""
+        """(E,) float: task done, dominoes at rest, released."""
         return self._gate.success
 
     @property
@@ -190,9 +187,7 @@ class DominoCommand(CommandTerm):
         speed = torch.stack(
             [d.data.root_link_lin_vel_w for d in self.dominoes], dim=1
         ).norm(dim=-1)  # (E, G)
-        released = self._gripper_gate(self._env.scene["robot"]) & self._contact_gate(
-            self._grip_sensor
-        )
+        released = self._contact_gate(self._grip_sensor)
 
         if self.variant.knock_over:
             self.phase = torch.maximum(self.phase, all_placed.float())

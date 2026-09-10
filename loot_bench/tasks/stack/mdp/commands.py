@@ -19,15 +19,13 @@ from typing import TYPE_CHECKING, cast
 import numpy as np
 import torch
 from mjlab.entity import Entity
-from mjlab.managers.command_manager import CommandTerm
+from mjlab.managers.command_manager import CommandTerm, CommandTermCfg
 from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.sensor import ContactSensor
 
 from loot_bench.tasks.common.commands import (
     GRIP_CONTACT_SENSOR_NAME,
     ContactReleaseGate,
-    GripperGateCommandCfg,
-    GripperOpenGate,
 )
 from loot_bench.tasks.common.debug_markers import (
     MARKER_INFLATE,
@@ -74,7 +72,7 @@ def get_command(env: ManagerBasedRlEnv, name: str) -> StackCommand:
 
 
 @dataclass(kw_only=True)
-class StackCommandCfg(GripperGateCommandCfg):
+class StackCommandCfg(CommandTermCfg):
     block_names: tuple[str, ...]
     """All block entities, in the variant's (tail-extending) index order."""
     variant: StackVariantCfg
@@ -123,7 +121,6 @@ class StackCommand(CommandTerm):
         self.block_reached = torch.zeros(E, N, device=dev, dtype=torch.bool)
         self.progress = torch.zeros(E, device=dev)
         self._gate = SuccessGate(E, dev, vel_threshold=cfg.block_vel_threshold)
-        self._gripper_gate = GripperOpenGate(cfg)
         self._contact_gate = ContactReleaseGate()
         self._grip_sensor = cast(
             ContactSensor, env.scene.sensors[GRIP_CONTACT_SENSOR_NAME]
@@ -143,7 +140,7 @@ class StackCommand(CommandTerm):
 
     @property
     def success(self) -> torch.Tensor:
-        """(E,) float: target height reached, blocks at rest, gripper open."""
+        """(E,) float: target height reached, blocks at rest, released."""
         return self._gate.success
 
     @property
@@ -176,7 +173,7 @@ class StackCommand(CommandTerm):
         speed = torch.stack(
             [b.data.root_link_lin_vel_w for b in self.blocks], dim=1
         ).norm(dim=-1)  # (E, N)
-        released = self._gripper_gate(robot) & pads_free
+        released = pads_free
         self._gate.update(task_done, speed, released)
 
         self.metrics["max_height_frac"] = self.progress

@@ -11,10 +11,14 @@ from typing import TYPE_CHECKING, cast
 import numpy as np
 import torch
 from mjlab.entity import Entity
-from mjlab.managers.command_manager import CommandTerm
+from mjlab.managers.command_manager import CommandTerm, CommandTermCfg
+from mjlab.sensor import ContactSensor
 from mjlab.utils.lab_api.math import quat_from_euler_xyz
 
-from loot_bench.tasks.common.commands import GripperGateCommandCfg, GripperOpenGate
+from loot_bench.tasks.common.commands import (
+    GRIP_CONTACT_SENSOR_NAME,
+    ContactReleaseGate,
+)
 from loot_bench.tasks.common.debug_markers import MARKER_INFLATE, marker_color
 from loot_bench.tasks.common.scatter import ScatterGrid
 from loot_bench.tasks.common.success import (
@@ -51,7 +55,7 @@ _OBJECT_RADIUS = 0.022
 
 
 @dataclass(kw_only=True)
-class InsertionCommandCfg(GripperGateCommandCfg):
+class InsertionCommandCfg(CommandTermCfg):
     board_name: str
     peg_names: tuple[str, ...]
     """One peg entity per socket, in socket order."""
@@ -117,7 +121,10 @@ class InsertionCommand(CommandTerm):
         self.sheet_quat_w = torch.zeros(E, 4, device=dev)
         self.inserted = torch.zeros(E, S, device=dev)
         self._gate = SuccessGate(E, dev, vel_threshold=cfg.peg_vel_threshold)
-        self._gripper_gate = GripperOpenGate(cfg)
+        self._contact_gate = ContactReleaseGate()
+        self._grip_sensor = cast(
+            ContactSensor, env.scene.sensors[GRIP_CONTACT_SENSOR_NAME]
+        )
         self._half_len = PEG_HALF_LEN
 
         # Pegs spawn upright in the reach band on a jittered grid.
@@ -137,7 +144,7 @@ class InsertionCommand(CommandTerm):
 
     @property
     def success(self) -> torch.Tensor:
-        """(E,) float: task done, scored pegs at rest, gripper open."""
+        """(E,) float: task done, scored pegs at rest, released."""
         return self._gate.success
 
     @property
@@ -209,7 +216,7 @@ class InsertionCommand(CommandTerm):
         )  # (E, N, 3)
         assigned_speed = peg_lin_vel_w[:, :S].norm(dim=-1)  # (E, S)
 
-        released = self._gripper_gate(self._env.scene["robot"])
+        released = self._contact_gate(self._grip_sensor)
         self._gate.update(all_in, assigned_speed, released)
 
         self.metrics["lateral_error"] = lateral.mean(dim=1)

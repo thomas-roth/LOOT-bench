@@ -25,8 +25,15 @@ def _fake_env(names: list[str], dims: list[tuple[int, ...]]):
     return SimpleNamespace(env=SimpleNamespace(observation_manager=om))
 
 
-PLACE_NAMES = ["joint_pos", "joint_vel", "ee_pose", "cube_pose", "command"]
-PLACE_DIMS = [(8,), (8,), (9,), (7,), (3,)]
+PLACE_NAMES = [
+    "joint_pos",
+    "joint_vel",
+    "ee_pose",
+    "pad_contact_force",
+    "cube_pose",
+    "command",
+]
+PLACE_DIMS = [(8,), (8,), (9,), (1,), (7,), (3,)]
 """``place``'s actor group. No ``actions`` term: a delta action says nothing
 about where the arm is, and the previous action was only ever in the
 observation to make the old absolute joint target readable (ADR-016)."""
@@ -37,9 +44,9 @@ class TestObsLayout:
         layout = _ObsLayout.from_env(_fake_env(PLACE_NAMES, PLACE_DIMS))
         assert layout is not None
         assert layout.names == PLACE_NAMES
-        assert layout.dims == [8, 8, 9, 7, 3]
-        assert layout.total == 35
-        assert layout.offsets == [0, 8, 16, 25, 32]
+        assert layout.dims == [8, 8, 9, 1, 7, 3]
+        assert layout.total == 36
+        assert layout.offsets == [0, 8, 16, 25, 26, 33]
 
     def test_identifies_ee_goal_object_terms(self):
         layout = _ObsLayout.from_env(_fake_env(PLACE_NAMES, PLACE_DIMS))
@@ -70,9 +77,9 @@ class TestObsLayout:
 
     def test_slice_returns_the_right_chunk(self):
         layout = _ObsLayout.from_env(_fake_env(PLACE_NAMES, PLACE_DIMS))
-        obs = np.arange(35, dtype=np.float64)
+        obs = np.arange(36, dtype=np.float64)
         chunk = layout.slice(obs, "command")
-        assert list(chunk) == [32.0, 33.0, 34.0]
+        assert list(chunk) == [33.0, 34.0, 35.0]
 
     def test_from_env_returns_none_on_unrecognized_env(self):
         """Any env shape this doesn't understand disables the named

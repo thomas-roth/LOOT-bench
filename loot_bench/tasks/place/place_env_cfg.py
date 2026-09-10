@@ -1,6 +1,6 @@
 """Environment configuration for the place task category.
 
-The QC pipeline's sanity check: 35 observations, a 7-wide action, a 15 s
+The QC pipeline's sanity check: 36 observations, a 7-wide action, a 15 s
 episode. The budget is its only departure from the shared workbench.
 """
 

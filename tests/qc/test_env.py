@@ -27,7 +27,7 @@ well-defined geom match there. Stack has three blocks and declares no such
 sensor, which the tests below use as the negative control.
 """
 
-ROBOT_TERMS = ("joint_pos", "joint_vel", "ee_pose")
+ROBOT_TERMS = ("joint_pos", "joint_vel", "ee_pose", "pad_contact_force")
 """Observation terms that are a property of the robot alone."""
 
 

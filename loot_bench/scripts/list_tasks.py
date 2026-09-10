@@ -12,8 +12,7 @@ def main() -> None:
     parser.add_argument(
         "--filter",
         default=None,
-        help="Only print task IDs containing this substring "
-        "(e.g. 'Domino' or 'Dk1').",
+        help="Only print task IDs containing this substring (e.g. 'Domino' or 'Dk1').",
     )
     parser.add_argument(
         "--count", action="store_true", help="Only print the number of tasks."

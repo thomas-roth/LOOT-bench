@@ -73,7 +73,7 @@ class SuccessGate:
     It latches ``episode_success`` until :meth:`reset`.
 
     The release signal is injected because it varies per category
-    (gripper-joint opening vs. ball-to-gripper distance).
+    (finger-pad contact force vs. ball-to-grasp-site distance).
     """
 
     def __init__(

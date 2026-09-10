@@ -24,9 +24,11 @@ Four things here are load-bearing rather than stylistic:
   episode was cut short, and the value of the state it was cut at is not
   zero. Collapsing the two is the single easiest way to teach an agent that
   running out of time is as good as finishing.
-* **Contact forces are telemetry, never part of the MDP.** The numbers go
-  into ``eval.csv``, never into the observation, and their key names are a
-  cross-repo contract that ``qc/evaluation.py`` matches on. See
+* **Contact forces are observed and reported, never shaped.** The
+  ``grip_contact`` reading joins the observation as the width-1
+  ``pad_contact_force`` proprioceptive term and gates the release half of
+  success, and both contact readings go into ``eval.csv``. Their key names
+  are a cross-repo contract that ``qc/evaluation.py`` matches on. See
   :meth:`EpisodeStats.info` for the key shape and :meth:`LootEnv._pad_force`
   for what each sensor measures.
 """
@@ -189,11 +191,10 @@ class LootEnv(gymnasium.Env):
         measured.
 
         The two sensors differ only in their filter. ``grip_contact`` has no
-        secondary match, so it counts contact with **anything, the other pad
-        included**: on the DK1 the pad faces meet at gripper joint -0.038 m
-        while the joint travels to -0.045 m, so a gripper closed on empty air
-        reads 1.6 to 2.5 N. ``object_contact`` is filtered to the scored object
-        and answers the question that one cannot.
+        secondary match, so it counts contact with **anything except the
+        other pad**: ``dk1.xml`` excludes the finger-pad pair, so a gripper
+        closed on empty air reads zero here. ``object_contact`` is filtered
+        to the scored object and answers the question that one cannot.
         """
         if sensor is None:
             return None

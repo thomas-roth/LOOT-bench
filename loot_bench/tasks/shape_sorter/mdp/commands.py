@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, cast
 
 import torch
 from mjlab.entity import Entity
-from mjlab.managers.command_manager import CommandTerm
+from mjlab.managers.command_manager import CommandTerm, CommandTermCfg
 from mjlab.sensor import ContactSensor
 from mjlab.utils.lab_api.math import (
     quat_apply,
@@ -21,8 +21,6 @@ from loot_bench.tasks.common.colors import COLOR_VALUES
 from loot_bench.tasks.common.commands import (
     GRIP_CONTACT_SENSOR_NAME,
     ContactReleaseGate,
-    GripperGateCommandCfg,
-    GripperOpenGate,
 )
 from loot_bench.tasks.common.debug_markers import marker_color
 from loot_bench.tasks.common.scatter import ScatterGrid, write_upright_spawn
@@ -84,7 +82,7 @@ def get_command(env: ManagerBasedRlEnv, name: str) -> ShapeSorterCommand:
 
 
 @dataclass(kw_only=True)
-class ShapeSorterCommandCfg(GripperGateCommandCfg):
+class ShapeSorterCommandCfg(CommandTermCfg):
     cube_name: str
     piece_names: tuple[str, ...]
     """One piece entity per shape, in the variant's (tail-extending) index
@@ -164,7 +162,6 @@ class ShapeSorterCommand(CommandTerm):
         self.piece_quat_w = torch.zeros(E, N, 4, device=dev)
         self.progress = torch.zeros(E, device=dev)
         self._gate = SuccessGate(E, dev, vel_threshold=math.inf)
-        self._gripper_gate = GripperOpenGate(cfg)
         self._contact_gate = ContactReleaseGate()
         self._grip_sensor = cast(
             ContactSensor, env.scene.sensors[GRIP_CONTACT_SENSOR_NAME]
@@ -183,7 +180,7 @@ class ShapeSorterCommand(CommandTerm):
 
     @property
     def success(self) -> torch.Tensor:
-        """(E,) float: every piece latched, gripper open."""
+        """(E,) float: every piece latched, released."""
         return self._gate.success
 
     @property
@@ -228,9 +225,7 @@ class ShapeSorterCommand(CommandTerm):
         # The at-rest gate is disabled (vel_threshold=inf): a latched piece
         # stays scored regardless of motion, so skip the speed computation.
         speed = torch.zeros(E, device=self.device)
-        released = self._gripper_gate(self._env.scene["robot"]) & self._contact_gate(
-            self._grip_sensor
-        )
+        released = self._contact_gate(self._grip_sensor)
         self._gate.update(all_latched, speed, released)
 
         self.metrics["placed_frac"] = self.progress

@@ -26,7 +26,7 @@ from loot_bench.tasks.common.env_cfg import CONTROL_STEP_S
 
 TASK_ID = "LOOT-Place-FixedS-FixedT-Dk1"
 PLACE_EPISODE_LENGTH_S = 15.0
-PLACE_OBS_WIDTH = 35
+PLACE_OBS_WIDTH = 36
 SUCCESS_TOLERANCE_M = 0.02
 """The place task's own position tolerance. A mapping error larger than this
 cannot be distinguished from a policy that missed."""

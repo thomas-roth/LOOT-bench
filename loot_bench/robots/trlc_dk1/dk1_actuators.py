@@ -71,8 +71,6 @@ def get_arm_actuators(prefix: str = "") -> tuple[BuiltinPositionActuatorCfg, ...
 # pads sink ~4.5 mm into task pieces, 20 N holds them with sub-milimeter
 # precision). Overdamped to avoid bounce. See tests/trlc_dk1/test_dk1_grasp.py.
 
-GRIPPER_MECHANICAL_RANGE = {"open": 0.001, "closed": -0.045}
-"[m], mechanical gripper range mirroring `finger` joint range in xml/dk1.xml."
 _GRIPPER_PINION_RADIUS = 0.00875
 "[m], pinion radius of DM4310."
 _ARMATURE_DM_4310_LINEAR, _, _ = reflect_rotary_to_linear(

@@ -1,22 +1,19 @@
 """Unit tests for the success criteria in the per-category ``mdp/success.py``
 modules, the shared ``SuccessGate`` in ``tasks/common/success.py``, and the
-gripper-open gate in ``tasks/common/commands.py``."""
+contact release gate in ``tasks/common/commands.py``."""
 
 import math
-from dataclasses import dataclass
 from types import SimpleNamespace
-from typing import NoReturn, cast
+from typing import cast
 
 import pytest
 import torch
-from mjlab.entity import Entity
 from mjlab.sensor import ContactSensor
 
 from loot_bench.tasks.ball.mdp.success import ball_in_target_zone
 from loot_bench.tasks.common.commands import (
+    MIN_GRIP_FORCE,
     ContactReleaseGate,
-    GripperGateCommandCfg,
-    GripperOpenGate,
 )
 from loot_bench.tasks.common.success import SuccessGate
 from loot_bench.tasks.domino.mdp.success import (
@@ -284,65 +281,6 @@ class TestSuccessGate:
 
 
 # ---------------------------------------------------------------------------
-# GripperOpenGate
-# ---------------------------------------------------------------------------
-
-
-def _fake_robot(names: list[str], joint_pos: torch.Tensor) -> Entity:
-    """Duck-typed Entity stand-in: the gate only reads joint_names and
-    data.joint_pos."""
-    return cast(
-        Entity,
-        SimpleNamespace(joint_names=names, data=SimpleNamespace(joint_pos=joint_pos)),
-    )
-
-
-@dataclass(kw_only=True)
-class _GateCfg(GripperGateCommandCfg):
-    """Concrete stand-in: the gate reads only the two gripper fields."""
-
-    def build(self, env: object) -> NoReturn:
-        raise NotImplementedError
-
-
-def _gate_cfg(joints: tuple[str, ...], threshold: float) -> GripperGateCommandCfg:
-    return _GateCfg(
-        resampling_time_range=(1.0, 1.0),
-        gripper_joints=joints,
-        gripper_open_threshold=threshold,
-    )
-
-
-class TestGripperOpenGate:
-    def test_open_beyond_threshold(self):
-        gate = GripperOpenGate(_gate_cfg(("gripper_left",), -0.015))
-        robot = _fake_robot(
-            ["q1", "gripper_left", "gripper_right"],
-            torch.tensor([[0.0, -0.01, 0.0], [0.0, -0.02, 0.0]]),
-        )
-        assert gate(robot).tolist() == [True, False]
-
-    def test_all_listed_joints_must_be_open(self):
-        gate = GripperOpenGate(_gate_cfg(("left_g", "right_g"), -0.015))
-        robot = _fake_robot(
-            ["left_g", "right_g"],
-            torch.tensor([[0.0, 0.0], [0.0, -0.02]]),
-        )
-        assert gate(robot).tolist() == [True, False]
-
-    def test_unwired_cfg_rejected(self):
-        # The env cfg leaves gripper_joints empty; manipulator wiring must
-        # fill it before the command term is built.
-        with pytest.raises(AssertionError):
-            GripperOpenGate(_gate_cfg((), 0.0))
-
-    def test_unknown_joint_raises(self):
-        gate = GripperOpenGate(_gate_cfg(("nope",), 0.0))
-        with pytest.raises(ValueError):
-            gate(_fake_robot(["q1"], torch.zeros(1, 1)))
-
-
-# ---------------------------------------------------------------------------
 # ContactReleaseGate
 # ---------------------------------------------------------------------------
 
@@ -369,6 +307,23 @@ class TestContactReleaseGate:
         force = torch.zeros(1, 2, 3)
         force[0, 0] = torch.tensor([0.5, 0.0, 0.0])  # exactly at threshold
         assert gate(_fake_contact_sensor(force)).tolist() == [True]
+
+    def test_default_threshold_is_the_grip_force(self):
+        """The gate ships reading the env's release threshold, not a copy."""
+        gate = ContactReleaseGate()
+        loaded = torch.zeros(1, 2, 3)
+        loaded[0, 0] = torch.tensor([MIN_GRIP_FORCE + 1e-3, 0.0, 0.0])
+        assert gate(_fake_contact_sensor(loaded)).tolist() == [False]
+        freed = torch.zeros(1, 2, 3)
+        freed[0, 0] = torch.tensor([MIN_GRIP_FORCE, 0.0, 0.0])
+        assert gate(_fake_contact_sensor(freed)).tolist() == [True]
+
+    def test_reduction_is_the_max_over_pads(self):
+        """One loaded pad vetoes release, however lightly the other rests."""
+        gate = ContactReleaseGate()
+        force = torch.zeros(1, 3, 3)  # (E=1, P=3 pads, 3)
+        force[0, 2] = torch.tensor([0.0, MIN_GRIP_FORCE + 1.0, 0.0])
+        assert gate(_fake_contact_sensor(force)).tolist() == [False]
 
 
 # ---------------------------------------------------------------------------

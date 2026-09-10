@@ -18,7 +18,6 @@ from loot_bench.tasks.common.actions import (
     EndEffectorDeltaActionCfg,
     NormalizedJointPositionActionCfg,
 )
-from loot_bench.tasks.common.commands import GripperGateCommandCfg
 from loot_bench.tasks.common.events import reset_joints_to_pose
 
 
@@ -44,9 +43,8 @@ def wire_manipulator_into_env(
 
     The grasp site is also written to the ``asset_cfg`` of the
     ``ee_pose`` observation term (present in every category via the shared
-    env cfg) and to any command cfg carrying a ``grasp_cfg``. Command cfgs
-    deriving from :class:`GripperGateCommandCfg` get the robot's gripper
-    joints/threshold. Sensors named in ``ee_contact_sensors`` get the
+    env cfg) and to any command cfg carrying a ``grasp_cfg``. Sensors named
+    in ``ee_contact_sensors`` get the
     end-effector subtree as their primary match pattern. The sensors named
     ``grip_contact_sensor`` and ``object_contact_sensor``, if any, get the
     finger-pad geom pattern as their primary match pattern (see
@@ -94,9 +92,6 @@ def wire_manipulator_into_env(
         grasp_cfg = getattr(command, "grasp_cfg", None)
         if isinstance(grasp_cfg, SceneEntityCfg):
             grasp_cfg.site_names = grasp
-        if isinstance(command, GripperGateCommandCfg):
-            command.gripper_joints = manipulator.gripper_joints
-            command.gripper_open_threshold = manipulator.gripper_open_threshold
 
     pad_sensors = (grip_contact_sensor, object_contact_sensor)
     for sensor in cfg.scene.sensors:
