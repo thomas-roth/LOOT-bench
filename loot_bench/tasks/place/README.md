@@ -31,7 +31,8 @@ orientation term at all, unlike domino's row-aligned upright check: this is
 "move to a location", not "move and orient". Release is the shared gate: the
 gripper joint is open *and* the pad contact is gone.
 
-Episodes are 10 s, which is 500 control steps at the shared 50 Hz. The arm
+Episodes are 15 s, which is 300 control steps at the shared 20 Hz
+(`docs/adr/016-control-at-20hz-through-a-5cm-end-effector-delta.md`). The arm
 starts at the DK1 home pose with no sample around it
 (`place_env_cfg.START_POSE_NOISE = 0.0`, see
 `docs/adr/008-episodes-start-at-the-home-pose.md`); the value lives on the

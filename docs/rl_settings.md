@@ -183,4 +183,4 @@ time:
 - **Randomization**: the cube spawn and the target are two independent axes,
   and each variant pins or samples them separately.
 - Place is the one-cube sanity check that the QC pipeline is brought up on.
-  It has 500 steps and no difficulty axis.
+  It has 300 steps (15 s at 20 Hz) and no difficulty axis.

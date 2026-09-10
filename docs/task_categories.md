@@ -66,9 +66,9 @@ Build a domino line that can topple sequentially.
 
 | **Variation** | Description |
 | --- | --- |
-| `base` | Use identical basic dominoes only. |
-| `differentDominoes` | Dominoes become progressively thinner and lighter. |
-| `knockOver` | Topple the completed line as a chain: every domino falls along the row, same direction, in row order; phase observation build (`0`) / topple (`1`). |
+| *(none)* | Use identical basic dominoes only. The base variant carries no variation segment: `LOOT-Domino-2Pieces-Dk1`. |
+| `DifferentDominoes` | Dominoes become progressively thinner and lighter. |
+| `KnockOver` | Topple the completed line as a chain: every domino falls along the row, same direction, in row order; phase observation build (`0`) / topple (`1`). |
 
 ## Category: Sorter
 
@@ -88,10 +88,10 @@ Insert every peg into its matching hole in a shape sorter. Each peg fits only it
 
 | **Variation** | Description |
 | --- | --- |
-| `fixedOrientation` | The sorter orientation is fixed; its position varies. |
-| `noRotation` | The sorter orientation varies, but no required hole faces the ground. |
-| `full` | The sorter position and orientation are random; rotating it may be required. |
-| `randomPositions` | Pegs start at random positions around the sorter. |
+| `FixedOrientation` | The sorter orientation is fixed; its position varies. |
+| `NoRotation` | The sorter orientation varies, but no required hole faces the ground. |
+| `Full` | The sorter position and orientation are random; rotating it may be required. |
+| `RandomPositions` | Pegs start at random positions around the sorter. |
 
 ## Category: Ball
 
@@ -106,15 +106,15 @@ Bring a ball to its goal by hitting or throwing it.
 
 Hit the ball once to reach a goal outside the robot's direct reach. Every
 layout has a perimeter railing around the platform edges, and the layouts
-are strictly additive: `usingWall` ⊂ `obstacle` ⊂ `ramp`, each adding one
+are strictly additive: `UsingWall` ⊂ `Obstacle` ⊂ `Ramp`, each adding one
 more element on top of the previous layout.
 
 | **Variation** | Description |
 | --- | --- |
-| `direct` | Reach the goal with a direct hit; the perimeter railing alone. |
-| `usingWall` | Adds a blocker across the direct line; the perimeter railing serves as the bank for a redirect shot. |
-| `obstacle` | `usingWall` plus an obstacle in the lane the blocker leaves open. |
-| `ramp` | `obstacle` plus the goal raised onto an elevated section, reached via an incline. |
+| `Direct` | Reach the goal with a direct hit; the perimeter railing alone. |
+| `UsingWall` | Adds a blocker across the direct line; the perimeter railing serves as the bank for a redirect shot. |
+| `Obstacle` | `UsingWall` plus an obstacle in the lane the blocker leaves open. |
+| `Ramp` | `Obstacle` plus the goal raised onto an elevated section, reached via an incline. |
 
 ### Task: Throw
 
@@ -123,8 +123,8 @@ Throw the ball over a wall to reach the target. Evaluate whether reduced gravity
 | **Variation** | Description |
 | --- | --- |
 | `U` | U-shaped walls surround the goal. |
-| `markedArea` | A marked area defines the goal. |
-| `wallVariation` | Vary wall height and the robot-to-wall distance. |
+| `MarkedArea` | A marked area defines the goal. |
+| `WallVariation` | Vary wall height and the robot-to-wall distance. |
 
 ## Category: Place
 
@@ -136,10 +136,10 @@ before a real category is attempted.
 
 | **Variation** | Description |
 | --- | --- |
-| `randS-randT` | Cube spawn and target both sampled every reset; the real task. |
-| `randS-fixedT` | Cube spawn sampled, target pinned. |
-| `fixedS-randT` | Cube spawn pinned, target sampled. |
-| `fixedS-fixedT` | Both pinned; the smallest learnable version. |
+| `RandS-RandT` | Cube spawn and target both sampled every reset; the real task. |
+| `RandS-FixedT` | Cube spawn sampled, target pinned. |
+| `FixedS-RandT` | Cube spawn pinned, target sampled. |
+| `FixedS-FixedT` | Both pinned; the smallest learnable version. |
 
 ## Future Work (don't implement for now):
 

@@ -8,20 +8,20 @@ with its own set of layouts:
   strike. Every layout has a perimeter railing around the platform edges
   (like real minigolf), and the layouts are strictly additive — each one
   contains everything the previous layout has, plus one more element. The
-  pit sits off-centre (local y +0.12) for every layout except `direct`, so
-  the target position stays consistent across `usingWall`/`obstacle`/`ramp`.
-  - `direct`: a clear line from spawn to the pit; the railing alone.
-  - `usingWall`: adds a blocker wall across the direct line; the perimeter
+  pit sits off-centre (local y +0.12) for every layout except `Direct`, so
+  the target position stays consistent across `UsingWall`/`Obstacle`/`Ramp`.
+  - `Direct`: a clear line from spawn to the pit; the railing alone.
+  - `UsingWall`: adds a blocker wall across the direct line; the perimeter
     railing itself serves as the bank for a redirect shot.
-  - `obstacle`: `usingWall` plus a box in the lane the blocker leaves open.
-  - `ramp`: `obstacle` plus the pit raised onto an elevated platform
+  - `Obstacle`: `UsingWall` plus a box in the lane the blocker leaves open.
+  - `Ramp`: `Obstacle` plus the pit raised onto an elevated platform
     section, reached via an inclined connector positioned past the blocker
     and obstacle.
 - **throw**: a flat field with a wall between the spawn area and the target
   (a marked disk or a U-shaped pocket), so the ball must clear the wall.
   - `U`: a U-shaped wall pocket open toward the incoming ball.
-  - `markedArea`: a marked disk on the ground.
-  - `wallVariation`: like `markedArea`, but the wall is a separate entity
+  - `MarkedArea`: a marked disk on the ground.
+  - `WallVariation`: like `MarkedArea`, but the wall is a separate entity
     that moves (distance from the robot, and sink depth i.e. effective
     height) every reset instead of sitting at a fixed pose.
 
