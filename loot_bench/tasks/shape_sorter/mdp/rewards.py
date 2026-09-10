@@ -11,5 +11,5 @@ task_reward = partial(command_task_reward, get_command=get_command)
 """The category's whole reward, in [-1, 0], zero only at success.
 
 Shaped by the fraction of pieces latched into their own hole. Zero when every
-piece is latched and the gripper is open.
+piece is latched and released.
 """

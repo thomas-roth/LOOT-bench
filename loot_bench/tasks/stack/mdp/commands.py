@@ -1,10 +1,10 @@
 """Task command for the stack category.
 
 There is no goal pose to sample — the target height is a per-task constant —
-so at every resample the command only resets the success gate and scatters
-the blocks upright on a jittered grid (collision-free by construction,
-seed-prefix safe: no shared draws, then per-block draws in index order via
-``ScatterGrid.sample_poses``).
+so at every resample the command only resets the success gate and spawns the
+blocks from the fixed table (object ``i`` on cell ``i``, upright, with
++/-1 cm jitter via ``sample_fixed_spawns``; seed-prefix safe, so an easier
+task's reset is a prefix of a harder task's).
 
 Every step it recomputes the height-only success criterion (``success.py``
 kernels) and feeds it through the shared at-rest + released gate.
@@ -12,7 +12,6 @@ kernels) and feeds it through the shared at-rest + released gate.
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
@@ -33,7 +32,8 @@ from loot_bench.tasks.common.debug_markers import (
     add_box_wireframe,
     marker_color,
 )
-from loot_bench.tasks.common.scatter import ScatterGrid, write_upright_spawn
+from loot_bench.tasks.common.fixed_spawns import SPAWN_JITTER, sample_fixed_spawns
+from loot_bench.tasks.common.scatter import write_upright_spawn
 from loot_bench.tasks.common.success import OBJECT_VEL_THRESHOLD, SuccessGate
 from loot_bench.tasks.stack.mdp.success import (
     block_top_heights,
@@ -61,10 +61,52 @@ GRIP_REACH = 0.08
 Shared with ``scripts/split_demos.py``, which reproduces the held-block
 exclusion offline and would otherwise recompute a different reward."""
 
-# Clearance (m) between the scatter region and the guide tower, so the guide
-# never overlaps the blocks it describes.
+# Clearance (m) between the tower site and the guide tower, so the guide
+# never overlaps the stack it describes.
 _GOAL_STACK_MARGIN = 0.06
 _GOAL_STACK_RGBA = (0.55, 0.75, 1.0, 1.0)  # base (pending) color, alpha unused
+
+STACK_SPAWN_CELLS: tuple[tuple[float, float], ...] = (
+    (0.22, 0.15),
+    (0.22, -0.15),
+    (0.22, 0.27),
+    (0.22, -0.27),
+    (0.35, 0.18),
+    (0.35, -0.18),
+    (0.35, 0.30),
+    (0.35, -0.30),
+    (0.45, 0.00),
+    (0.45, 0.12),
+    (0.45, -0.12),
+)
+"""Fixed spawn cells, object ``i`` takes cell ``i`` (Stack5 uses the first 10).
+
+Clustered near the robot with the tower site left free, so a recording
+session starts with the work area empty. Stack3's reset is a prefix of
+Stack4's and Stack4's a prefix of Stack5's. Minimum pairwise separation
+0.1166, exactly the gripper-derived pitch for the largest (Easy) block.
+"""
+
+TOWER_ZONE_X = (0.24, 0.32)
+"""Tower-site x span (m), kept free of spawns.
+
+Near the robot rather than far, which inverts the intuitive "work far, stage
+near" arrangement: the reach dome tops out a tall tower only near the base
+(see ADR-019), so the tower stands where the arm can still top it out.
+"""
+
+TOWER_ZONE_HALF_WIDTH = 0.07
+"""Tower-site |y| half-width (m), kept free of spawns."""
+
+TOWER_HALO_MARGIN = 0.02
+"""Extra margin (m) around the tower zone, on top of object radius + jitter."""
+
+
+def stack_spawn_is_clear(x: float, y: float, object_radius: float) -> bool:
+    """Whether a jittered ``(x, y)`` spawn pose is clear of the tower site."""
+    halo = object_radius + SPAWN_JITTER + TOWER_HALO_MARGIN
+    x0, x1 = TOWER_ZONE_X
+    return not (x0 - halo <= x <= x1 + halo and abs(y) <= TOWER_ZONE_HALF_WIDTH + halo)
 
 
 def get_command(env: ManagerBasedRlEnv, name: str) -> StackCommand:
@@ -78,8 +120,6 @@ class StackCommandCfg(CommandTermCfg):
     variant: StackVariantCfg
     grasp_cfg: SceneEntityCfg
     """Robot grasp site, used to find the held block; site set by wiring."""
-    workspace_x: tuple[float, float] = (0.21, 0.44)
-    workspace_y: tuple[float, float] = (-0.21, 0.21)
     block_vel_threshold: float = OBJECT_VEL_THRESHOLD
     """Max linear speed (m/s) of any block to count success."""
     grip_reach: float = GRIP_REACH
@@ -108,13 +148,10 @@ class StackCommand(CommandTerm):
 
         halves = [b.half_extents for b in variant.blocks]
         self._half_h = torch.tensor([h[2] for h in halves], device=dev)
-        # Bounding-circle radius of the widest footprint (collision-free
-        # scatter must hold at any yaw).
-        object_radius = max(math.hypot(h[0], h[1]) for h in halves)
-        self._scatter = ScatterGrid.tiling(
-            cfg.workspace_x, cfg.workspace_y, object_radius=object_radius, device=dev
+        self._spawn_cells = torch.tensor(STACK_SPAWN_CELLS, device=dev)
+        assert self._spawn_cells.shape[0] >= N, (
+            f"spawn table holds {self._spawn_cells.shape[0]} cells, variant needs {N}"
         )
-        assert self._scatter.num_cells >= N
 
         self.block_pos_w = torch.zeros(E, N, 3, device=dev)
         self.block_quat_w = torch.zeros(E, N, 4, device=dev)
@@ -205,9 +242,10 @@ class StackCommand(CommandTerm):
         self._gate.reset(env_ids)
         self.block_reached[env_ids] = False
 
-        # No shared randomness; per-block draws in index order (seed-prefix
-        # rule: an easier task's reset is a prefix of a harder task's).
-        xy, spawn_yaw = self._scatter.sample_poses(n, self.num_blocks)
+        # Object i takes cell i with +/-1 cm jitter (one rand draw per block,
+        # in index order), so an easier task's reset is a prefix of a harder
+        # task's (Stack3 -> Stack4 -> Stack5).
+        xy, spawn_yaw = sample_fixed_spawns(self._spawn_cells, n, self.num_blocks)
         write_upright_spawn(self.blocks, xy, spawn_yaw, self._half_h, origins, env_ids)
 
     def _update_command(self) -> None:
@@ -217,13 +255,12 @@ class StackCommand(CommandTerm):
         env_indices = visualizer.get_env_indices(self.num_envs)
         if not env_indices:
             return
-        cfg = self.cfg
-        cx = (cfg.workspace_x[0] + cfg.workspace_x[1]) / 2
-        cy = (cfg.workspace_y[0] + cfg.workspace_y[1]) / 2
-        hx = (cfg.workspace_x[1] - cfg.workspace_x[0]) / 2
-        hy = (cfg.workspace_y[1] - cfg.workspace_y[0]) / 2
+        cx = (TOWER_ZONE_X[0] + TOWER_ZONE_X[1]) / 2
+        cy = 0.0
+        hx = (TOWER_ZONE_X[1] - TOWER_ZONE_X[0]) / 2
+        hy = TOWER_ZONE_HALF_WIDTH
         for batch in env_indices:
-            # Thin translucent plane at the target height over the workspace.
+            # Thin translucent plane at the target height over the tower site.
             origin = self._env.scene.env_origins[batch].cpu().numpy()
             center = origin + np.array([cx, cy, self.variant.target_height])
             reached = bool(self.block_reached[batch].any())
@@ -257,14 +294,14 @@ class StackCommand(CommandTerm):
         cx: float,
         success: bool,
     ) -> None:
-        """Ghost stack of ``target_blocks`` blocks beside the workspace.
+        """Ghost stack of ``target_blocks`` blocks beside the tower site.
 
-        Stands beside the scatter region rather than in it: success is
+        Stands beside the tower site rather than in it: success is
         height-only, so the real stack's xy is free.
         """
         variant = self.variant
         half = np.array(variant.blocks[0].half_extents) + MARKER_INFLATE
-        gy = self.cfg.workspace_y[1] + _GOAL_STACK_MARGIN + half[1]
+        gy = TOWER_ZONE_HALF_WIDTH + _GOAL_STACK_MARGIN + half[1]
         reached = self._level_reached(batch)
         for level in range(variant.target_blocks):
             center = origin + np.array([cx, gy, (level + 0.5) * variant.block_height])

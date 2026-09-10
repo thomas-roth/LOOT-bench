@@ -1,4 +1,8 @@
-"""Domino command. Scatters dominoes, checks slot placement, latches topple."""
+"""Domino command. Spawns dominoes from the fixed table, checks slot placement, latches topple.
+
+The row's centre x is pinned at ``DOMINO_ROW_X``, so spawns and row separate
+in x by construction: no keep-out mask, no rejection loop.
+"""
 
 from __future__ import annotations
 
@@ -24,7 +28,8 @@ from loot_bench.tasks.common.debug_markers import (
     add_box_wireframe,
     marker_color,
 )
-from loot_bench.tasks.common.scatter import ScatterGrid, write_upright_spawn
+from loot_bench.tasks.common.fixed_spawns import sample_fixed_spawns
+from loot_bench.tasks.common.scatter import write_upright_spawn
 from loot_bench.tasks.common.success import OBJECT_VEL_THRESHOLD, SuccessGate
 from loot_bench.tasks.domino.mdp.success import (
     chain_topple_success,
@@ -32,7 +37,6 @@ from loot_bench.tasks.domino.mdp.success import (
     domino_upright_aligned,
 )
 from loot_bench.tasks.domino.variants import (
-    BASE_HALF_EXTENTS,
     HARDEST_COUNT,
     SPACING,
     DominoVariantCfg,
@@ -42,21 +46,82 @@ if TYPE_CHECKING:
     from mjlab.envs.manager_based_rl_env import ManagerBasedRlEnv
     from mjlab.viewer.debug_visualizer import DebugVisualizer
 
-_EDGE_MARGIN = 0.02
+DOMINO_SPAWN_CELLS: tuple[tuple[float, float], ...] = (
+    (0.210, 0.05),
+    (0.210, -0.05),
+    (0.305, 0.10),
+    (0.305, -0.10),
+    (0.210, 0.15),
+    (0.210, -0.15),
+)
+"""Fixed spawn cells, object ``i`` takes cell ``i``.
+
+Minimum pairwise separation 0.100, above the gripper-derived pitch. Every
+cell's jittered poses stay left of ``DOMINO_LANE_EDGE`` while every row slot
+stays right of it, so spawns and row separate in x by construction.
+"""
+
+DOMINO_ROW_X = 0.40
+"""Pinned row-centre x (m): the HARDEST_COUNT row's centre sits here."""
+
+DOMINO_ROW_TILT = 0.35
+"""Max row yaw deviation (rad) from the row axis (``RandomRow``)."""
+
+DOMINO_ROW_Y_RANGE = 0.08
+"""Half-range (m) of the sampled row-centre y (``RandomRow``).
+
+Sized so the HARDEST_COUNT row's endpoints stay on the table and inside the
+radial reach bound at any tilt within ``DOMINO_ROW_TILT``.
+"""
+
+DOMINO_LANE_EDGE = 0.340
+"""Row-lane near edge (m): spawns (plus jitter and footprint) stay left of it,
+slots (minus footprint) stay right of it. The bound is ``DOMINO_ROW_X`` minus
+``sin(DOMINO_ROW_TILT)`` times the row half-length, minus the domino
+bounding-circle radius.
+"""
+
+
+def domino_spawn_is_clear(x: float, y: float, object_radius: float) -> bool:
+    """Whether a jittered ``(x, y)`` spawn pose is clear of the row lane."""
+    return x + object_radius <= DOMINO_LANE_EDGE
+
+
+def domino_row_slots(
+    centre: torch.Tensor, yaw: torch.Tensor, count: int
+) -> torch.Tensor:
+    """Row slot xy positions (local frame) for a pinned-centre row.
+
+    Slots are anchored at the start of a ``HARDEST_COUNT`` row whose centre is
+    ``centre``: slot ``k`` sits ``(k - (HARDEST_COUNT - 1) / 2) * SPACING``
+    along ``yaw``, so a shorter variant's slots are the longer one's first
+    ``count`` (seed-prefix rule) while the worst-case x excursion never
+    depends on ``count``.
+
+    Args:
+        centre: (..., 2) row-centre xy (x is ``DOMINO_ROW_X``).
+        yaw: (...,) row direction.
+        count: number of slots.
+
+    Returns:
+        (..., count, 2) slot xy positions.
+    """
+    direction = torch.stack([torch.cos(yaw), torch.sin(yaw)], dim=-1)
+    steps = torch.arange(count, device=centre.device, dtype=direction.dtype)
+    steps = steps - (HARDEST_COUNT - 1) / 2.0
+    shape = (1,) * (centre.dim() - 1) + (count, 1)
+    return centre.unsqueeze(-2) + steps.reshape(shape) * SPACING * direction.unsqueeze(
+        -2
+    )
+
+
 _NEVER_FELL = 1.0e9
 """Sentinel fall-order value for a domino that has not chain-fallen yet."""
-_SLOT_KEEP_OUT = 0.02
-"""Free gap (m) a spawned domino keeps from every row slot, on top of both
-footprint radii: a domino that starts on its target is awkward to align from
-there, and one that close could even count as placed straight out of the
-reset."""
 _PENDING_ALPHA = 0.75
 """Fill opacity for a slot's pending (not-yet-placed) marker. Higher than the
 shared default (see debug_markers.PENDING_ALPHA) because the outline (below)
 already signals "this is a ghost, not a real object" -- the fill is free to
 sit close to the real domino color for a legible identity match."""
-_KEEPOUT_VIS_RGBA = (0.5, 0.5, 0.5, 0.25)
-"""Keep-out radius edge color: gray and subtle."""
 
 
 def get_command(env: ManagerBasedRlEnv, name: str) -> DominoCommand:
@@ -68,8 +133,6 @@ class DominoCommandCfg(CommandTermCfg):
     domino_names: tuple[str, ...]
     """All domino entities, in row-slot index order."""
     variant: DominoVariantCfg
-    workspace_x: tuple[float, float] = (0.22, 0.42)
-    workspace_y: tuple[float, float] = (-0.18, 0.18)
     pos_threshold: float = 0.015
     """Max distance between a domino and its slot to count as placed (× margin)."""
     upright_threshold_deg: float = 15.0
@@ -98,14 +161,10 @@ class DominoCommand(CommandTerm):
 
         halves = variant.half_extents
         self._half_h = torch.tensor([h[2] for h in halves], device=dev)
-        # Widest footprint any spawn slot must clear.
-        object_radius = math.hypot(BASE_HALF_EXTENTS[0], BASE_HALF_EXTENTS[1])
-        self._scatter = ScatterGrid.tiling(
-            cfg.workspace_x, cfg.workspace_y, object_radius=object_radius, device=dev
+        self._spawn_cells = torch.tensor(DOMINO_SPAWN_CELLS, device=dev)
+        assert self._spawn_cells.shape[0] >= G, (
+            f"spawn table holds {self._spawn_cells.shape[0]} cells, variant needs {G}"
         )
-        # Slot footprint + domino footprint + gap: min spawn-to-slot distance.
-        self._slot_keep_out = 2.0 * object_radius + _SLOT_KEEP_OUT
-        assert self._scatter.num_cells >= G
 
         self.slot_goal_pos = torch.zeros(E, G, 3, device=dev)  # world frame
         self.piece_for_slot = (
@@ -222,7 +281,6 @@ class DominoCommand(CommandTerm):
         if n == 0:
             return
         dev = self.device
-        cfg = self.cfg
         G = self.num_dominoes
         origins = self._env.scene.env_origins[env_ids]
 
@@ -234,57 +292,35 @@ class DominoCommand(CommandTerm):
             torch.arange(G, device=dev).unsqueeze(0).repeat(n, 1)
         )
 
-        x0, x1 = cfg.workspace_x
-        y0, y1 = cfg.workspace_y
-
         if not self.variant.random_row:
-            # --- Fixed row: along +y, with the HARDEST_COUNT row centred in
-            # the workspace. Anchored at the start like the random row, so a
-            # shorter variant's slots are still the longer one's first n. ---
+            # --- Fixed row: along +y, with the HARDEST_COUNT row centred at
+            # (DOMINO_ROW_X, 0). Anchored at the start, so a shorter
+            # variant's slots are still the longer one's first n. ---
             yaw = torch.full((n,), math.pi / 2, device=dev)
-            dir_xy = torch.tensor([[0.0, 1.0]], device=dev).expand(n, 2)
-            centre = torch.tensor([(x0 + x1) / 2, (y0 + y1) / 2], device=dev)
-            start = (centre - 0.5 * SPACING * (HARDEST_COUNT - 1) * dir_xy[0]).expand(
-                n, 2
-            )
+            centre_y = torch.zeros(n, device=dev)
         else:
-            # --- Row start pose + yaw: one shared draw, independent of G, so
-            # this stays a seed prefix across variants of different n. ---
-            u = torch.rand(n, 4, device=dev)
+            # --- Row centre y + yaw: one shared draw, independent of G, so
+            # this stays a seed prefix across variants of different n. Only
+            # x is pinned. ---
+            u = torch.rand(n, 3, device=dev)
             sign = torch.where(u[:, 0] < 0.5, 1.0, -1.0)
-            yaw = sign * math.pi / 2 + (u[:, 1] - 0.5) * 1.2
-            dir_xy = torch.stack([torch.cos(yaw), torch.sin(yaw)], dim=-1)  # (n, 2)
-            # Clamp for a HARDEST_COUNT row (anchored at the start), so a
-            # shorter row's start-position range never depends on its actual n.
-            extent = dir_xy * SPACING * (HARDEST_COUNT - 1)
-            lo = (
-                torch.tensor([x0, y0], device=dev)
-                - extent.clamp(max=0.0)
-                + _EDGE_MARGIN
-            )
-            hi = (
-                torch.tensor([x1, y1], device=dev)
-                - extent.clamp(min=0.0)
-                - _EDGE_MARGIN
-            )
-            start = lo + u[:, 2:4] * (hi - lo).clamp_min(0.0)
+            yaw = sign * math.pi / 2 + (u[:, 1] - 0.5) * 2.0 * DOMINO_ROW_TILT
+            centre_y = (u[:, 2] - 0.5) * 2.0 * DOMINO_ROW_Y_RANGE
         self.row_yaw[env_ids] = yaw
 
-        steps = torch.arange(max(G, HARDEST_COUNT), device=dev, dtype=torch.float32)
-        offsets = steps.view(1, -1, 1) * SPACING * dir_xy.unsqueeze(1)
-        row_xy = start.unsqueeze(1) + offsets  # (n, max(G, HARDEST_COUNT), 2), local
-        slot_xy = row_xy[:, :G]
+        centre = torch.stack(
+            [torch.full((n,), DOMINO_ROW_X, device=dev), centre_y], dim=-1
+        )
+        slot_xy = domino_row_slots(centre, yaw, G)
         slot_z = self._half_h[0].expand(n, G).unsqueeze(-1)
         self.slot_goal_pos[env_ids] = torch.cat(
             [slot_xy, slot_z], dim=-1
         ) + origins.unsqueeze(1)
 
-        # --- Scatter all dominoes upright on distinct jittered grid cells
-        # (per-domino draws in index order), keeping clear of the row slots so
-        # no domino starts on a target. Blocked against the HARDEST_COUNT row,
-        # so the keep-out — like the row draw above — does not depend on G. ---
-        blocked = self._scatter.blocked_near(row_xy, self._slot_keep_out, keep_free=G)
-        xy, spawn_yaw = self._scatter.sample_poses(n, G, blocked=blocked)
+        # --- Spawn domino i on cell i with +/-1 cm jitter (per-domino draws
+        # in index order). Spawns and row separate in x by construction, so
+        # there is no keep-out mask to consult. ---
+        xy, spawn_yaw = sample_fixed_spawns(self._spawn_cells, n, G)
         write_upright_spawn(
             self.dominoes, xy, spawn_yaw, self._half_h, origins, env_ids
         )
@@ -341,16 +377,4 @@ class DominoCommand(CommandTerm):
                     mat=mat,
                     color=OUTLINE_RGBA,
                     label_prefix=f"slot_goal_outline_{batch}_{i}",
-                )
-                # Keep-out radius around the slot (unrotated xy-circle).
-                add_box_wireframe(
-                    visualizer,
-                    center=goal,
-                    half_extents=np.array(
-                        [self._slot_keep_out, self._slot_keep_out, 0.001]
-                    ),
-                    mat=np.eye(3),
-                    color=_KEEPOUT_VIS_RGBA,
-                    label_prefix=f"slot_keepout_{batch}_{i}",
-                    radius=0.0006,
                 )

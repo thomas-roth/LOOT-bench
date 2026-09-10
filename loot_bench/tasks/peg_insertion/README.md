@@ -40,8 +40,8 @@ For each socket the assigned peg counts as *inserted* when
 3. its long axis is aligned with the bore axis (within `tilt_tol_deg`).
 
 Two-sheet variants additionally require the top sheet hole to be aligned over
-the bottom hole. Success also requires every peg to be at rest and the
-gripper open. The episode terminates successfully on the first step all of
+the bottom hole. Success also requires every peg to be at rest and released
+(contact-only release gate). The episode terminates successfully on the first step all of
 that holds; the `success` reward and `episode_success` metric use the same
 condition.
 

@@ -17,7 +17,8 @@ A piece counts as inserted the first step it crosses from outside its own
 hole's mouth to past the inner wall plane (`SorterLatch`, a latched
 mouth-plane crossing that survives the piece tumbling around inside the
 hollow cube afterwards) — no shape piece fits into a foreign hole. Success
-holds once every piece has latched in and the gripper is open (there is no
+holds once every piece has latched in and the gripper has released them
+(contact-only release gate; there is no
 at-rest requirement: the free cube and its inserted pieces may keep
 settling/tumbling after latching).
 
@@ -34,9 +35,12 @@ settling/tumbling after latching).
 - `Full`: the cube drops face-down on any of its six faces plus a random yaw
   — a required hole may start facing the table, so reorienting the cube may
   be necessary.
-- `RandomPositions`: same deterministic cube pose as `FixedOrientation`, but
-  pieces spawn on a wide ring of cells around the cube instead of the near
-  band the other variants use.
+
+The pieces stage from a fixed five-cell table in one column in front of
+the cube (object `i` on cell `i`, `±1` cm jitter), with the rect hole's
+centreline approach corridor kept clear — which is why there is no centred
+cell and why the fifth cell is asymmetric. The cube itself is pinned at
+`x = 0.325` with the same `±1` cm jitter as every other category.
 
 ## Observations (state-based)
 
@@ -55,7 +59,7 @@ One term, in `[-1, 0]`, exactly `0` only at success
 (`docs/adr/006-one-task-reward-in-minus-one-to-zero.md`). It is shaped by the
 fraction of the pieces latched into their own hole, and floored at
 `-MIN_SHORTFALL` so that no non-success step can read a true zero. It reads
-zero when every piece is latched and the gripper is open.
+zero when every piece is latched and released.
 
 ## Variants
 
@@ -64,7 +68,6 @@ zero when every piece is latched and the gripper is open.
 | `LOOT-Sorter-{3,4,5}Shapes-FixedOrientation`            | cube pose fixed, position jittered          |
 | `LOOT-Sorter-{3,4,5}Shapes-NoRotation`                  | cube face-down on an unneeded hole + random yaw |
 | `LOOT-Sorter-{3,4,5}Shapes-Full`                        | cube face-down on any face + random yaw     |
-| `LOOT-Sorter-{3,4,5}Shapes-RandomPositions`             | fixed cube pose, pieces spawn on a wide ring |
 
 Play e.g. with:
 

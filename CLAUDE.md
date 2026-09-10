@@ -13,7 +13,7 @@ the play loop is mjlab's, and training is QC-FQL (offline-to-online RL), which
 lives in a **separate `qc` checkout** reached by `PYTHONPATH` — this repo holds
 only the seam to it, in `loot_bench/qc/`.
 
-Five task categories, 44 tasks total, currently registered for one robot
+Five task categories, 49 tasks total, currently registered for one robot
 (`-Dk1`) → task ids look like `LOOT-<Category>-<Task>[-<Variation>]-<Robot>`:
 `tasks/stack` (stack blocks to a target height; the height is part of the
 category segment, so it registers as `Stack3`/`Stack4`/`Stack5` x
@@ -21,7 +21,8 @@ category segment, so it registers as `Stack3`/`Stack4`/`Stack5` x
 `tasks/domino` (place and optionally knock over a row of dominoes; the row is
 at a **fixed** pose every reset, because a teleoperator needs a layout that
 does not move between takes — the `RandomRow` variant is the one that opts
-back into a sampled row, and the domino *spawns* stay random in all of them),
+back into a sampled row centre-y and yaw with the row x pinned, and the domino
+*spawns* stage from the fixed spawn table in all of them, see ADR-019),
 `tasks/shape_sorter` (insert shapes into a sorter board, registered as
 `Sorter`), `tasks/ball` (minigolf / throw a ball to a target), and
 `tasks/place` (carry one cube to a sampled target spot, registered as
@@ -76,6 +77,7 @@ uv run loot-split-demos --source-dir dataset/demos/<task>/<stamp> \
 uv run python tests/tasks/build_sim_registered_tasks.py
 uv run python tests/tasks/check_success_reward.py
 uv run python tests/tasks/compare_sim_settings.py
+uv run python tests/tasks/check_spawn_reachability.py --cpu
 
 # Native-viewer checks (see tests/viewer/README.md), need a display, not for CI
 uv run python tests/viewer/measure_viewer_fps.py
@@ -117,10 +119,12 @@ adding/editing a category means mirroring an existing one:
   success criteria — simulator-free placement tests like `domino_upright_aligned`
   and `ball_in_target_zone`, plus category-specific latches like the sorter's
   `SorterLatch`; unit-tested in `tests/tasks/test_success.py`), `commands.py`
-  (a `CommandTerm` subclass that samples goals, scatters objects on reset, and
-  computes the success metric — an *adapter* that gathers sim buffers for the
-  success criteria and the shared `tasks/common/success.py` / `scatter.py`
-  helpers), `observations.py`, `rewards.py`, `terminations.py`.
+   (a `CommandTerm` subclass that samples goals, spawns objects from the fixed
+   table on reset, and
+   computes the success metric — an *adapter* that gathers sim buffers for the
+   success criteria and the shared `tasks/common/success.py` / `fixed_spawns.py`
+   / `scatter.py`
+   helpers), `observations.py`, `rewards.py`, `terminations.py`.
   `mdp/__init__.py` re-exports the terms.
 - `<cat>_env_cfg.py` — `make_<cat>_env_cfg(variant, play)` builds only the
   category-shaped parts (entities, command, task observation/termination
@@ -153,12 +157,13 @@ observation terms (`observations.py`: `ee_pose_w` and `rot6d_from_matrix`),
 the absolute-pose reset (`events.py`: `reset_joints_to_pose`), the shared
 success gating (`success.py`: `OBJECT_VEL_THRESHOLD` and the `SuccessGate`
 that combines a category's success criterion with the at-rest + released
-conditions), the `GripperGateCommandCfg`/`GripperOpenGate` "gripper released"
-success gate (`commands.py`; the joints/threshold are robot-specific and
-injected by the manipulator wiring), the `ScatterGrid` spawn sampler
-(`tiling`/`sample_poses`, seed-prefix safe; `blocked_near` builds the goal
-keep-out mask, and its `keep_free` argument is what stops a keep-out from
-leaving an env fewer cells than objects; `write_upright_spawn` sits the entities
+conditions), the `ContactReleaseGate` "gripper released"
+success gate (`commands.py`: the finger pads exert no grip force, read off
+the `grip_contact` sensor against `MIN_GRIP_FORCE`, see ADR-018), the fixed
+spawn tables (`fixed_spawns.py`: per-category hand-written cells, object `i`
+on cell `i` with ±1 cm jitter, seed-prefix safe, laid out clear of the work
+area by construction so no keep-out mask is needed, see ADR-019;
+`write_upright_spawn` in `scatter.py` sits the entities
 upright on the sampled cells and zeros their velocity), the shared
 `colors.py` palette,
 the table asset, and the debug markers.
@@ -229,8 +234,7 @@ Read both before proposing an experiment.
 
 ### Robot-agnostic design
 Tasks never hardcode robot details. `robots/interface.py` defines
-`ManipulatorInterface` (name, entity-cfg factory, grasp site, gripper joints +
-open threshold for the success gate, end-effector subtree, finger-pad geom
+`ManipulatorInterface` (name, entity-cfg factory, grasp site, end-effector subtree, finger-pad geom
 regex, viewer body, start pose). It carries no action scale — those are one
 pair of constants in `tasks/common/actions.py`, shared by every robot — but it
 does declare the **actuator split** the two action terms are built from:
@@ -390,7 +394,7 @@ actuated).
   kernels and `tasks/common/rewards.shaped_task_reward`. It reproduces the
   environment's one-step reward lag and its held-block progress exclusion, and
   self-checks by recomputing the source episode's own reward. When an
-  observation layout, a success kernel or the gripper's open threshold changes,
+   observation layout, a success kernel or the pad-force release threshold changes,
   that self-check is what fails — fix the splitter, do not loosen the tolerance.
 
 ## Agent skills

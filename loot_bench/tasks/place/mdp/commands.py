@@ -1,4 +1,4 @@
-"""Place command. Scatters the cube, draws a target, tests placement."""
+"""Place command. Samples the cube spawn and target, tests placement."""
 
 from __future__ import annotations
 
@@ -16,7 +16,13 @@ from loot_bench.tasks.common.commands import (
     ContactReleaseGate,
 )
 from loot_bench.tasks.common.debug_markers import marker_color
-from loot_bench.tasks.common.scatter import ScatterGrid, write_upright_spawn
+from loot_bench.tasks.common.fixed_spawns import (
+    SPAWN_JITTER,
+    SPAWN_REACH_RADIUS,
+    SPAWN_TABLE_HALF_WIDTH,
+    SPAWN_X_MIN,
+)
+from loot_bench.tasks.common.scatter import write_upright_spawn
 from loot_bench.tasks.common.success import OBJECT_VEL_THRESHOLD, SuccessGate
 from loot_bench.tasks.place.mdp.success import place_progress, place_reached
 from loot_bench.tasks.place.variants import CUBE_HALF_EXTENTS, PlaceVariantCfg
@@ -27,26 +33,126 @@ if TYPE_CHECKING:
 
 _TARGET_RGBA = (0.95, 0.95, 0.2, 1.0)
 
-SPAWN_X_RANGE = (0.20, 0.28)
-TARGET_X_RANGE = (0.36, 0.44)
-WORKSPACE_Y = (-0.18, 0.18)
+PLACE_X_MAX = 0.45
+"""Far bound (m) of the uniform envelope draw; the near bound is shared."""
 
-
-def _midpoint(r: tuple[float, float]) -> float:
-    return 0.5 * (r[0] + r[1])
-
-
-FIXED_SPAWN_XY = (_midpoint(SPAWN_X_RANGE), _midpoint(WORKSPACE_Y))
-FIXED_TARGET_XY = (_midpoint(TARGET_X_RANGE), _midpoint(WORKSPACE_Y))
-"""Poses the Fixed variants pin to. Derived from ranges, never drifts."""
+FIXED_SPAWN_XY = (0.25, 0.0)
+FIXED_TARGET_XY = (0.40, 0.0)
+"""Poses the Fixed variants pin to: spawn at x = 0.25, target at x = 0.40."""
 
 FIXED_SPAWN_YAW = 0.0
 """A pinned spawn is fully deterministic: position and orientation."""
 
-MAX_TRAVEL_DIST = math.hypot(
-    TARGET_X_RANGE[1] - SPAWN_X_RANGE[0], WORKSPACE_Y[1] - WORKSPACE_Y[0]
-)
+PLACE_OBJECT_RADIUS = math.hypot(CUBE_HALF_EXTENTS[0], CUBE_HALF_EXTENTS[1])
+"""Bounding-circle radius (m) of the cube, in the table plane."""
+
+PLACE_MIN_SEPARATION = 0.10
+"""Minimum cube-target separation (m), enforced by one deterministic push-apart."""
+
+PLACE_Y_MAX = SPAWN_TABLE_HALF_WIDTH - PLACE_OBJECT_RADIUS - SPAWN_JITTER
+"""Widest half-range (m) of the envelope draw, reached near the robot."""
+
+MAX_TRAVEL_DIST = math.hypot(PLACE_X_MAX - SPAWN_X_MIN, 2.0 * PLACE_Y_MAX)
 """Largest spawn to target distance. Normalizes progress to a constant."""
+
+
+def place_half_width(
+    x: torch.Tensor, object_radius: float = PLACE_OBJECT_RADIUS
+) -> torch.Tensor:
+    """Half-range of ``y`` (m) at column ``x`` for the envelope draw.
+
+    ``Y(x) = min(0.35 - r - jitter, sqrt(0.49**2 - x**2))``: the table's
+    half-width bound near the robot, the radial reach bound far from it.
+    """
+    radial = torch.sqrt(torch.clamp(SPAWN_REACH_RADIUS**2 - x**2, min=0.0))
+    cap = torch.tensor(
+        SPAWN_TABLE_HALF_WIDTH - object_radius - SPAWN_JITTER,
+        dtype=x.dtype,
+        device=x.device,
+    )
+    return torch.minimum(cap, radial)
+
+
+def place_xy_from_draws(
+    u: torch.Tensor, object_radius: float = PLACE_OBJECT_RADIUS
+) -> torch.Tensor:
+    """Map unit draws ``(..., 2)`` to envelope positions ``(..., 2)``.
+
+    ``x ~ U[0.20, 0.45]``, then ``y ~ U[-Y(x), +Y(x)]``: uniform per column,
+    not per unit area (a mild bias toward the narrow far columns buys a
+    fixed, reproducible draw count).
+    """
+    x = SPAWN_X_MIN + u[..., 0] * (PLACE_X_MAX - SPAWN_X_MIN)
+    half = place_half_width(x, object_radius)
+    y = (u[..., 1] * 2.0 - 1.0) * half
+    return torch.stack([x, y], dim=-1)
+
+
+def enforce_place_separation(
+    cube_xy: torch.Tensor,
+    target_xy: torch.Tensor,
+    min_separation: float = PLACE_MIN_SEPARATION,
+    *,
+    move_cube: bool = True,
+    move_target: bool = True,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Push cube and target apart to at least ``min_separation`` (m).
+
+    One deterministic push along the line joining them (a coincident pair
+    splits along +x), so an episode can never start already solved — no
+    rejection loop. The shortfall is split over the sides allowed to move:
+    a pinned axis never moves, so a ``Fixed`` variant stays exactly pinned.
+    """
+    if not move_cube and not move_target:
+        return cube_xy, target_xy
+    delta = target_xy - cube_xy
+    dist = delta.norm(dim=-1, keepdim=True)
+    shortfall = (min_separation - dist).clamp(min=0.0)
+    fallback = torch.zeros_like(delta)
+    fallback[..., 0] = 1.0
+    unit = torch.where(dist > 1e-9, delta / dist.clamp(min=1e-9), fallback)
+    push = unit * shortfall
+    weights = float(move_cube) + float(move_target)
+    return (
+        cube_xy - push * (float(move_cube) / weights),
+        target_xy + push * (float(move_target) / weights),
+    )
+
+
+def draw_place_poses(
+    num_envs: int,
+    random_spawn: bool,
+    random_target: bool,
+    *,
+    device: str | torch.device = "cpu",
+    object_radius: float = PLACE_OBJECT_RADIUS,
+    min_separation: float = PLACE_MIN_SEPARATION,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Draw the cube pose and target over the shared envelope.
+
+    Fixed draw counts in index order — cube ``rand(n, 3)`` (x, y, yaw),
+    then target ``rand(n, 2)`` (x, y) — even for pinned axes, so the
+    seed-prefix rule holds across variants. Pinned axes overwrite their
+    draw with the fixed pose; the push-apart runs last either way.
+    """
+    u_cube = torch.rand(num_envs, 3, device=device)
+    u_target = torch.rand(num_envs, 2, device=device)
+    cube_xy = place_xy_from_draws(u_cube[:, :2], object_radius)
+    cube_yaw = u_cube[:, 2] * 2.0 * math.pi
+    target_xy = place_xy_from_draws(u_target, object_radius)
+    if not random_spawn:
+        cube_xy = torch.tensor(FIXED_SPAWN_XY, device=device).expand(num_envs, 2)
+        cube_yaw = torch.zeros(num_envs, device=device)
+    if not random_target:
+        target_xy = torch.tensor(FIXED_TARGET_XY, device=device).expand(num_envs, 2)
+    cube_xy, target_xy = enforce_place_separation(
+        cube_xy,
+        target_xy,
+        min_separation,
+        move_cube=random_spawn,
+        move_target=random_target,
+    )
+    return cube_xy, cube_yaw, target_xy
 
 
 def get_command(env: ManagerBasedRlEnv, name: str) -> PlaceCommand:
@@ -57,10 +163,6 @@ def get_command(env: ManagerBasedRlEnv, name: str) -> PlaceCommand:
 class PlaceCommandCfg(CommandTermCfg):
     cube_name: str
     variant: PlaceVariantCfg
-    spawn_x_range: tuple[float, float] = SPAWN_X_RANGE
-    spawn_y_range: tuple[float, float] = WORKSPACE_Y
-    target_x_range: tuple[float, float] = TARGET_X_RANGE
-    target_y_range: tuple[float, float] = WORKSPACE_Y
     pos_threshold: float = 0.02
     """Max 3D distance between the cube and the target to count as placed
     (x margin)."""
@@ -81,13 +183,6 @@ class PlaceCommand(CommandTerm):
         E, dev = self.num_envs, self.device
 
         self._half_h = CUBE_HALF_EXTENTS[2]
-        object_radius = math.hypot(CUBE_HALF_EXTENTS[0], CUBE_HALF_EXTENTS[1])
-        self._scatter = ScatterGrid.tiling(
-            cfg.spawn_x_range,
-            cfg.spawn_y_range,
-            object_radius=object_radius,
-            device=dev,
-        )
 
         self.target_pos_w = torch.zeros(E, 3, device=dev)
         self.cube_pos_w = torch.zeros(E, 3, device=dev)
@@ -100,24 +195,6 @@ class PlaceCommand(CommandTerm):
         self._grip_sensor = cast(
             ContactSensor, env.scene.sensors[GRIP_CONTACT_SENSOR_NAME]
         )
-
-        # Fixed poses / normalizer derived from cfg so overrides stay
-        # consistent. Module constants remain as defaults for docs/imports.
-        self._fixed_spawn_xy = (
-            _midpoint(cfg.spawn_x_range),
-            _midpoint(cfg.spawn_y_range),
-        )
-        self._fixed_target_xy = (
-            _midpoint(cfg.target_x_range),
-            _midpoint(cfg.target_y_range),
-        )
-        spawn_x0, spawn_x1 = cfg.spawn_x_range
-        spawn_y0, spawn_y1 = cfg.spawn_y_range
-        target_x0, target_x1 = cfg.target_x_range
-        target_y0, target_y1 = cfg.target_y_range
-        dx = max(abs(target_x1 - spawn_x0), abs(target_x0 - spawn_x1))
-        dy = max(abs(target_y1 - spawn_y0), abs(target_y0 - spawn_y1))
-        self._max_travel_dist = math.hypot(dx, dy)
 
         self.metrics["dist_to_target"] = torch.zeros(E, device=dev)
         self.metrics["reached"] = torch.zeros(E, device=dev)
@@ -151,7 +228,7 @@ class PlaceCommand(CommandTerm):
         self.reached = place_reached(
             self.dist_to_target, self.cfg.pos_threshold * margin
         )
-        self.progress = place_progress(self.dist_to_target, self._max_travel_dist)
+        self.progress = place_progress(self.dist_to_target, MAX_TRAVEL_DIST)
 
         speed = self.cube.data.root_link_lin_vel_w.norm(dim=-1)
         released = self._contact_gate(self._grip_sensor)
@@ -171,36 +248,27 @@ class PlaceCommand(CommandTerm):
 
         self._gate.reset(env_ids)
 
-        # Cube spawn: scatter draw, or the pinned pose if spawn is fixed.
-        if self.variant.random_spawn:
-            xy, spawn_yaw = self._scatter.sample_poses(env_ids_len, 1)
-        else:
-            xy = torch.tensor(self._fixed_spawn_xy, device=dev).expand(
-                env_ids_len, 1, 2
-            )
-            spawn_yaw = torch.full((env_ids_len, 1), FIXED_SPAWN_YAW, device=dev)
+        # Fixed draw counts in index order (cube, then target), even for
+        # pinned axes, so the seed-prefix rule holds across variants; one
+        # deterministic push-apart keeps the minimum separation.
+        cube_xy, spawn_yaw, target_xy = draw_place_poses(
+            env_ids_len,
+            self.variant.random_spawn,
+            self.variant.random_target,
+            device=dev,
+        )
         write_upright_spawn(
             [self.cube],
-            xy,
-            spawn_yaw,
+            cube_xy.unsqueeze(1),
+            spawn_yaw.unsqueeze(1),
             torch.full((1,), self._half_h, device=dev),
             origins,
             env_ids,
         )
 
-        # Target: uniform draw in its region, or the pinned point.
-        if self.variant.random_target:
-            x0, x1 = self.cfg.target_x_range
-            y0, y1 = self.cfg.target_y_range
-            u = torch.rand(env_ids_len, 2, device=dev)
-            x_tensor = x0 + u[:, 0] * (x1 - x0)
-            y_tensor = y0 + u[:, 1] * (y1 - y0)
-        else:
-            x_tensor = torch.full((env_ids_len,), self._fixed_target_xy[0], device=dev)
-            y_tensor = torch.full((env_ids_len,), self._fixed_target_xy[1], device=dev)
         z_tensor = torch.full((env_ids_len,), self._half_h, device=dev)
         self.target_pos_w[env_ids] = (
-            torch.stack([x_tensor, y_tensor, z_tensor], dim=-1) + origins
+            torch.cat([target_xy, z_tensor.unsqueeze(-1)], dim=-1) + origins
         )
 
     def _update_command(self) -> None:

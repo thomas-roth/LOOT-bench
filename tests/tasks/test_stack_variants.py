@@ -1,11 +1,10 @@
-"""Invariants of the stack variant catalog (spares, prefix rule, scatter fit)."""
-
-import math
+"""Invariants of the stack variant catalog (spares, prefix rule, spawn table)."""
 
 import pytest
+import torch
 
-from loot_bench.tasks.common.scatter import ScatterGrid
-from loot_bench.tasks.stack.mdp.commands import StackCommandCfg
+from loot_bench.tasks.common.fixed_spawns import sample_fixed_spawns
+from loot_bench.tasks.stack.mdp.commands import STACK_SPAWN_CELLS
 from loot_bench.tasks.stack.variants import (
     DIFFICULTIES,
     STACK_VARIANTS,
@@ -56,10 +55,27 @@ def test_blocks_tail_extend_across_target_height(family):
 
 
 @pytest.mark.parametrize("variant", STACK_VARIANTS.values(), ids=lambda v: v.name)
-def test_scatter_grid_fits_block_set(variant):
-    cfg_defaults = StackCommandCfg.__dataclass_fields__
-    ws_x = cfg_defaults["workspace_x"].default
-    ws_y = cfg_defaults["workspace_y"].default
-    radius = max(math.hypot(*b.half_extents[:2]) for b in variant.blocks)
-    grid = ScatterGrid.tiling(ws_x, ws_y, object_radius=radius, device="cpu")
-    assert grid.num_cells >= len(variant.blocks)
+def test_block_count_is_two_n(variant):
+    assert len(variant.blocks) == 2 * variant.target_blocks
+
+
+def test_spawn_table_holds_hardest_block_set():
+    hardest = max(len(v.blocks) for v in STACK_VARIANTS.values())
+    assert hardest == 2 * max(TARGET_BLOCKS)
+    assert len(STACK_SPAWN_CELLS) >= hardest
+
+
+@pytest.mark.parametrize("family", _FAMILIES.values(), ids=list(_FAMILIES))
+def test_easier_reset_is_prefix_of_harder(family):
+    # Object i takes cell i, so Stack3's reset is a prefix of Stack4's and
+    # Stack4's a prefix of Stack5's.
+    cells = torch.tensor(STACK_SPAWN_CELLS)
+    counts = [len(STACK_VARIANTS[name].blocks) for name in family]
+    assert counts == [2 * n for n in TARGET_BLOCKS]
+    for easier, harder in zip(counts, counts[1:], strict=False):
+        torch.manual_seed(11)
+        xy_easy, yaw_easy = sample_fixed_spawns(cells, 4, easier)
+        torch.manual_seed(11)
+        xy_hard, yaw_hard = sample_fixed_spawns(cells, 4, harder)
+        assert torch.equal(xy_easy, xy_hard[:, :easier])
+        assert torch.equal(yaw_easy, yaw_hard[:, :easier])

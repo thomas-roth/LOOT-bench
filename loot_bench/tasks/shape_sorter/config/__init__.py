@@ -19,8 +19,6 @@ _VARIATION_BY_SPAWN = {
 def task_id_parts(variant: ShapeSorterVariantCfg) -> tuple[str, str]:
     """The ``(task, variation)`` id segments; also read by ``split_demos``."""
     task = f"{variant.num_pieces}Shapes"
-    if variant.wide_positions:
-        return task, "RandomPositions"
     return task, _VARIATION_BY_SPAWN[variant.spawn]
 
 

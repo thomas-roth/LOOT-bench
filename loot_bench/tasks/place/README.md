@@ -15,21 +15,21 @@ axes** independently: the cube spawn (`RandS`/`FixedS`) and the target
 policy would otherwise have to cover, which makes `FixedS-FixedT` the
 smallest learnable version of the task and `RandS-RandT` the real one.
 
-The `PlaceCommand` scatters the cube upright at a fresh spawn pose through
-the shared `ScatterGrid` (the same API every other category uses, even with
-one object and no collision to avoid), then draws a target point uniformly in
-its own region. The two regions are **disjoint in x** — spawn 0.20–0.28 m,
-target 0.36–0.44 m, both spanning y ±0.18 m — so the cube can never spawn
-already at the target. A pinned axis writes its region's midpoint
-(`FIXED_SPAWN_XY` / `FIXED_TARGET_XY`, derived from the ranges rather than
-written out) every reset instead, at yaw 0.
+The `PlaceCommand` draws the cube spawn and the target uniformly over the
+shared envelope when the variant axis says random (`x ~ U[0.20, 0.45]`,
+`y ~ U[-Y(x), +Y(x)]`, two draws per object in index order — no rejection
+loop, so the seed-prefix rule holds), and pins them when it says fixed
+(spawn at `x = 0.25`, target at `x = 0.40`, both on the centreline). A
+single deterministic push-apart keeps the cube and target at least 0.10 m
+apart without moving a pinned axis, so an episode can never start already
+solved.
 
 Success holds on the first step where the cube centre is within
 `pos_threshold * margin` (0.02 m) of the target in 3D, the cube moves slowly,
 and the gripper has released it. The criterion is **position only** — no
 orientation term at all, unlike domino's row-aligned upright check: this is
-"move to a location", not "move and orient". Release is the shared gate: the
-gripper joint is open *and* the pad contact is gone.
+"move to a location", not "move and orient". Release is the shared
+contact-only gate: the pad force is at or below `MIN_GRIP_FORCE`.
 
 Episodes are 15 s, which is 300 control steps at the shared 20 Hz
 (`docs/adr/016-control-at-20hz-through-a-5cm-end-effector-delta.md`). The arm
@@ -40,14 +40,15 @@ task because the demo recorder and the training run must read one number.
 
 ## Observations (state-based)
 
-42 wide, in order:
+36 wide, in order:
 
 - joint positions/velocities (8 each: 6 arm + 2 gripper)
 - EE pose (9): position, then the 6D rotation, never a quaternion
   (`docs/adr/007-ee-pose-publishes-a-6d-rotation.md`)
+- pad contact force (1): the same reduction the release gate reads
+  (`docs/adr/018-contact-only-release-gate.md`)
 - cube pose (7): env-local position + quaternion
 - the command (3): the env-local target point
-- last action (7)
 
 No term carries noise, and `actor` and `critic` read the same terms
 (`docs/adr/015-observations-carry-no-noise.md`).

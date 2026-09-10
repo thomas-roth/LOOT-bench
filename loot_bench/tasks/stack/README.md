@@ -5,11 +5,12 @@ xy position (and which blocks form the stack) does not.
 
 A *variant* (`variants.py`) fixes two axes: the target height in blocks
 (`Stack{3,4,5}`) and the block's height:width ratio (`{Easy,Medium,Hard}`).
-The `StackCommand` scatters all blocks upright on a jittered grid at every
-reset (no goal poses — the target height is a per-task constant, so
+The `StackCommand` stages all blocks upright from the fixed spawn table at
+every reset (object `i` on cell `i`, ±1 cm jitter; no goal poses — the
+target height is a per-task constant, so
 `command_obs=False`). Success holds on the first step where some block's top
 face is within `HEIGHT_TOL * margin` of the target height, all blocks move
-slowly, and the gripper is open.
+slowly, and the gripper has released them (contact-only release gate).
 
 All blocks of a variant are identical, so the target height is reachable by
 exactly `target_blocks` blocks and by no other count (the tolerance stays

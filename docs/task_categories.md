@@ -48,6 +48,9 @@ The footprint stays square because blocks spawn at a random yaw, so the
 variation axis is exactly the height:width ratio. Mass follows the shape
 (`BLOCK_DENSITY`), so the slenderest block is also the lightest.
 
+Spawns stage from the fixed table (object `i` on cell `i`, ±1 cm jitter),
+with the tower site kept clear; see `docs/adr/019-fixed-spawn-points.md`.
+
 ## Category: Domino
 
 Build a domino line that can topple sequentially.
@@ -67,8 +70,12 @@ Build a domino line that can topple sequentially.
 | **Variation** | Description |
 | --- | --- |
 | *(none)* | Use identical basic dominoes only. The base variant carries no variation segment: `LOOT-Domino-2Pieces-Dk1`. |
+| `RandomRow` | Row centre y and yaw redrawn every reset; row centre x stays pinned. |
 | `DifferentDominoes` | Dominoes become progressively thinner and lighter. |
 | `KnockOver` | Topple the completed line as a chain: every domino falls along the row, same direction, in row order; phase observation build (`0`) / topple (`1`). |
+
+Spawns stage from the fixed table (object `i` on cell `i`, ±1 cm jitter),
+left of the pinned row lane by construction; see `docs/adr/019-fixed-spawn-points.md`.
 
 ## Category: Sorter
 
@@ -91,7 +98,10 @@ Insert every peg into its matching hole in a shape sorter. Each peg fits only it
 | `FixedOrientation` | The sorter orientation is fixed; its position varies. |
 | `NoRotation` | The sorter orientation varies, but no required hole faces the ground. |
 | `Full` | The sorter position and orientation are random; rotating it may be required. |
-| `RandomPositions` | Pegs start at random positions around the sorter. |
+
+Pieces stage from the fixed five-cell table in front of the cube (object `i`
+on cell `i`, ±1 cm jitter) with the insertion corridor kept clear; see
+`docs/adr/019-fixed-spawn-points.md`.
 
 ## Category: Ball
 
@@ -140,6 +150,11 @@ before a real category is attempted.
 | `RandS-FixedT` | Cube spawn sampled, target pinned. |
 | `FixedS-RandT` | Cube spawn pinned, target sampled. |
 | `FixedS-FixedT` | Both pinned; the smallest learnable version. |
+
+Place is exempt from the spawn tables: spawn and target draw uniformly over
+the shared envelope when random (with one deterministic push-apart keeping
+them 0.10 m apart) and pin exactly when fixed; see
+`docs/adr/019-fixed-spawn-points.md`.
 
 ## Future Work (don't implement for now):
 

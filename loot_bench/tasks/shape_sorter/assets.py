@@ -32,10 +32,10 @@ _XML_DIR = Path(__file__).resolve().parent / "xmls"
 SORTER_XML = _XML_DIR / "sorter.xml"
 SORTER_LAYOUT_JSON = _XML_DIR / "sorter_layout.json"
 
-# Cube placement in the robot workspace (env-local).
-BOARD_POS = (0.34, 0.0, 0.0)
-# Uniform XY jitter of the sorter cube around BOARD_POS on reset.
-SORTER_SPAWN_JITTER = (0.02, 0.03)
+# Cube placement in the robot workspace (env-local): pinned x with the
+# shared +/-1 cm jitter (``tasks/common/fixed_spawns.SPAWN_JITTER``, the
+# same number as every other category).
+BOARD_POS = (0.325, 0.0, 0.0)
 
 
 @dataclass(frozen=True)

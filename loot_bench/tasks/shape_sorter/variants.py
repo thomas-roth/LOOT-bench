@@ -9,9 +9,6 @@ Each fixes the shape set and cube spawn mode:
 - ShapeSorter{3,4,5}Full: the cube spawns face-down on any of its six faces
   (plus a random yaw) -- a required hole may start facing the table, so
   reorienting the cube may be necessary.
-- ShapeSorter{3,4,5}RandomPositions: same deterministic cube pose as
-  FixedOrientation, but the pieces spawn on a wide ring of cells around the
-  cube instead of the near band the other variants use.
 
 Shapes tail-extend across the difficulty axis (3 = the first 3 of the 5-shape
 list) so demos for easier tasks can be cut from the hardest task's
@@ -62,8 +59,6 @@ class ShapeSorterVariantCfg:
     shapes: tuple[Shape, ...]
     """One piece/hole per shape, in tail-extending index order."""
     spawn: SpawnMode = "fixed"
-    wide_positions: bool = False
-    """Scatter pieces on a wide ring around the cube instead of the near band."""
     margin: float = 1.0
     """Scale on the hole-slack success tolerance."""
 
@@ -95,12 +90,6 @@ SHAPE_SORTER_VARIANTS: dict[str, ShapeSorterVariantCfg] = {
             name=f"ShapeSorter{n}Full",
             shapes=_SHAPES_BY_COUNT[n],
             spawn="full",
-        ),
-        ShapeSorterVariantCfg(
-            name=f"ShapeSorter{n}RandomPositions",
-            shapes=_SHAPES_BY_COUNT[n],
-            spawn="fixed",
-            wide_positions=True,
         ),
     )
 }

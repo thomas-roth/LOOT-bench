@@ -14,8 +14,10 @@ If this file and a record disagree, the record is correct.
   (`docs/adr/015-observations-carry-no-noise.md`). Training is offline from
   recorded demonstrations, and the demonstrations came through the
   uncorrupted observation.
-- Proprioception (all tasks): joint positions, joint velocities, and the
-  end-effector pose.
+- Proprioception (all tasks): joint positions, joint velocities, the
+  end-effector pose, and the finger-pad contact force (1 wide: the same
+  reduction the release gate reads, so the policy sees the quantity its
+  episode terminates on, `docs/adr/018-contact-only-release-gate.md`).
 - The end-effector pose is 9 wide: the position, then the first two columns
   of the rotation matrix. It is never a quaternion
   (`docs/adr/007-ee-pose-publishes-a-6d-rotation.md`).
@@ -66,10 +68,9 @@ time:
    test).
 2. At rest: the object speed is at or below the threshold (0.01 m/s by
    default), so objects still in motion get no credit.
-3. Released: the gripper joints are above the open threshold *and* the
-   measured finger-pad contact force is at or below `MIN_GRIP_FORCE`
-   (0.1 N). The joint check alone can be fooled by a wedged grasp that still
-   grips past the open threshold, so the force check runs with it.
+3. Released: the measured finger-pad contact force is at or below `MIN_GRIP_FORCE`
+  (0.1 N) — contact-only, no gripper-joint check
+  (`docs/adr/018-contact-only-release-gate.md`).
 
 - Exception: **Shape Sorter skips the at-rest check** (its gate threshold is
   infinite). The socket holds the piece, so the insertion is credited
@@ -87,18 +88,22 @@ time:
 
 **Randomization**
 
-- Free objects are tiled into non-overlapping grid cells across the
-  workspace. Each object gets a random jitter and a random start yaw at every
-  reset.
+- Free objects stage from a fixed per-category spawn table: object `i` takes
+  cell `i` with ±1 cm jitter and a random start yaw at every reset. The
+  tables sit near the robot and keep the work area clear by construction, so
+  no keep-out mask is needed
+  (`docs/adr/019-fixed-spawn-points.md`). Place is exempt: its cube spawn and
+  target draw uniformly over the shared envelope when random and pin exactly
+  when fixed.
 - Fixed props (boards, fields, walls) do not move during an episode. By
   default a reset event pins each one to `env_origins + init_state.pos`, so
   the prop is in the same place at every reset. A category can widen that
   range, and Ball is the only one that does: it samples the field pose, and
   the wall pose where the variant has a wall.
-- Not every task randomizes everything. The domino row sits at a fixed pose
+- Not every task randomizes everything. The domino row's centre x is pinned
   at every reset, because a teleoperator needs a layout that does not move
   between takes, and the `RandomRow` variants are the ones that opt back into
-  a sampled row. Place switches its two axes independently, so `FixedS` pins
+  a sampled centre y and yaw. Place switches its two axes independently, so `FixedS` pins
   the cube spawn and `FixedT` pins the target.
 - The robot starts every episode at its home pose, plus a uniform sample of
   half-width `start_pose_noise`. The default is `0.0`
@@ -118,8 +123,8 @@ time:
 - **Success**: the top of a stack is within a small tolerance of the target
   height. All blocks of a variant share one height, so only a stack of
   exactly `target_blocks` blocks lands inside it.
-- **Randomization**: the blocks are scattered once at the start of the
-  episode.
+- **Randomization**: the blocks stage from the fixed table once at the start
+  of the episode.
 
 ### Domino
 
@@ -132,10 +137,10 @@ time:
 - **Success**: every domino stands upright and row-aligned (about 15 degrees
   of tolerance). `KnockOver` also needs every domino to fall along the row,
   all leaning the same way, and in row order.
-- **Randomization**: the domino spawns are sampled at every reset, and the
-  grid cells near a row slot are kept clear. The row itself is fixed, except
-  in the `RandomRow` variants, which redraw the row start pose and yaw at
-  every reset. The row spacing is always fixed, so the knock-over stays
+- **Randomization**: the dominoes stage from the fixed table at every reset;
+  spawns and row separate in x by construction. The row itself is pinned in
+  x, except in the `RandomRow` variants, which redraw the row centre y and
+  yaw at every reset. The row spacing is always fixed, so the knock-over stays
   possible.
 
 ### Shape Sorter
@@ -148,8 +153,8 @@ time:
   inserted and a pull-back cannot un-mark it. No at-rest check.
 - **Randomization**: the cube face and yaw are randomized (the mode changes
   with the variant: a fixed orientation, no forced hole-down, or fully free).
-  The pieces are scattered in front of the sorter, or on a fixed ring for
-  `RandomPositions`.
+  The pieces stage from a fixed table in front of the sorter with the
+  insertion corridor kept clear.
 
 ### Ball (Minigolf / Throw)
 

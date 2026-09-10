@@ -116,8 +116,9 @@ category: the shape sorter sets it to infinity, because a piece that has
 crossed its hole is scored while it still tumbles inside the cube.
 
 **Released**:
-The robot has let go of the scored object. Gripper-joint opening for
-cube/insertion; ball-to-grasp-site distance for ball.
+The robot has let go of the scored object. The finger pads exert no grip
+force (`ContactReleaseGate`: pad force at or below `MIN_GRIP_FORCE`); ball
+uses a ball-to-grasp-site distance test instead. See ADR-018.
 
 **Episode success**:
 Success latched since the last reset — once achieved it stays set for the
@@ -125,9 +126,9 @@ episode's metrics even if the state later degrades.
 
 **Row slot**:
 One of the fixed target poses a domino must be placed at, spaced closer than
-a domino's height so a topple runs down the line. The row itself is at the
-same workspace-centred pose every reset; only the `RandomRow` variants draw
-its start position and yaw. The domino at index *i* carries its own identity
+a domino's height so a topple runs down the line. The row's centre x is
+pinned at `DOMINO_ROW_X`; only the `RandomRow` variants draw its centre y
+and yaw. The domino at index *i* carries its own identity
 color, so a teleoperator can read which piece belongs to which slot. The
 `KnockOver` variants add a `phase` observation, `0` while the line is being
 built and `1` once the topple is required.
@@ -148,15 +149,21 @@ between just outside the mouth and just below the crossing plane.
 
 ### Spawning
 
-**ScatterGrid**:
-Collision-free-by-construction spawn sampling: distinct cells of a grid,
-each jittered by less than the half-cell size.
+**Fixed spawn table**:
+Hand-written per-category spawn cells (`tasks/common/fixed_spawns.py`):
+object `i` takes cell `i` with ±1 cm jitter (`SPAWN_JITTER`), one `rand`
+draw per object in index order, so an easier task's reset is a prefix of a
+harder one's. The tables sit near the robot and keep the work area (tower
+site, domino row lane, sorter insertion corridor) clear by construction, so
+there is no runtime keep-out mask. Minimum pitch between cells is set by the
+gripper, not the object size. Place is exempt: its spawn and target draw
+uniformly over the shared envelope when random, pinned when fixed. See
+ADR-019.
 
-**Keep-out**:
-Grid cells a `ScatterGrid` may not spawn into because they sit within a
-clearance of a goal position — an object dropped on its own target is
-awkward to align from there. Used by the domino row (`blocked_near`, whose
-`keep_free` argument holds back enough cells to still place every object).
+**Spawn envelope**:
+The arm's reachable area stated as its actual shape: `x >= 0.20`,
+`hypot(x, y) <= 0.49`, `abs(y) + object_radius <= 0.35`. Every spawn cell is
+inside it at all four corners of its jitter box.
 
 **Distractor**:
 An extra free body with no goal slot/socket, present only to make the task

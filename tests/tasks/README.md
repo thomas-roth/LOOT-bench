@@ -4,7 +4,7 @@ The scripts and pytest suite here verify changes to task code; run everything fr
 
 ---
 
-## Unit tests for the pure task logic (`test_success.py`, `test_scatter.py`)
+## Unit tests for the pure task logic (`test_success.py`, spawn-table tests)
 
 Pytest suites for the simulator-free task logic:
 
@@ -15,18 +15,20 @@ Pytest suites for the simulator-free task logic:
   plus the shared gates: `SuccessGate`
    from `common/success.py` and `ContactReleaseGate` from
    `common/commands.py`.
-- `test_scatter.py`: the `ScatterGrid` spawn sampler in `common/scatter.py`
-  (`tiling`'s cell layout and jitter bounds, `sample_poses`'s distinct-cells,
-  determinism, and seed-prefix properties, and `blocked_near`'s goal-position
-  keep-out).
+- `test_fixed_spawns.py`, `test_place_spawns.py`, `test_stack_variants.py`:
+  the fixed spawn tables in `common/fixed_spawns.py` and the category
+  `*_SPAWN_CELLS` (minimum separation against the gripper-derived pitch,
+  every cell inside the shared envelope at all four jitter corners, every
+  cell clear of the category's work zone, tables long enough for the maximum
+  object count) plus Place's envelope draw and push-apart.
 
 Run them after touching a category's `mdp/success.py`, `tasks/common/success.py`,
-or `tasks/common/scatter.py`.
+`tasks/common/fixed_spawns.py`, or a category's spawn table.
 
 ```bash
 uv run pytest tests/tasks/ -v    # test all pytest suites inside
 uv run pytest tests/tasks/test_success.py -v
-uv run pytest tests/tasks/test_scatter.py -v
+uv run pytest tests/tasks/test_fixed_spawns.py tests/tasks/test_place_spawns.py -v
 ```
 
 ---
@@ -105,4 +107,23 @@ As in the build script, a render failure is a warning, not a check failure.
 uv run python tests/tasks/check_success_reward.py
 uv run python tests/tasks/check_success_reward.py --cpu
 uv run python tests/tasks/check_success_reward.py --no-render
+```
+
+---
+
+## Spawn-cell reachability (`check_spawn_reachability.py`)
+
+IK reachability over every spawn cell: for every cell of the stack, domino
+and sorter tables — plus the sorter cube pin and Place's fixed spawn/target
+pins — at all four corners of its jitter box, this drives the arm with the
+environment's own differential-IK action term to a hover above the corner
+with the gripper straight down, and reports the worst position residual
+(PASS at ≤5 mm). It runs as a script rather than a unit test because it
+needs the compiled model. Only one task is built: the robot and the table
+are shared by every category, so one compiled model covers all tables.
+The full 94-target sweep takes 10+ minutes (env build + Warp kernels + up
+to 200 steps × 94); run it as a manual gate after touching a spawn table.
+
+```bash
+uv run python tests/tasks/check_spawn_reachability.py --cpu
 ```

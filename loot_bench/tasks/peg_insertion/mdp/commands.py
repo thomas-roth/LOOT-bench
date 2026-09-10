@@ -1,5 +1,5 @@
 """Archived peg-insertion command. Unregistered, see README.
-Goal bores, peg scatter, insertion test.
+Goal bores, fixed peg spawn, insertion test.
 """
 
 from __future__ import annotations
@@ -20,7 +20,8 @@ from loot_bench.tasks.common.commands import (
     ContactReleaseGate,
 )
 from loot_bench.tasks.common.debug_markers import MARKER_INFLATE, marker_color
-from loot_bench.tasks.common.scatter import ScatterGrid
+from loot_bench.tasks.common.fixed_spawns import sample_fixed_spawns
+from loot_bench.tasks.common.scatter import write_upright_spawn
 from loot_bench.tasks.common.success import (
     OBJECT_VEL_THRESHOLD,
     SuccessGate,
@@ -48,10 +49,13 @@ if TYPE_CHECKING:
     from mjlab.envs.manager_based_rl_env import ManagerBasedRlEnv
     from mjlab.viewer.debug_visualizer import DebugVisualizer
 
-# Peg spawn reach band (env-local xy) and the largest peg's bounding radius.
-_WORKSPACE_X = (0.13, 0.27)
-_WORKSPACE_Y = (-0.16, 0.16)
-_OBJECT_RADIUS = 0.022
+PEG_SPAWN_CELLS: tuple[tuple[float, float], ...] = ((0.22, 0.10),)
+"""Fixed spawn cell (env-local xy), peg 0 takes cell 0.
+
+Inside the shared envelope at every corner of its +/-1 cm jitter box, like
+every live category's table. A single cell suffices because every variant
+seats one peg.
+"""
 
 
 @dataclass(kw_only=True)
@@ -127,11 +131,13 @@ class InsertionCommand(CommandTerm):
         )
         self._half_len = PEG_HALF_LEN
 
-        # Pegs spawn upright in the reach band on a jittered grid.
-        self._scatter = ScatterGrid.tiling(
-            _WORKSPACE_X, _WORKSPACE_Y, object_radius=_OBJECT_RADIUS, device=dev
+        # Pegs spawn from the fixed table below (peg i on cell i); a single
+        # cell suffices because every variant seats one peg.
+        self._spawn_cells = torch.tensor(PEG_SPAWN_CELLS, device=dev)
+        assert self._spawn_cells.shape[0] >= self.num_pegs, (
+            f"spawn table holds {self._spawn_cells.shape[0]} cells, "
+            f"variant needs {self.num_pegs}"
         )
-        assert self._scatter.num_cells >= self.num_pegs
 
         self.metrics["lateral_error"] = torch.zeros(E, device=dev)
         self.metrics["num_inserted"] = torch.zeros(E, device=dev)
@@ -235,20 +241,17 @@ class InsertionCommand(CommandTerm):
         self._gate.reset(env_ids)
         self.inserted[env_ids] = 0.0
 
-        # Scatter pegs upright on distinct jittered cells (per-peg draws in
-        # index order via sample_poses).
-        xy, spawn_yaw = self._scatter.sample_poses(n, N)
-        zeros = torch.zeros(n, device=dev)
-        for i, peg in enumerate(self.pegs):
-            z = (self._half_len + 0.002 + origins[:, 2]).unsqueeze(-1)
-            p = torch.cat([xy[:, i, :] + origins[:, :2], z], dim=-1)
-            quat = quat_from_euler_xyz(zeros, zeros, spawn_yaw[:, i])
-            peg.write_root_link_pose_to_sim(
-                torch.cat([p, quat], dim=-1), env_ids=env_ids
-            )
-            peg.write_root_link_velocity_to_sim(
-                torch.zeros(n, 6, device=dev), env_ids=env_ids
-            )
+        # Peg i takes cell i with +/-1 cm jitter (one rand draw per peg, in
+        # index order), written upright at zero velocity.
+        xy, spawn_yaw = sample_fixed_spawns(self._spawn_cells, n, N)
+        write_upright_spawn(
+            self.pegs,
+            xy,
+            spawn_yaw,
+            torch.full((N,), self._half_len, device=dev),
+            origins,
+            env_ids,
+        )
 
         # Place the movable top sheet, hole offset from the bottom hole.
         if self.sheet is not None:
@@ -259,6 +262,7 @@ class InsertionCommand(CommandTerm):
             sy = bottom[:, 1] + off * torch.sin(ang)
             sz = origins[:, 2] + SHEET_TOP_ROOT_Z
             pos = torch.stack([sx, sy, sz], dim=-1)
+            zeros = torch.zeros(n, device=dev)
             quat = quat_from_euler_xyz(zeros, zeros, zeros)
             self.sheet.write_root_link_pose_to_sim(
                 torch.cat([pos, quat], dim=-1), env_ids=env_ids

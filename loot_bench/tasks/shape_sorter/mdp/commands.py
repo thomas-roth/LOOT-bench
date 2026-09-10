@@ -23,13 +23,10 @@ from loot_bench.tasks.common.commands import (
     ContactReleaseGate,
 )
 from loot_bench.tasks.common.debug_markers import marker_color
-from loot_bench.tasks.common.scatter import ScatterGrid, write_upright_spawn
+from loot_bench.tasks.common.fixed_spawns import SPAWN_JITTER, sample_fixed_spawns
+from loot_bench.tasks.common.scatter import write_upright_spawn
 from loot_bench.tasks.common.success import SuccessGate
-from loot_bench.tasks.shape_sorter.assets import (
-    BOARD_POS,
-    SORTER_SPAWN_JITTER,
-    load_sorter_layout,
-)
+from loot_bench.tasks.shape_sorter.assets import BOARD_POS, load_sorter_layout
 from loot_bench.tasks.shape_sorter.mdp.success import (
     SorterLatch,
     peg_axial_lateral,
@@ -58,21 +55,38 @@ _FLAT_ANGLES = torch.tensor(
 # Pose used by spawn fixed. Down face is the unused star socket.
 _FIXED_FACE_INDEX = 1
 
-_NORMAL_WORKSPACE_X = (0.13, 0.27)
-_NORMAL_WORKSPACE_Y = (-0.16, 0.16)
-_NORMAL_OBJECT_RADIUS = 0.03
-# Explicit ring of piece-spawn cells around the cube (env-local xy), used by
-# ``wide_positions`` variants instead of the near band above.
-_WIDE_CELLS = (
-    (0.20, -0.13),
-    (0.20, 0.0),
-    (0.20, 0.13),
-    (0.34, -0.16),
-    (0.34, 0.16),
-    (0.46, -0.10),
-    (0.46, 0.0),
-    (0.46, 0.10),
+SORTER_SPAWN_CELLS: tuple[tuple[float, float], ...] = (
+    (0.21, 0.07),
+    (0.21, -0.07),
+    (0.21, 0.19),
+    (0.21, -0.19),
+    (0.21, 0.31),
 )
+"""Fixed piece-spawn cells, object ``i`` takes cell ``i``.
+
+One column in front of the cube (whose near face sits at 0.265), so a
+recording session starts with the pieces staged and the work area clear.
+Sorter3's reset is a prefix of Sorter4's and Sorter4's a prefix of
+Sorter5's. Minimum pairwise separation 0.120, above the gripper-derived
+pitch for the largest piece.
+"""
+
+SORTER_CORRIDOR_HALF_WIDTH = 0.03
+"""Half-width (m) of the rect hole's insertion approach corridor.
+
+In ``fixed`` spawn the star face is down, which leaves the rect hole
+facing -x, straight at the robot; its insertion approach is a horizontal
+corridor along the centreline. The table keeps that corridor clear, which
+is why there is no ``y = 0`` cell and why the fifth cell is asymmetric.
+An asymmetric table is cheaper than a silently blocked insertion.
+"""
+
+
+def sorter_spawn_is_clear(x: float, y: float, object_radius: float) -> bool:
+    """Whether a jittered ``(x, y)`` spawn pose is clear of the approach corridor."""
+    return abs(y) >= SORTER_CORRIDOR_HALF_WIDTH + object_radius
+
+
 _HOLE_SLACK = 0.005
 _TILT_TOL_DEG = 30.0
 
@@ -141,18 +155,10 @@ class ShapeSorterCommand(CommandTerm):
         )
         self._all_faces = torch.arange(6, device=dev, dtype=torch.long)
 
-        self._normal_scatter = ScatterGrid.tiling(
-            _NORMAL_WORKSPACE_X,
-            _NORMAL_WORKSPACE_Y,
-            object_radius=_NORMAL_OBJECT_RADIUS,
-            device=dev,
+        self._spawn_cells = torch.tensor(SORTER_SPAWN_CELLS, device=dev)
+        assert self._spawn_cells.shape[0] >= N, (
+            f"spawn table holds {self._spawn_cells.shape[0]} cells, variant needs {N}"
         )
-        self._wide_scatter = ScatterGrid(
-            cells=torch.tensor(_WIDE_CELLS, device=dev),
-            jitter=torch.zeros(2, device=dev),
-        )
-        assert self._normal_scatter.num_cells >= N
-        assert self._wide_scatter.num_cells >= N
 
         self.socket_mouth_w = torch.zeros(E, N, 3, device=dev)
         self.socket_axis_w = torch.zeros(E, N, 3, device=dev)
@@ -246,7 +252,7 @@ class ShapeSorterCommand(CommandTerm):
         # Cube pose: one shared draw, same count for every spawn mode.
         u = torch.rand(n, 4, device=dev)
         zeros = torch.zeros(n, device=dev)
-        jitter = (u[:, :2] - 0.5) * 2.0 * torch.tensor(SORTER_SPAWN_JITTER, device=dev)
+        jitter = (u[:, :2] - 0.5) * 2.0 * SPAWN_JITTER
         cube_xy = origins[:, :2] + torch.tensor(BOARD_POS[:2], device=dev) + jitter
         cube_z = origins[:, 2] + BOARD_POS[2] + self._cube_half + 0.002
         cube_pos = torch.cat([cube_xy, cube_z.unsqueeze(-1)], dim=-1)
@@ -277,9 +283,10 @@ class ShapeSorterCommand(CommandTerm):
             torch.zeros(n, 6, device=dev), env_ids=env_ids
         )
 
-        # Pieces: scatter upright on distinct cells, in index order.
-        scatter = self._wide_scatter if variant.wide_positions else self._normal_scatter
-        xy, spawn_yaw = scatter.sample_poses(n, N)
+        # Pieces: object i takes cell i with +/-1 cm jitter (one rand draw
+        # per piece, in index order), so an easier task's reset is a prefix
+        # of a harder task's.
+        xy, spawn_yaw = sample_fixed_spawns(self._spawn_cells, n, N)
         write_upright_spawn(
             self.pieces, xy, spawn_yaw, self._latch.piece_half, origins, env_ids
         )

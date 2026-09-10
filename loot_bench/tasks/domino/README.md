@@ -3,22 +3,22 @@
 Build a row of dominoes standing upright, close enough together that they
 could knock each other over.
 
-A *variant* (`variants.py`) fixes the domino count. The row itself sits at the
-same place every reset — the hardest count's row centred in the workspace,
-running along +y — so a teleoperator recording demos always builds in the same
-spot; `RandomRow` is the one variant that instead draws the row's start pose
-and direction (one shared draw, sized for the hardest count so its
-distribution never shifts with the variant's n). The dominoes themselves are
-scattered upright elsewhere in the workspace at every reset in both cases.
-Spawn cells within `_SLOT_KEEP_OUT` (2 cm on top of both footprint radii) of a
-row slot are blocked, so no domino ever starts on or right next to a target —
-aligning one out of its own goal position is needlessly fiddly, and a domino
-that close could even count as placed straight out of the reset. The keep-out
-is built against the hardest count's row, keeping the spawn draws a seed prefix
-across variants. Success holds on
+A *variant* (`variants.py`) fixes the domino count. The row's centre x is
+pinned at `DOMINO_ROW_X` every reset — so a teleoperator recording demos
+always builds in the same spot; `RandomRow` is the one variant that instead
+draws the row's centre y and yaw (one shared draw, sized for the hardest
+count so its distribution never shifts with the variant's n). The dominoes
+themselves stage upright from the fixed spawn table at every reset in both
+cases (object `i` on cell `i`, ±1 cm jitter). Spawns sit left of
+`DOMINO_LANE_EDGE` while every row slot sits right of it, so no domino ever
+starts on or right next to a target — aligning one out of its own goal
+position is needlessly fiddly, and a domino that close could even count as
+placed straight out of the reset; the separation holds by construction, with
+no keep-out mask. Success holds on
 the first step where every domino stands within `pos_threshold * margin` of
 its row slot and within `upright_threshold_deg * margin` of upright and
-row-aligned, all dominoes move slowly, and the gripper is open. `KnockOver`
+row-aligned, all dominoes move slowly, and the gripper has released them
+(contact-only release gate). `KnockOver`
 variants latch a `phase` (0 = build, 1 = topple) the first time the row is
 complete, and then additionally require the row to topple as a chain: every
 domino falls along the row axis (tilted past 45°, leaning toward the row
