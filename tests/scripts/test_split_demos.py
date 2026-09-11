@@ -5,8 +5,9 @@ category is committed, and a fabricated one pins the contract more sharply
 anyway. Each category's fixture builds an observation in the real layout --
 ``[joint_pos 8 | joint_vel 8 | ee_pose 9 | pad_contact_force 1 |
 object-major sections]``, nothing
-after (ADR-016) -- and a reward column obeying the env's one-step lag, so the
-source self-check runs on every relabel.
+after (ADR-016) -- and a reward column matching each frame's own state
+(no shift, see ``split_demos``'s "Frame alignment" note), so the source
+self-check runs on every relabel.
 """
 
 import math
@@ -21,8 +22,8 @@ from loot_bench.scripts.split_demos import (
     SplitPlan,
     adapter_for,
     easier_target_task_ids,
+    episode_rewards,
     frame_state,
-    lagged_rewards,
     parse_task_id,
     proprio_width,
     relabel_episode,
@@ -53,11 +54,11 @@ def _head(grasp_pos: np.ndarray, pad_force: float = 0.0) -> np.ndarray:
 def _source_rewards(progress: torch.Tensor, gate: torch.Tensor) -> np.ndarray:
     """The reward column the env would have recorded for this episode.
 
-    Frame ``t`` is paid what the state at ``t - 1`` earned (ADR-006); frame 0
-    is not checked, so it repeats frame 1's value.
+    Frame ``t`` is paid exactly what the state in frame ``t``'s own
+    observation earns -- no shift (see ``split_demos``'s "Frame alignment"
+    note).
     """
-    paid = shaped_task_reward(progress[:-1], gate[:-1])
-    return torch.cat([paid[:1], paid]).numpy().astype(np.float32)
+    return shaped_task_reward(progress, gate).numpy().astype(np.float32)
 
 
 def _episode_frame(rel, task: str) -> pd.DataFrame:
@@ -298,8 +299,8 @@ class TestStackRecompute:
             plan=plan,
         )
         assert rel is not None
-        assert rel.cut_frame == 2  # success at frame 1, paid at frame 2
-        assert len(rel.obs) == 3
+        assert rel.cut_frame == 1  # success first holds at frame 1, paid there
+        assert len(rel.obs) == 2
         # The last frame is absorbing: reward exactly 0 and done set there only.
         assert rel.reward[-1, 0] == 0.0
         assert rel.done[-1, 0] and not rel.done[:-1, 0].any()
@@ -308,8 +309,8 @@ class TestStackRecompute:
         assert rel.obs.shape[1] == PROPRIO + 6 * 7
         assert rel.qpos.shape[1] == 6 * 7 + 8
         assert rel.qvel.shape[1] == 6 * 6 + 8
-        assert np.array_equal(rel.obs[:, :PROPRIO], obs[:3, :PROPRIO])
-        assert np.array_equal(rel.qpos[:, 6 * 7 :], qpos[:3, 10 * 7 :])
+        assert np.array_equal(rel.obs[:, :PROPRIO], obs[:2, :PROPRIO])
+        assert np.array_equal(rel.qpos[:, 6 * 7 :], qpos[:2, 10 * 7 :])
 
     def test_pads_loaded_to_the_end_credit_no_success(self):
         """Pads loaded to the end: no success, even with the qpos wide open.
@@ -467,15 +468,18 @@ def test_domino_recompute_and_truncation(row_yaw):
         plan=SplitPlan(adapter, four, three),
     )
     assert rel is not None
-    # The first 3 are complete at frame 1, so their success is paid at frame 2.
-    assert rel.cut_frame == 2
+    # The first 3 are complete at frame 1, paid there too (no shift).
+    assert rel.cut_frame == 1
     assert rel.obs.shape[1] == PROPRIO + 3 * 7 + 3 + 3 * 7
     assert rel.qpos.shape[1] == 3 * 7 + 8
     assert rel.qvel.shape[1] == 3 * 6 + 8
 
 
 def test_domino_dropped_piece_movement_is_reported():
-    obs, qpos, qvel = _domino_episode([(), (), ()])
+    # Piece 2 displaced on frame 0 so the target-3 success (and the cut) only
+    # holds from frame 1, keeping frame 1 -- where the dropped piece moves --
+    # inside the relabeled window.
+    obs, qpos, qvel = _domino_episode([(2,), (), ()])
     # Move the dropped 4th piece well past the disturbance tolerance.
     obs[1:, PROPRIO + 3 * 7] += 0.1
     adapter = adapter_for("LOOT-Domino-4Pieces-Dk1")
@@ -574,23 +578,23 @@ def test_sorter_recompute_and_truncation():
         plan=SplitPlan(adapter, five, three),
     )
     assert rel is not None
-    assert rel.cut_frame == 2  # first-3 latched at frame 1, paid at frame 2
+    assert rel.cut_frame == 1  # first-3 latched at frame 1, paid there too
     assert rel.obs.shape[1] == PROPRIO + 7 + 3 * 7 + 3
     # The cube stays: qpos keeps [cube | first-3 pieces | robot].
     assert rel.qpos.shape[1] == 7 + 3 * 7 + 8
     assert rel.qvel.shape[1] == 6 + 3 * 6 + 8
 
 
-# --- reward lag ------------------------------------------------------------ #
+# --- frame alignment -------------------------------------------------------- #
 
 
-def test_lagged_rewards_pay_success_one_frame_late():
+def test_episode_rewards_pay_success_the_frame_it_first_holds():
     progress = torch.tensor([0.5, 1.0, 1.0])
     gate = torch.tensor([False, True, True])
-    rewards = lagged_rewards(progress, gate, last_frame=2)
-    assert len(rewards) == 3
-    assert rewards[0].item() == rewards[1].item() < 0.0  # frame 0 stands in
-    assert rewards[2].item() == 0.0  # the success at frame 1, paid at frame 2
+    rewards = episode_rewards(progress, gate, last_frame=1)
+    assert len(rewards) == 2  # last_frame is inclusive, no extra shift
+    assert rewards[0].item() < 0.0
+    assert rewards[1].item() == 0.0  # success holds at frame 1, paid there too
 
 
 # --- write round-trip ------------------------------------------------------ #
