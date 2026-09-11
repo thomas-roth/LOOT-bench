@@ -33,11 +33,12 @@ SPLIT_TIERS: tuple[str, str, str] = (COLOR_NAMES[1], COLOR_NAMES[2], COLOR_NAMES
 def order_color(index: int, first_tier: int, second_tier: int) -> str:
     """Color an object by which split tier first needs it.
 
-    Objects tail-extend across a category's difficulty axis, so the tier
+    Objects tail-extend across a category's task axis, so the tier
     boundaries are the object counts of the easier tasks. Coloring on them
     shows the teleoperator the collection order and marks where a recording
-    can be cut (see ``scripts/split_demos.py``). E.g. Stack5's 10 blocks with
-    the Stack3/Stack4 counts (6, 8) read 6 navy, 2 teal, 2 white.
+    can be cut (see ``scripts/split_demos.py``). E.g. 3Henges' 9 blocks with
+    the 1Henge/2Henges counts (3, 6) read 3 navy, 3 teal, 3 white, one tier
+    per level.
     """
     if index < first_tier:
         return SPLIT_TIERS[0]

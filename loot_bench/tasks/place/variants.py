@@ -17,11 +17,12 @@ generalization the policy would otherwise have to cover, which is what makes
 from dataclasses import dataclass
 
 CUBE_HALF_EXTENTS = (0.02, 0.02, 0.02)
-"""Matches stack's Easy block (``DIFFICULTY_HALF_EXTENTS["Easy"]``). Reuses the
-established box geometry rather than inventing new physics constants."""
+"""The standard 0.04 m cube (the block the old Stack ``Easy`` variant used,
+before the category became henge building). Kept as the established box
+geometry rather than inventing new physics constants."""
 
 CUBE_MASS = 0.10
-"""Matches stack's ``block_mass("Easy")``."""
+"""The standard cube's 100 g, i.e. stack's ``BLOCK_DENSITY`` at 0.04 m."""
 
 CUBE_HEIGHT = 2.0 * CUBE_HALF_EXTENTS[2]
 

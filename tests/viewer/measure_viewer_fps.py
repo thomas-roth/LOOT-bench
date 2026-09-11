@@ -15,7 +15,7 @@ from mjlab.viewer import NativeMujocoViewer
 import loot_bench  # noqa: F401  (registers tasks)
 from loot_bench.scripts.utils.viewer_wrapper import NativeViewerWrapper
 
-DEFAULT_TASK = "LOOT-Stack3-Easy-Dk1"
+DEFAULT_TASK = "LOOT-Stack-1Henge-Dk1"
 
 
 def main() -> int:

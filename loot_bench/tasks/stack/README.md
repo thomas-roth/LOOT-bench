@@ -1,71 +1,141 @@
-# Stack task category
+# Stack task category (henge building)
 
-Stack blocks to reach a target height. Only the final height matters; block
-xy position (and which blocks form the stack) does not.
+Build a henge: one, two or three *levels* stacked on top of each other. A
+level is one block lying flat (the **lintel**) carried at a fixed height by
+whatever stands under it. Two builds satisfy a level, and the task encodes
+neither:
 
-A *variant* (`variants.py`) fixes two axes: the target height in blocks
-(`Stack{3,4,5}`) and the block's height:width ratio (`{Easy,Medium,Hard}`).
-The `StackCommand` stages all blocks upright from the fixed spawn table at
-every reset (object `i` on cell `i`, ±1 cm jitter; no goal poses — the
-target height is a per-task constant, so
-`command_obs=False`). Success holds on the first step where some block's top
-face is within `HEIGHT_TOL * margin` of the target height, all blocks move
-slowly, and the gripper has released them (contact-only release gate).
+```
+  trilithon              T
+   +-----+            +-----+
+   |     |            |     |      lintel: one block lying flat
+   #     #               #         upright(s): block(s) standing on end
+  ---------          ---------     table
+```
 
-All blocks of a variant are identical, so the target height is reachable by
-exactly `target_blocks` blocks and by no other count (the tolerance stays
-below half a block height). Each variant carries `2n` blocks — strictly more
-than needed, so height, not block count, is the binding constraint and
-support structures (staircase, buttress, pyramid) stay viable.
+The criterion tests only the lintel, never the supports, so both forms are
+legal. The trilithon costs a third block and stands; the T is faster and tips
+when the next level is built on it. The physics decides, which is the point of
+the multi-level tasks. See
+`docs/adr/020-a-henge-level-is-a-horizontal-block-at-a-fixed-height.md` for
+the decision and the arithmetic behind the two tolerances.
 
-The difficulty axis is the block's aspect ratio; the footprint is square
-because blocks spawn at a random yaw. Mass follows the shape from
-`BLOCK_DENSITY = 1562.5 kg/m^3`, so the slenderest block is also the
-lightest:
+## Tasks
 
-| Difficulty | Size (m)               | Ratio | Mass  |
-| ---------- | ---------------------- | ----- | ----- |
-| Easy       | 0.04 x 0.04 x 0.04     | 1.0   | 100 g |
-| Medium     | 0.03 x 0.03 x 0.05     | 1.67  | 70 g  |
-| Hard       | 0.025 x 0.025 x 0.06   | 2.4   | 59 g  |
+A *variant* (`variants.py`, `HengeVariantCfg`) fixes the level count. There
+is no difficulty axis. The category segment stays `Stack`; the level count is
+the task segment.
 
-Block lists tail-extend across the target-height axis within one difficulty
-(Stack3's blocks are blocks 0..5 of Stack4) and resets draw per-block
-randomness in index order, so demos for easier tasks can be cut from the
-hardest task's recordings (see `docs/task_categories.md`). The blocks are
-colored by that cut boundary (`order_color`): Stack5's ten blocks read six
-navy, two teal, two white.
+| Task id (`-Dk1`)          | Levels | Blocks | Lintel centre heights (m) | Episode           |
+| ------------------------- | ------ | ------ | ------------------------- | ----------------- |
+| `LOOT-Stack-1Henge`       | 1      | 3      | 0.075                     | 45 s (900 steps)  |
+| `LOOT-Stack-2Henges`      | 2      | 6      | 0.075, 0.160              | 90 s (1800 steps) |
+| `LOOT-Stack-3Henges`      | 3      | 9      | 0.075, 0.160, 0.245       | 135 s (2700 steps) |
+
+Heights are the lintel's *centre* above the table, measured at 20 Hz.
+
+## The block
+
+One block type, a square prism, serves as upright and as lintel. The
+cross-section is square because blocks spawn at a random yaw and must grasp
+the same standing and lying. Blocks spawn standing.
+
+| Property       | Value                        |
+| -------------- | ---------------------------- |
+| Full size      | 0.065 x 0.020 x 0.020 m      |
+| `half_extents` | (0.010, 0.010, 0.0325)       |
+| Long axis      | local z                      |
+| Mass           | 40.6 g at `BLOCK_DENSITY` 1562.5 kg/m^3 |
+| Level height   | 0.085 m (length plus width)  |
+
+## Success criterion
+
+Level `k` is complete when some block, all at once:
+
+- is horizontal: its long axis is within `TILT_COS_MAX` = 0.10 (5.7 deg) of
+  level (`mdp/success.block_is_horizontal`);
+- has its centre within `HEIGHT_TOL` = 3 mm of level `k`'s height above the
+  table;
+- is not held in the gripper (`docs/adr/017-a-held-block-earns-no-stack-progress.md`).
+
+Progress is the fraction of levels standing right now. It is instantaneous,
+not latched: a collapse drops it, because the work really was undone. Success
+holds on the first step where every level is complete, all blocks move slowly,
+and the gripper has released them (contact-only release gate,
+`docs/adr/018-contact-only-release-gate.md`). One predicate feeds both the
+reward and the termination.
+
+The two constants are coupled to the block geometry and checked against it at
+import (`variants.assert_no_alternative_build`). Do not tune either one on its
+own; ADR-020 explains why.
+
+## Rewards
+
+One term, in `[-1, 0]`, exactly `0` only at success
+(`docs/adr/006-one-task-reward-in-minus-one-to-zero.md`). It is shaped by the
+level fraction (`progress - 1`) and floored at `-MIN_SHORTFALL` so that no
+non-success step can read a true zero. Under `--sparse` a `1Henge` run is
+literally sparse; `3Henges` keeps three coarse rungs that the flag flattens.
+
+## Colour tiers and the split
+
+Block lists tail-extend across the level axis: `1Henge`'s 3 blocks are blocks
+0-2 of `2Henges`, which are blocks 0-5 of `3Henges`. Resets draw per-block
+randomness in index order, so `loot-split-demos` can cut `1Henge` and
+`2Henges` demo sets out of a single `3Henges` recording. `order_color(i, 3, 6)`
+paints those cut boundaries onto the blocks, one tier per level:
+
+| Blocks | Colour | Level |
+| ------ | ------ | ----- |
+| 0-2    | navy   | 1     |
+| 3-5    | teal   | 2     |
+| 6-8    | white  | 3     |
+
+## Recording protocol
+
+The code cannot enforce any of this. A teleoperator has to follow it, or the
+recording is not splittable and the trilithon does not fit.
+
+1. **Build bottom-up, one colour tier per level.** Level 1 from the navy
+   blocks, level 2 from teal, level 3 from white. A recording that builds
+   level 1 from white blocks cannot be relabelled into `1Henge`, and the
+   splitter fails loudly on it.
+2. **Grip lintels end-to-end.** Put the pads on the two 20 x 20 mm end faces.
+   Gripping across the width scrapes the uprights, for any block size,
+   because the pads and the upright faces both sit at half the block width
+   from the centre line.
+3. **Space trilithon uprights about 36 mm apart, centre to centre.** 32 mm
+   is the minimum to lower the second upright past the first; 45 mm is the
+   maximum before the lintel stops overhanging both.
+4. **Make a lintel by knocking a standing block over, then re-grasping it
+   lying.** Tip it onto the table with the closed gripper, then pick it up
+   end-to-end. `joint4` has only 22 deg of pitch from the home pose and cannot
+   roll a standing block flat in the wrist. Budget both motions.
+5. **The T is legal and faster**, but it tips when the next level is built on
+   it. Use it for `1Henge` if you like; prefer the trilithon below any level
+   that has to carry another.
 
 ## Observations (state-based)
 
 - joint positions/velocities, EE pose
 - all block poses (env-local position + quaternion, object-major)
 
-## Rewards
+There is no command observation: the level heights are per-task constants
+(`command_obs=False`).
 
-One term, in `[-1, 0]`, exactly `0` only at success
-(`docs/adr/006-one-task-reward-in-minus-one-to-zero.md`). It is shaped by the
-fraction of the target height that the tallest **resting** block reaches —
-the block currently held in the gripper is excluded, so merely lifting one to
-the target height earns nothing
-(`docs/adr/017-a-held-block-earns-no-stack-progress.md`) — and floored at
-`-MIN_SHORTFALL` so that no
-non-success step can read a true zero.
+## Spawns
 
-## Variants
+`HengeCommand` stages all blocks standing from the fixed spawn table at every
+reset: object `i` on cell `i`, +/-1 cm jitter (`docs/adr/019-fixed-spawn-points.md`).
+The build zone, x in [0.24, 0.32] and |y| <= 0.07, is kept clear by
+construction, so a session starts with the work area empty.
 
-| Task id (`-Dk1`)              | Target height    | Blocks |
-| --------------------------------- | ---------------- | ------ |
-| `LOOT-Stack3-{Easy,Medium,Hard}`   | 0.12/0.15/0.18 m | 6      |
-| `LOOT-Stack4-{Easy,Medium,Hard}`   | 0.16/0.20/0.24 m | 8      |
-| `LOOT-Stack5-{Easy,Medium,Hard}`   | 0.20/0.25/0.30 m | 10     |
-
-Play e.g. with:
+## Playing
 
 ```bash
-uv run loot-play LOOT-Stack3-Easy-Dk1
+uv run loot-play LOOT-Stack-2Henges-Dk1
 ```
 
-`loot-play` also draws a ghost target stack beside the workspace as a build
-guide (`SHOW_GOAL_STACK`); teleop recording keeps the plain target-height
-plane.
+`loot-play` draws a ghost trilithon per level beside the build zone as a
+build guide (`SHOW_GOAL_HENGE`), with its uprights at the 36 mm spacing. A
+teleop recording shows no guide.

@@ -1,4 +1,4 @@
-"""Observation terms for the stack task category."""
+"""Observation terms for the henge (stack) task category."""
 
 from __future__ import annotations
 

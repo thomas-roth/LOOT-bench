@@ -1,6 +1,6 @@
 # LOOT Benchmark
 
-Long-horizon robot-manipulation benchmark tasks (block stacking, domino
+Long-horizon robot-manipulation benchmark tasks (henge building, domino
 placement, shape insertion, ball-to-target, cube placing) registered into
 mjlab. Training is QC-FQL (offline-to-online RL), which runs from a separate
 upstream `qc` checkout; this repo holds only the seam to it, in
@@ -147,14 +147,44 @@ The region in front of and through a bore/hole in which a peg or sorter
 piece is considered "in transit": laterally within the hole outline, axially
 between just outside the mouth and just below the crossing plane.
 
+### Henge
+
+**Henge**:
+What the `Stack` category builds: one to three levels stacked on top of each
+other, `LOOT-Stack-{1Henge,2Henges,3Henges}`. The task counts levels and
+encodes nothing about the structure under a lintel. See ADR-020.
+_Avoid_: tower, stack height (the superseded height-only criterion)
+
+**Level**:
+One lintel carried at a fixed height above the table by whatever stands
+under it. Level `k` is complete when some unheld block is horizontal
+(`TILT_COS_MAX`) with its centre within `HEIGHT_TOL` of that height.
+Progress is the fraction of levels standing right now, not latched.
+
+**Lintel**:
+A block lying flat, the one piece a level's criterion tests. It is gripped
+end-to-end, pads on its end faces, because gripping across the width scrapes
+the uprights.
+
+**Upright**:
+A block standing on end, contributing its length to a pile's height. A
+trilithon uses two, about 36 mm apart centre to centre; a T uses one.
+Neither is rewarded or punished by rule.
+
+**Flat**:
+A block lying on the table or on a pile without being a lintel, contributing
+its width to a pile's height. Named only for the cheat discussion in
+ADR-020: piles of uprights and flats are enumerated and excluded by the two
+coupled tolerances.
+
 ### Spawning
 
 **Fixed spawn table**:
 Hand-written per-category spawn cells (`tasks/common/fixed_spawns.py`):
 object `i` takes cell `i` with ±1 cm jitter (`SPAWN_JITTER`), one `rand`
 draw per object in index order, so an easier task's reset is a prefix of a
-harder one's. The tables sit near the robot and keep the work area (tower
-site, domino row lane, sorter insertion corridor) clear by construction, so
+harder one's. The tables sit near the robot and keep the work area (build
+zone, domino row lane, sorter insertion corridor) clear by construction, so
 there is no runtime keep-out mask. Minimum pitch between cells is set by the
 gripper, not the object size. Place is exempt: its spawn and target draw
 uniformly over the shared envelope when random, pinned when fixed. See

@@ -1,23 +1,24 @@
-"""MjSpec builders for the stack blocks."""
+"""MjSpec builder for the henge block."""
 # pyright: reportAttributeAccessIssue=false
 # (mujoco ships no type stubs for the compiled MjSpec module)
 
 import mujoco
 
 from loot_bench.tasks.common.colors import COLOR_VALUES
-from loot_bench.tasks.stack.variants import BlockCfg
+from loot_bench.tasks.stack.variants import BLOCK_HALF_EXTENTS, BLOCK_MASS
 
 
-def get_block_spec(block: BlockCfg, name: str = "block") -> mujoco.MjSpec:
+def get_block_spec(color: str, name: str = "block") -> mujoco.MjSpec:
+    """One free square prism; only its colour varies between blocks."""
     spec = mujoco.MjSpec()
     body = spec.worldbody.add_body(name=name)
     body.add_freejoint(name=f"{name}_joint")
     body.add_geom(
         name=f"{name}_geom",
         type=mujoco.mjtGeom.mjGEOM_BOX,
-        size=block.half_extents,
-        mass=block.mass,
-        rgba=COLOR_VALUES[block.color],
+        size=BLOCK_HALF_EXTENTS,
+        mass=BLOCK_MASS,
+        rgba=COLOR_VALUES[color],
         condim=6,
         friction=(1.0, 0.01, 0.0001),
     )
