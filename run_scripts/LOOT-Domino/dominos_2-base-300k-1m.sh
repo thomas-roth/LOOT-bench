@@ -7,7 +7,7 @@ export G3A_RUN_SCRIPT="$(basename "${BASH_SOURCE[0]}" .sh)"
 
 exec "$HERE/../sweep.sh" \
   dominos_2-base-300k-1m \
-  LOOP-Domino-2Pieces-Dk1_uni \
+  LOOT-Domino-2Pieces-Dk1_uni \
   dataset/qc/dominos_2-base_101-demos_split_2026-09-06.npz \
   "$@" \
   -- \
