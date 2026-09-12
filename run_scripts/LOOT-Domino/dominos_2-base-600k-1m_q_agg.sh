@@ -3,7 +3,7 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-export G3A_RUN_SCRIPT="$(basename "${BASH_SOURCE[0]}" .sh)"
+export LOOT_RUN_SCRIPT="$(basename "${BASH_SOURCE[0]}" .sh)"
 
 exec "$HERE/../sweep.sh" \
   dominos_2-base-600k-1m_q_agg \
@@ -15,4 +15,4 @@ exec "$HERE/../sweep.sh" \
   --agent.num_qs=10 \
   --offline_steps 600000 \
   --online_steps 1000000 \
-  --eval_interval 100000 \
+  --eval_interval 100000

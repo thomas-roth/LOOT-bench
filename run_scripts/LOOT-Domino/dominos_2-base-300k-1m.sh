@@ -3,14 +3,14 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-export G3A_RUN_SCRIPT="$(basename "${BASH_SOURCE[0]}" .sh)"
+export LOOT_RUN_SCRIPT="$(basename "${BASH_SOURCE[0]}" .sh)"
 
 exec "$HERE/../sweep.sh" \
   dominos_2-base-300k-1m \
-  LOOT-Domino-2Pieces-Dk1_uni \
+  LOOT-Domino-2Pieces-Dk1 \
   dataset/qc/dominos_2-base_101-demos_split_2026-09-06.npz \
   "$@" \
   -- \
   --offline_steps 300000 \
   --online_steps 1000000 \
-  --eval_interval 200000 \
+  --eval_interval 200000
