@@ -38,7 +38,8 @@ best. Our `h=5` spanned 0.10 s — nearer the failing end than the working one.
 
 The action space compounded it. Under absolute joint control a fixed action
 error is a pose-dependent Cartesian error: measured in sim, an action error of
-0.0766 (the BC gate's own passing bar) moves the end-effector 0.0719 m on the
+0.0766 (the BC gate's passing bar at the time, withdrawn since — ADR-012)
+moves the end-effector 0.0719 m on the
 worst channel, against a 0.02 m success tolerance. The policy had to invert
 the arm's kinematics itself, which neither reference asks of it.
 
@@ -97,8 +98,8 @@ action or dropping the row: only that keeps "the stored action is what
   recorded.
 - **The `last_action` observation is dropped**, taking `place` from 42 to 35
   wide. It named a term that no longer exists, and it made "repeat the last
-  action" a trivially strong regressor: 0.0242 held-out against a BC gate bar
-  of 0.0766.
+  action" a trivially strong regressor: 0.0242 held-out against the BC gate bar
+  of 0.0766 then in force (withdrawn since — ADR-012).
 - **Teleop records deltas.** The leader's FK pose minus the sim's current
   end-effector pose, over the scale. Both terms exist at record time, so the
   stored action is still exactly what the simulator stepped with.

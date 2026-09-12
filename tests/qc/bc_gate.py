@@ -1,8 +1,7 @@
 # pyright: reportMissingImports=false
-"""Behaviour-cloning gate: do these demonstrations generalize?
+"""Behaviour-cloning read: how well do these demonstrations generalize?
 
-A training run costs hours. This costs about two minutes and answers the one
-question that decides whether the run is worth starting: fit the recorded
+A training run costs hours. This costs about two minutes: fit the recorded
 actions with a plain regressor, and see how well the fit transfers to episodes
 it never saw. It trains no policy; it is a measurement instrument.
 
@@ -10,22 +9,26 @@ The regressor gets exactly what the flow actor gets: the same observation,
 action chunk, ``valid`` mask, and MLP body. No flow noise, critic, or
 sampling, so a poor read reflects the data, not the agent.
 
-Read the held-out error against the fitted one. The verdict printed at the end
-names which of the three outcomes the run hit. Do not read a pass as a
-promise: the set that set the default ``--target`` scored 0 successes in 20
-evaluation episodes. A dataset that clears this gate has cleared the cheapest
-of the reasons a run fails, and no more.
+This tool reports numbers only. It gives no pass, no fail, and no exit-status
+verdict, because no bar survived measurement: the demonstration set that
+reaches 0.56 evaluation success reads a *worse* held-out error than the domino
+set that reaches none. See ``docs/adr/012-gate-a-demo-set-with-a-bc-fit.md``
+for the readings and why the old 0.0766 bar was withdrawn.
 
-Provenance of the bar, and why the old 0.166 and 0.118 readings cannot be
-compared with it: ``docs/adr/012-gate-a-demo-set-with-a-bc-fit.md``.
+Read the three numbers together:
+
+* held-out interior error, against the reference readings printed below it;
+* the fitted interior error, which shows how much of the error is failure to
+  transfer and how much is the observation not determining the action at all;
+* the demonstrations' own ``|a[t+1] - a[t]|``, the same statistic on the same
+  scale, which says how large the error is next to the motion it must predict.
 
 Runs from the qc venv (it needs JAX), with both checkouts on the path::
 
     PYTHONPATH=<loot-bench>:<qc> <qc>/.venv/bin/python tests/qc/bc_gate.py \\
         out/qc/demos.npz
 
-Exit status is the verdict: 0 when the held-out interior error beats
-``--target``, 1 when it does not.
+Exit status is 0 unless the read itself fails.
 """
 
 from __future__ import annotations
@@ -47,13 +50,18 @@ from typing import Any
 import numpy as np
 from numpy.typing import NDArray
 
-TARGET = 0.0766
-"""Held-out interior error of the old 100-demonstration set, read by this gate.
+REFERENCES = (
+    ("place_rand-s_rand-t_100-demos (0.56 eval success)", 0.0089, 0.1946, 0.2382),
+    ("dominos_4-base_2026-09-11 (0.00 eval success)", 0.0256, 0.1327, 0.1413),
+)
+"""Readings measured by this tool, as ``(set, fitted, held out low, high)``.
 
-Measured on the legacy ``LOOT-Place-Easy-Dk1_qc_physical.npz`` with
-``--holdout 10`` and defaults elsewhere. See
-``docs/adr/012-gate-a-demo-set-with-a-bc-fit.md`` for why that file, not
-today's demo directory, owns the number.
+Both taken on 2026-09-12 with the CLI defaults over ``--holdout-seed 0 1 2``,
+so the spread is the split-to-split spread, not a re-tune. They are printed
+next to a new read to give it a scale. They deliberately do not form a bar:
+the set with 0.56 evaluation success reads worse than the set with none, so
+held-out interior error does not order these sets by outcome. Provenance:
+``docs/adr/012-gate-a-demo-set-with-a-bc-fit.md``.
 """
 
 INTERIOR_SKIP = 5
@@ -372,12 +380,6 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("dataset", help=".npz from loot-convert-demos")
     parser.add_argument(
-        "--target",
-        type=float,
-        default=TARGET,
-        help="held-out interior error to beat (default: the old set's, read here)",
-    )
-    parser.add_argument(
         "--holdout",
         type=int,
         default=0,
@@ -478,7 +480,10 @@ def print_context(args: argparse.Namespace, data: FitData) -> list[str]:
         f"scale      : the demos' own |a[t+1] - a[t]| is "
         f"{np.median(step):.4f} median, {step.mean():.4f} mean"
     )
-    print(f"bar        : held-out interior error under {args.target}\n")
+    print("reference  : held-out interior error measured on known sets")
+    for name, fitted, low, high in REFERENCES:
+        print(f"             {low:.4f}-{high:.4f} (fitted {fitted:.4f})  {name}")
+    print()
 
     columns = [
         "train t=0",
@@ -508,30 +513,33 @@ def run_fit(
     return history, final
 
 
-def print_verdict(
+def print_read(
     train_interior: float,
     held_interior: float,
-    target: float,
     out: str,
     history: list[dict[str, float]],
 ) -> None:
-    passed = held_interior < target
-
     print(f"\nfitted   interior error : {train_interior:.4f}")
-    print(f"held out interior error : {held_interior:.4f}   (bar {target})")
-    if passed:
-        print("\nPASS. The fit transfers to unseen episodes. A run is worth starting.")
-    elif train_interior < 0.5 * held_interior:
+    print(f"held out interior error : {held_interior:.4f}")
+    for name, fitted, low, high in REFERENCES:
         print(
-            "\nFAIL. The regressor fits what it saw and does not transfer, so "
-            "these demonstrations are memorized, not learned. More of the same "
-            "will not help."
+            f"reference               : {low:.4f}-{high:.4f} (fitted {fitted:.4f})  {name}"
+        )
+
+    if train_interior < 0.5 * held_interior:
+        print(
+            "\nThe fit transfers poorly: it reads far better on the episodes it "
+            "saw than on the ones it did not. Compare the gap with the reference "
+            "sets above before concluding the demonstrations are at fault, and "
+            "note that this gap alone has not predicted evaluation success."
         )
     else:
         print(
-            "\nFAIL, and the fitted episodes read badly too: the observation "
-            "does not determine the action. Look at the observation layout "
-            "before recording more."
+            "\nThe fitted episodes read no better than the held-out ones. If the "
+            "fit has converged, the regressor is not even fitting what it saw: "
+            "the observation may not determine the action, so look at the "
+            "observation layout. Check the train mse column first: a fit still "
+            "falling reads this way too."
         )
 
     if out:
@@ -539,8 +547,6 @@ def print_verdict(
         path.mkdir(parents=True, exist_ok=True)
         (path / "history.json").write_text(json.dumps(history, indent=2))
         print(f"wrote {path / 'history.json'}")
-
-    raise SystemExit(0 if passed else 1)
 
 
 def main() -> None:
@@ -560,7 +566,7 @@ def main() -> None:
     history, final = run_fit(data, cfg, columns)
     held_interior = final[f"held t>={INTERIOR_SKIP}"]
     train_interior = final[f"train t>={INTERIOR_SKIP}"]
-    print_verdict(train_interior, held_interior, args.target, args.out, history)
+    print_read(train_interior, held_interior, args.out, history)
 
 
 if __name__ == "__main__":

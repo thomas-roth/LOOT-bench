@@ -174,20 +174,31 @@ PYTHONPATH=<loot-bench>:<qc> <qc>/.venv/bin/python tests/qc/bc_gate.py \
     out/qc/demos.npz --holdout 10 --steps 100000 --out out/qc/bc
 ```
 
-The exit status is the verdict: `0` when the held-out interior error beats
-`--target`, `1` when it does not. Useful flags: `--holdout` (default a fifth,
-at least one), `--steps` (50000), `--horizon` (the action chunk length, 5),
+It prints numbers and nothing else: no pass, no fail, and no verdict exit
+status. Useful flags: `--holdout` (default a fifth, at least one),
+`--holdout-seed`, `--steps` (50000), `--horizon` (the action chunk length, 5),
 `--hidden`, `--lr-schedule`, and `--out` to write `history.json`.
 
-A pass is not a promise. A set that cleared this gate still scored 0 successes
-in 20 evaluation episodes; the gate says the demonstrations are fittable and
-that they carry to an episode that was not fitted, and no more.
+**There is no bar, and the old 0.0766 one is withdrawn** (ADR-012, amended
+2026-09-12). It was never read on a set whose training outcome was known, and
+against two sets whose outcome is known it ordered them backwards: the
+`place_rand-s_rand-t` set that reaches 0.56 `eval/success` reads a held-out
+interior error of 0.1946-0.2382, worse than `dominos_4-base` at 0.1327-0.1413,
+which reaches none. Held-out interior error does not predict success.
 
-**Caveat on the default `--target`.** It was measured on a pre-rebuild export
-whose actions used the old residual convention, so its units are not today's.
-It cannot be compared with a number read on a current dataset, and it needs
-re-measuring on a committed session. Pass `--target` explicitly until then.
-See ADR-012.
+Read the three numbers the gate prints against each other, and against the two
+reference readings it prints below them:
+
+- **held-out interior error** — how far the fit carries to unseen episodes;
+- **fitted interior error** — how much of that is failure to transfer, versus
+  the observation not determining the action at all;
+- **the demos' own `|a[t+1] - a[t]|`** — the same statistic on the same scale,
+  so the error can be compared with the motion it has to predict.
+
+A set that reads far worse than both references, or whose fitted error sits
+near its held-out error after the fit has converged, is saying something. A set
+that lands between them is saying nothing yet, and is not a reason to
+re-record.
 
 ---
 

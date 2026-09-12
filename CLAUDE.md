@@ -226,8 +226,10 @@ offline/online split. `run_scripts/sweep.sh` is the exception to the one-run
 rule: it launches a sweep and owns its own `--wandb_tags`, so `train_qc.sh`
 skips the tag it would otherwise add.
 
-Two documents govern what to run: **ADR-012** says to gate a new demonstration
-set with `tests/qc/bc_gate.py` before spending a training run, and **ADR-014**
+Two documents govern what to run: **ADR-012** says to read a new demonstration
+set with `tests/qc/bc_gate.py` before spending a training run (numbers only —
+it has no pass/fail bar, and a poor read is not a reason to re-record), and
+**ADR-014**
 lists the closed experiments that must not be run again (the discount, a dense
 reward arm, `horizon_length=1`, a `flow_steps` sweep, more eval-reset coverage).
 Read both before proposing an experiment.

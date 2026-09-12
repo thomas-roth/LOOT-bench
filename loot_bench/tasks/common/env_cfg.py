@@ -129,7 +129,8 @@ def make_manipulation_env_cfg(
             else {}
         ),
         # No `actions` term: it made "repeat the last action" a trivially
-        # strong regressor (0.0242 against a BC gate bar of 0.0766), so a
+        # strong regressor (0.0242 against the BC gate bar of 0.0766 then in
+        # force; the bar has since been withdrawn, ADR-012), so a
         # policy could score on the demos without reading the scene (ADR-016).
     }
 
