@@ -48,12 +48,6 @@ if TYPE_CHECKING:
     from mjlab.envs.manager_based_rl_env import ManagerBasedRlEnv
     from mjlab.viewer.debug_visualizer import DebugVisualizer
 
-SHOW_GOAL_HENGE = False
-"""Draw the ghost henge (:meth:`HengeCommand._draw_goal_henge`).
-
-Switched on by ``scripts/play.py`` only: a build guide for interactive play,
-not something a teleop recording should show."""
-
 GRIP_REACH = 0.08
 """Max distance (m) from the grasp site for a block to count as held.
 
@@ -71,13 +65,10 @@ half-width, at most ``L - w`` = 45 mm before the lintel stops overhanging
 both, and 36 mm leaves ~4 mm of clearance on both that placement and the
 end-to-end lintel grip (ADR-020)."""
 
-# Clearance (m) between the build zone and the guide henge, so the guide
-# never overlaps the structure it describes.
-_GOAL_HENGE_MARGIN = 0.06
 _GOAL_HENGE_RGBA = (0.55, 0.75, 1.0, 1.0)  # base (pending) color, alpha unused
 
-# Local-to-world rotation laying a block's long axis (local z) along world x.
-_LINTEL_MAT = np.array([[0.0, 0.0, 1.0], [0.0, 1.0, 0.0], [-1.0, 0.0, 0.0]])
+# Local-to-world rotation laying a block's long axis (local z) along world y.
+_LINTEL_MAT = np.array([[1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, -1.0, 0.0]])
 
 HENGE_SPAWN_CELLS: tuple[tuple[float, float], ...] = (
     (0.22, 0.15),
@@ -121,6 +112,41 @@ def henge_spawn_is_clear(x: float, y: float, object_radius: float) -> bool:
     halo = object_radius + SPAWN_JITTER + BUILD_HALO_MARGIN
     x0, x1 = BUILD_ZONE_X
     return not (x0 - halo <= x <= x1 + halo and abs(y) <= BUILD_ZONE_HALF_WIDTH + halo)
+
+
+def goal_henge_parts(levels: int) -> list[tuple[int, str, np.ndarray, np.ndarray]]:
+    """Ghost-trilithon parts for a ``levels``-level reference henge.
+
+    Table-relative env-local poses, directly right of the robot. Lintel
+    centres are the level targets, uprights ``GUIDE_UPRIGHT_SPACING``
+    apart: a legal build, copyable outright. Reach-probed for the L3
+    grasp band. Returns ``(level, part, center, mat)`` (``level`` 0-based).
+    """
+    half = np.array(BLOCK_HALF_EXTENTS) + MARKER_INFLATE
+    cx, gy = 0.0, -0.20
+    parts: list[tuple[int, str, np.ndarray, np.ndarray]] = []
+    for level in range(levels):
+        base = level * LEVEL_HEIGHT
+        for sign in (-1.0, 1.0):
+            parts.append(
+                (
+                    level,
+                    f"upright_{sign}",
+                    np.array(
+                        [cx, gy + sign * GUIDE_UPRIGHT_SPACING / 2, base + half[2]]
+                    ),
+                    np.eye(3),
+                )
+            )
+        parts.append(
+            (
+                level,
+                "lintel",
+                np.array([cx, gy, base + LEVEL_HEIGHT - BLOCK_WIDTH / 2]),
+                _LINTEL_MAT,
+            )
+        )
+    return parts
 
 
 def get_command(env: ManagerBasedRlEnv, name: str) -> HengeCommand:
@@ -276,8 +302,6 @@ class HengeCommand(CommandTerm):
     def _debug_vis_impl(self, visualizer: DebugVisualizer) -> None:
         # No marker over the build zone itself: a plane at the top level's
         # height occluded everything under it, which is the whole structure.
-        if not SHOW_GOAL_HENGE:
-            return
         env_indices = visualizer.get_env_indices(self.num_envs)
         if not env_indices:
             return
@@ -288,52 +312,30 @@ class HengeCommand(CommandTerm):
     def _draw_goal_henge(
         self, visualizer: DebugVisualizer, batch: int, origin: np.ndarray
     ) -> None:
-        """Ghost trilithon per level, standing beside the build zone.
+        """Ghost trilithon per level, directly right of the robot.
 
-        Beside rather than in it: success is position-free, so the real
-        henge's xy must stay clear. Each level is drawn in the trilithon
-        form (the reference build; the T staying legal is a property of the
-        criterion, not something the guide advertises), tinted "reached" off
-        ``levels_complete``, the same predicate that pays the reward.
+        Position-free success, so the ghost is one possible solution, not
+        the required spot. Trilithon form (the T stays legal by criterion,
+        not shown); tinted off ``levels_complete``, so a level greens when
+        accepted anywhere. Buildable directly (see :func:`goal_henge_parts`).
         """
         half = np.array(BLOCK_HALF_EXTENTS) + MARKER_INFLATE
-        cx = (BUILD_ZONE_X[0] + BUILD_ZONE_X[1]) / 2
-        gy = BUILD_ZONE_HALF_WIDTH + _GOAL_HENGE_MARGIN + half[1]
         success = bool(self.success[batch] > 0.5)
         reached = self.levels_complete[batch].tolist()
-        for level in range(self.variant.levels):
+        for level, part, center, mat in goal_henge_parts(self.variant.levels):
             color = marker_color(_GOAL_HENGE_RGBA, bool(reached[level]), success)
-            base = level * LEVEL_HEIGHT
-            markers = [
-                (
-                    f"upright_{sign}",
-                    np.array(
-                        [cx + sign * GUIDE_UPRIGHT_SPACING / 2, gy, base + half[2]]
-                    ),
-                    np.eye(3),
-                )
-                for sign in (-1.0, 1.0)
-            ]
-            markers.append(
-                (
-                    "lintel",
-                    np.array([cx, gy, base + LEVEL_HEIGHT - BLOCK_WIDTH / 2]),
-                    _LINTEL_MAT,
-                )
+            center = origin + center
+            label = f"goal_henge_{batch}_{level}_{part}"
+            visualizer.add_box(
+                center=center, size=half, mat=mat, color=color, label=label
             )
-            for part, center, mat in markers:
-                center = origin + center
-                label = f"goal_henge_{batch}_{level}_{part}"
-                visualizer.add_box(
-                    center=center, size=half, mat=mat, color=color, label=label
-                )
-                # Red edges mark it as a virtual target, not a real block
-                # (same convention as the domino slot markers).
-                add_box_wireframe(
-                    visualizer,
-                    center=center,
-                    half_extents=half,
-                    mat=mat,
-                    color=OUTLINE_RGBA,
-                    label_prefix=f"{label}_outline",
-                )
+            # Red edges mark it as a virtual target, not a real block
+            # (same convention as the domino slot markers).
+            add_box_wireframe(
+                visualizer,
+                center=center,
+                half_extents=half,
+                mat=mat,
+                color=OUTLINE_RGBA,
+                label_prefix=f"{label}_outline",
+            )

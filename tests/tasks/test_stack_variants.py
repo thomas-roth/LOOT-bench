@@ -13,7 +13,12 @@ from loot_bench.tasks.common.fixed_spawns import (
     spawn_pitch,
 )
 from loot_bench.tasks.common.success import bore_axis_cos_tilt
-from loot_bench.tasks.stack.mdp.commands import HENGE_SPAWN_CELLS, henge_spawn_is_clear
+from loot_bench.tasks.stack.mdp.commands import (
+    GUIDE_UPRIGHT_SPACING,
+    HENGE_SPAWN_CELLS,
+    goal_henge_parts,
+    henge_spawn_is_clear,
+)
 from loot_bench.tasks.stack.mdp.success import henge_levels_complete
 from loot_bench.tasks.stack.variants import (
     BLOCK_HALF_EXTENTS,
@@ -198,3 +203,47 @@ def test_easier_reset_is_prefix_of_harder():
         xy_hard, yaw_hard = sample_fixed_spawns(cells, 4, harder)
         assert torch.equal(xy_easy, xy_hard[:, :easier])
         assert torch.equal(yaw_easy, yaw_hard[:, :easier])
+
+
+# --- shadow (goal) henge --------------------------------------------------- #
+
+
+@pytest.mark.parametrize("variant", _VARIANTS, ids=lambda v: v.name)
+def test_goal_henge_is_a_legal_build(variant):
+    # The shadow is dimension-exact and scores: buildable directly, and a
+    # level's ghost greens exactly when that level is accepted anywhere.
+    parts = goal_henge_parts(variant.levels)
+    assert len(parts) == 3 * variant.levels
+    for k in range(variant.levels):
+        level_parts = [p for p in parts if p[0] == k]
+        uprights = [c for _, part, c, _ in level_parts if part.startswith("upright")]
+        lintels = [c for _, part, c, _ in level_parts if part == "lintel"]
+        (lintel_mat,) = [m for _, part, _, m in level_parts if part == "lintel"]
+        assert len(uprights) == 2 and len(lintels) == 1
+        (lintel,) = lintels
+        assert lintel[2] == pytest.approx(variant.level_centre_height(k + 1))
+        assert abs(lintel_mat[1, 2]) == pytest.approx(1.0)  # lintel along y
+        spacing = abs(uprights[0][1] - uprights[1][1])
+        assert spacing == pytest.approx(GUIDE_UPRIGHT_SPACING)
+        assert (
+            BLOCK_WIDTH / 2 + 0.022 - 1e-9
+            <= spacing
+            <= BLOCK_LENGTH - BLOCK_WIDTH + 1e-9
+        )
+        # Uprights symmetric about the lintel; shadow directly right of
+        # the robot base.
+        assert (uprights[0][1] + uprights[1][1]) / 2 == pytest.approx(lintel[1])
+        assert uprights[0][0] == pytest.approx(lintel[0])
+        assert uprights[1][0] == pytest.approx(lintel[0])
+        assert (lintel[0], lintel[1]) == pytest.approx((0.0, -0.20))
+    # Ghost lintels satisfy the kernel exactly.
+    centre_z = torch.tensor([[c[2] for _, part, c, _ in parts if part == "lintel"]])
+    quats = _quat_about_y(math.pi / 2).repeat(variant.levels, 1).unsqueeze(0)
+    complete = henge_levels_complete(
+        centre_z,
+        quats,
+        0.0,
+        torch.tensor(variant.level_centre_heights),
+        variant.height_tol,
+    )
+    assert complete.all()

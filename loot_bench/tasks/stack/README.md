@@ -136,6 +136,8 @@ construction, so a session starts with the work area empty.
 uv run loot-play LOOT-Stack-2Henges-Dk1
 ```
 
-`loot-play` draws a ghost trilithon per level beside the build zone as a
-build guide (`SHOW_GOAL_HENGE`), with its uprights at the 36 mm spacing. A
-teleop recording shows no guide.
+`loot-play` and `loot-record-demos` draw a ghost trilithon per level
+directly right of the robot as a build guide (uprights at 36 mm spacing).
+Success is position-free: each level's ghost greens when that level is
+accepted anywhere, and the ghost itself is a legal build to copy. Markers
+are viewer-only; they never enter observations or the dataset.

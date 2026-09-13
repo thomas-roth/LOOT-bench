@@ -17,7 +17,7 @@ from loot_bench.tasks.stack.variants import BLOCKS_PER_LEVEL, HengeVariantCfg
 
 COMMAND_NAME = "task"
 
-SECONDS_PER_BLOCK = 15.0
+SECONDS_PER_BLOCK = 25.0
 """Episode budget per block, so 45 / 90 / 135 s for 1 / 2 / 3 levels.
 
 ADR-016 has the ``Place`` demos (one carry-and-place) at median 5.9 s,
