@@ -51,6 +51,7 @@ Usage:
 import lerobot.datasets.lerobot_dataset  # noqa: F401,E402,I001
 
 import argparse
+import contextlib
 import datetime
 import gc
 import threading
@@ -159,6 +160,21 @@ GRIPPER_LASER_DOT_THICKNESS = 0.002  # m
 # may pierce before reaching a non-robot surface.
 _GRIPPER_RAY_MAX_BOUNCES = 15
 _GRIPPER_RAY_NUDGE = 1e-4  # m, push past a pierced surface before recasting
+
+# Max distance (m) from the grasp site for a body to count as held. Mirrors
+# GRIP_REACH in tasks/stack/mdp/commands.py (same 0.08 m the success gate
+# uses). Purely geometric here: no contact sensor / torch, just mjd.xpos.
+_HELD_PROXIMITY = 0.08
+# Ghost footprint preview (KISS alternative to a full block ghost): one
+# translucent axis-aligned box at the laser hit, sized from the held geom.
+_FOOTPRINT_COLOR = (1.0, 0.0, 1.0, 0.35)
+_FOOTPRINT_INFLATE = 0.0015  # m, same anti-z-fight margin as MARKER_INFLATE
+_FOOTPRINT_FALLBACK_HALF = (0.010, 0.010, 0.010)  # m, if held geom isn't a box
+
+# Wrist PiP render size. Fixed 640x480 (2x the original 320x240): sharp
+# enough when enlarged, no per-resize renderer recreation.
+_PIP_WIDTH = 640
+_PIP_HEIGHT = 480
 
 
 def ask_operator() -> int:
@@ -402,11 +418,13 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
         for i in range(ngeom_before, viewer.user_scn.ngeom):
             viewer.user_scn.geoms[i].category = _mujoco.mjtCatBit.mjCAT_DECOR
 
-        # Gripper laser: down ray from grasp site, beam plus landing dot.
+        # Gripper laser: down ray from grasp site, beam plus landing dot. The
+        # ray pierces the held block; when it did, a translucent box in the
+        # held block's orientation marks the landing pose.
         if self._grasp_site_id >= 0 and self._vis_gripper_laser is not None:
             assert self.mjd is not None
             grasp_pos = self.mjd.site_xpos[self._grasp_site_id].copy()
-            hit = _cast_gripper_ray(self.mjm, self.mjd, grasp_pos)
+            hit, held_half, held_mat = _cast_gripper_ray(self.mjm, self.mjd, grasp_pos)
             if hit is not None:
                 self._vis_gripper_laser.add_cylinder(
                     start=grasp_pos,
@@ -424,6 +442,22 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
                     radius=GRIPPER_LASER_DOT_RADIUS,
                     color=GRIPPER_LASER_COLOR,
                 )
+                if held_half is not None and held_mat is not None:
+                    fp_half = np.asarray(held_half, dtype=float) + _FOOTPRINT_INFLATE
+                    r = np.asarray(held_mat, dtype=float).reshape(3, 3)
+                    world_hz = (
+                        abs(r[2, 0]) * fp_half[0]
+                        + abs(r[2, 1]) * fp_half[1]
+                        + abs(r[2, 2]) * fp_half[2]
+                    )
+                    fp_center = hit.copy()
+                    fp_center[2] += GRIPPER_LASER_DOT_LIFT + world_hz
+                    self._vis_gripper_laser.add_box(
+                        center=fp_center,
+                        size=fp_half,
+                        mat=r,
+                        color=_FOOTPRINT_COLOR,
+                    )
 
         # PiP wrist render, throttled (never at full frame rate).
         now = time.perf_counter()
@@ -438,6 +472,7 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
                 self.mjd,
                 camera=self._wrist_cam_id_pip,
             )
+            _disable_pip_shadows(self._wrist_renderer)
             # update_scene rebuilds the scene, so re-add target markers.
             if (
                 self._show_debug_vis
@@ -447,7 +482,8 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
                 self.env.unwrapped.update_visualizers(self._vis_wrist)
             img = self._wrist_renderer.render()
             QImage, QPixmap = _get_qimage_and_qpixmap()
-            qimg = QImage(img.tobytes(), 320, 240, QImage.Format_RGB888)
+            h, w = img.shape[0], img.shape[1]
+            qimg = QImage(img.tobytes(), w, h, QImage.Format_RGB888)
             self._pip_label.setPixmap(QPixmap.fromImage(qimg))
             self._pip_app.processEvents()
 
@@ -554,6 +590,31 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
     # _execute_step, ghost-color helpers) is inherited from RecordingViewerMixin.
 
 
+def _disable_shadows_global(mj_model: "_mujoco.MjModel | None") -> None:
+    """Turn off shadow casting at the model level (all renderers at once).
+
+    The main viewer additionally clears its RND_SHADOW scene flag via
+    ViewerConfig(enable_shadows=False); the wrist PiP clears its own scene
+    flag in _build_wrist_pip / the PiP update. Setting light_castshadow here
+    is what makes it truly global: no light casts, so neither renderer nor
+    any training camera can produce shadows.
+    """
+    if mj_model is None:
+        return
+    try:
+        mj_model.light_castshadow[:] = False
+    except Exception as exc:  # pragma: no cover - model-variant guard
+        print(f"[WARN] Could not disable light shadows: {exc}")
+
+
+def _disable_pip_shadows(wrist_renderer: "_mujoco.Renderer | None") -> None:
+    """Clear the PiP scene's shadow flag (cheap, idempotent)."""
+    if wrist_renderer is None:
+        return
+    with contextlib.suppress(Exception):
+        wrist_renderer.scene.flags[_mujoco.mjtRndFlag.mjRND_SHADOW] = 0
+
+
 def _find_camera_id(mj_model: "_mujoco.MjModel", suffix: str) -> int:
     """Return first camera matching suffix; -1 if none (prefix-aware)."""
     for ci in range(mj_model.ncam):
@@ -578,45 +639,108 @@ def _find_site_id(mj_model: "_mujoco.MjModel", suffix: str) -> int:
 
 def _cast_gripper_ray(
     mjm: "_mujoco.MjModel", mjd: "_mujoco.MjData", origin: np.ndarray
-) -> np.ndarray | None:
-    """Down ray from origin to first non-robot surface; None if no hit."""
+) -> tuple[np.ndarray | None, np.ndarray | None, np.ndarray | None]:
+    """Down ray from origin to first non-robot, non-held surface.
+
+    Returns ``(hit, held_half, held_mat)``: ``hit`` is None on miss,
+    ``held_half``/``held_mat`` describe the pierced held body, else None.
+    Held = body centre within _HELD_PROXIMITY of the grasp site (pure numpy,
+    ~2 us per mj_ray). Only the held block is skipped; stacked blocks and
+    the table still stop the ray.
+    """
     vec = np.array([0.0, 0.0, -1.0])
     pnt = origin.copy()
     geomid = np.zeros(1, dtype=np.int32)
+    held_half: np.ndarray | None = None
+    held_mat: np.ndarray | None = None
     for _ in range(_GRIPPER_RAY_MAX_BOUNCES):
         dist = _mujoco.mj_ray(mjm, mjd, pnt, vec, None, True, -1, geomid)
         if dist < 0:
-            return None
+            return None, held_half, held_mat
         hit = pnt + dist * vec
-        body_name = (
-            _mujoco.mj_id2name(
-                mjm, _mujoco.mjtObj.mjOBJ_BODY, mjm.geom_bodyid[geomid[0]]
-            )
-            or ""
+        gid = int(geomid[0])
+        body_id = int(mjm.geom_bodyid[gid])
+        body_name = _mujoco.mj_id2name(mjm, _mujoco.mjtObj.mjOBJ_BODY, body_id) or ""
+        if body_name.startswith(ROBOT_ENTITY_PREFIX):
+            pnt = hit + _GRIPPER_RAY_NUDGE * vec
+            continue
+        # Held block: its centre rides with the gripper, so it sits within
+        # reach of the ray origin. Pierce it (and remember its size for the
+        # footprint preview) instead of stopping on its top face. Guards keep
+        # the placement surfaces hittable: world body 0 (floor plane) and
+        # large geoms (table/board) are never treated as held.
+        try:
+            body_pos = np.asarray(mjd.xpos[body_id])
+        except Exception:
+            body_pos = None
+        is_held_candidate = (
+            body_pos is not None
+            and body_id != 0
+            and float(np.linalg.norm(body_pos - origin)) < _HELD_PROXIMITY
         )
-        if not body_name.startswith(ROBOT_ENTITY_PREFIX):
-            return hit
-        pnt = hit + _GRIPPER_RAY_NUDGE * vec
-    return None
+        if is_held_candidate:
+            try:
+                geom_size = np.asarray(mjm.geom_size[gid], dtype=float)
+                is_small = bool(np.max(geom_size[:3]) < 0.05)
+            except Exception:
+                geom_size = None
+                is_small = False
+            if not is_small:
+                return hit, held_half, held_mat
+            if held_half is None:
+                try:
+                    is_box = int(mjm.geom_type[gid]) == int(
+                        _mujoco.mjtGeom.mjGEOM_BOX.value
+                    )
+                except Exception:
+                    is_box = False
+                if is_box and geom_size is not None:
+                    held_half = geom_size.copy()
+                else:
+                    held_half = np.array(_FOOTPRINT_FALLBACK_HALF, dtype=float)
+                try:
+                    held_mat = np.asarray(mjd.xmat[body_id], dtype=float).reshape(3, 3)
+                except Exception:
+                    held_mat = None
+            pnt = hit + _GRIPPER_RAY_NUDGE * vec
+            continue
+        return hit, held_half, held_mat
+    return None, held_half, held_mat
 
 
 def _build_wrist_pip(mj_model: "_mujoco.MjModel | None"):
-    """Build wrist PiP window once; call before the HW thread starts."""
+    """Wrist PiP with aspect-locked resize."""
     if mj_model is None:
         return None, -1, None, None, None
     cam_id = _find_camera_id(mj_model, WRIST_CAMERA_NAME)
     if cam_id < 0:
         return None, -1, None, None, None
 
-    from PyQt5.QtWidgets import QLabel, QMainWindow
+    from PyQt5.QtWidgets import QLabel, QMainWindow, QSizePolicy
 
-    renderer = _mujoco.Renderer(mj_model, height=240, width=320)
+    class _AspectWindow(QMainWindow):
+        def resizeEvent(self, event):  # noqa: N802
+            super().resizeEvent(event)
+            central = self.centralWidget()
+            if central is None:
+                return
+            want = int(round(central.width() * _PIP_HEIGHT / _PIP_WIDTH))
+            if abs(central.height() - want) > 1:
+                self.resize(self.width(), want + self.height() - central.height())
+
+    renderer = _mujoco.Renderer(mj_model, height=_PIP_HEIGHT, width=_PIP_WIDTH)
+    _disable_pip_shadows(renderer)
     app = _get_pip_app()
-    window = QMainWindow()
+    window = _AspectWindow()
     label = QLabel()
+    label.setScaledContents(True)
+    label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+    label.setMinimumSize(320, 240)
     window.setCentralWidget(label)
     window.setWindowTitle("wrist")
-    window.resize(320, 240)
+    window.resize(_PIP_WIDTH, _PIP_HEIGHT)
+    with contextlib.suppress(Exception):
+        window.move(app.primaryScreen().availableGeometry().topLeft())
     window.show()
     return renderer, cam_id, app, window, label
 
@@ -762,6 +886,10 @@ def main():
     mj_model = _get_mj_model(env)
     if mj_model is None:
         print("[WARN] Ghost-at-home overlay disabled (could not locate MjModel)")
+    # Global shadow kill: no light casts, so the main viewer, the wrist PiP
+    # and any camera render shadow-free (cfg.enable_shadows=False already
+    # clears the main viewer's scene flag; PiP clears its own flag).
+    _disable_shadows_global(mj_model)
 
     # Dataset dirs are created lazily; never wipe existing data.
     base_dir = Path(args.dataset_dir) if args.dataset_dir else DEMOS_DIR
