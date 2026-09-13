@@ -88,7 +88,7 @@ Usage:
     uv run python tests/tasks/compare_sim_settings.py --viewer
     uv run python tests/tasks/compare_sim_settings.py --scenarios grasp
     uv run python tests/tasks/compare_sim_settings.py \\
-        --task LOOT-Sorter-Cube-Circle-Dk1 --profiles train play
+        --task LOOT-Sorter-3Shapes-Full-Dk1 --profiles train play
 """
 
 import argparse

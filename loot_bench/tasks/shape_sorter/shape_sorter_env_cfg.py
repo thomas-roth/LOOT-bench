@@ -74,6 +74,11 @@ def make_shape_sorter_env_cfg(
         ),
     )
 
+    # Teleop budget: ~10 s per insertion, matching the domino category's
+    # ~20 s per placement (a sorter insertion is one grasp-place cycle with
+    # no travel between slots, so half the domino rate).
+    episode_length_s = 10.0 * variant.num_pieces
+
     return make_manipulation_env_cfg(
         entities=entities,
         fixed_props=("table",),
@@ -93,10 +98,13 @@ def make_shape_sorter_env_cfg(
         task_terminations=task_terminations,
         sensors=sensors,
         env_spacing=2.0,
-        episode_length_s=10.0 * variant.num_pieces,
+        episode_length_s=episode_length_s,
         # ~90 convex mesh parts on the cube colliding with pieces, table and
-        # gripper need real contact/constraint headroom.
-        nconmax=500,
-        njmax=2000,
+        # gripper need real contact/constraint headroom: a fixed base for the
+        # cube assembly plus per-piece contacts, mirroring the domino
+        # category's scaled budgets. Sized so the hardest variant (5 pieces)
+        # caps at 500/2000.
+        nconmax=100 + 80 * variant.num_pieces,
+        njmax=1500 + 100 * variant.num_pieces,
         play=play,
     )

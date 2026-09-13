@@ -44,6 +44,7 @@ from loot_bench.tasks.shape_sorter.mdp.commands import (
     SORTER_SPAWN_CELLS,
     sorter_spawn_is_clear,
 )
+from loot_bench.tasks.shape_sorter.variants import HARDEST_COUNT as SORTER_HARDEST_COUNT
 from loot_bench.tasks.shape_sorter.variants import SHAPE_SORTER_VARIANTS
 from loot_bench.tasks.stack.mdp.commands import (
     STACK_SPAWN_CELLS,
@@ -302,7 +303,7 @@ def _category_tables() -> dict[str, dict]:
             "cells": torch.tensor(SORTER_SPAWN_CELLS),
             "object_radius": sorter_radius,
             "pitch": spawn_pitch(sorter_radius, sorter_radius),
-            "max_objects": max(v.num_pieces for v in SHAPE_SORTER_VARIANTS.values()),
+            "max_objects": SORTER_HARDEST_COUNT,
             "is_clear": lambda x, y: sorter_spawn_is_clear(x, y, sorter_radius),
         },
     }
@@ -413,8 +414,8 @@ def _sorter_radius() -> float:
 class TestSorterTable:
     def test_table_holds_five_cells_for_five_pieces(self):
         cells = torch.tensor(SORTER_SPAWN_CELLS)
-        assert cells.shape == (5, 2)
-        assert max(v.num_pieces for v in SHAPE_SORTER_VARIANTS.values()) == 5
+        assert cells.shape == (SORTER_HARDEST_COUNT, 2)
+        assert max(v.num_pieces for v in SHAPE_SORTER_VARIANTS.values()) == SORTER_HARDEST_COUNT
 
     def test_min_separation_matches_prd(self):
         cells = torch.tensor(SORTER_SPAWN_CELLS)

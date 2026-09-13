@@ -22,7 +22,7 @@ from loot_bench.tasks.common.commands import (
     GRIP_CONTACT_SENSOR_NAME,
     ContactReleaseGate,
 )
-from loot_bench.tasks.common.debug_markers import marker_color
+from loot_bench.tasks.common.debug_markers import PENDING_ALPHA, marker_color
 from loot_bench.tasks.common.fixed_spawns import SPAWN_JITTER, sample_fixed_spawns
 from loot_bench.tasks.common.scatter import write_upright_spawn
 from loot_bench.tasks.common.success import SuccessGate
@@ -32,7 +32,12 @@ from loot_bench.tasks.shape_sorter.mdp.success import (
     peg_axial_lateral,
     peg_axis_cos_tilt,
 )
-from loot_bench.tasks.shape_sorter.variants import ShapeSorterVariantCfg, allowed_faces
+from loot_bench.tasks.shape_sorter.variants import (
+    HOLE_SLACK,
+    TILT_TOL_DEG,
+    ShapeSorterVariantCfg,
+    allowed_faces,
+)
 
 if TYPE_CHECKING:
     from mjlab.envs.manager_based_rl_env import ManagerBasedRlEnv
@@ -87,10 +92,6 @@ def sorter_spawn_is_clear(x: float, y: float, object_radius: float) -> bool:
     return abs(y) >= SORTER_CORRIDOR_HALF_WIDTH + object_radius
 
 
-_HOLE_SLACK = 0.005
-_TILT_TOL_DEG = 30.0
-
-
 def get_command(env: ManagerBasedRlEnv, name: str) -> ShapeSorterCommand:
     return cast(ShapeSorterCommand, env.command_manager.get_term(name))
 
@@ -102,6 +103,11 @@ class ShapeSorterCommandCfg(CommandTermCfg):
     """One piece entity per shape, in the variant's (tail-extending) index
     order."""
     variant: ShapeSorterVariantCfg
+    hole_slack: float = HOLE_SLACK
+    """Radial slack (m) added to every hole's bounding radius (x margin)."""
+    tilt_tol_deg: float = TILT_TOL_DEG
+    """Max piece-to-hole axis misalignment (deg) that still latches. Unlike
+    ``hole_slack``, not scaled by the variant margin (see ``variants.py``)."""
 
     def build(self, env: ManagerBasedRlEnv) -> ShapeSorterCommand:
         return ShapeSorterCommand(self, env)
@@ -134,7 +140,7 @@ class ShapeSorterCommand(CommandTerm):
         )
         hole_radius = (
             torch.tensor([h.bounding_radius for h in holes], device=dev)
-            + _HOLE_SLACK * variant.margin
+            + cfg.hole_slack * variant.margin
         )
         wall_t = torch.tensor([h.wall_thickness for h in holes], device=dev)
         self._latch = SorterLatch(
@@ -144,7 +150,7 @@ class ShapeSorterCommand(CommandTerm):
             hole_radius=hole_radius,
             piece_half=piece_half,
             s_cross=-(wall_t + piece_half),
-            tilt_cos=math.cos(math.radians(_TILT_TOL_DEG)),
+            tilt_cos=math.cos(math.radians(cfg.tilt_tol_deg)),
         )
 
         self._flat_quats = quat_from_angle_axis(
@@ -304,7 +310,10 @@ class ShapeSorterCommand(CommandTerm):
                 mouth = self.socket_mouth_w[batch, i].cpu().numpy()
                 done = bool(self.latched[batch, i])
                 color = marker_color(
-                    COLOR_VALUES[self.variant.colors[i]], done, success
+                    COLOR_VALUES[self.variant.colors[i]],
+                    done,
+                    success,
+                    pending_alpha=PENDING_ALPHA,
                 )
                 visualizer.add_sphere(
                     center=mouth,

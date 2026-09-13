@@ -188,8 +188,10 @@ def _sorter_progress_and_gate(
 
     A piece latches independently of the others, so the first-k flags of the
     persistent ``socket_inserted`` slice are exactly the target task's. The
-    env's gate has no at-rest term (``vel_threshold=inf``): the socket holds a
-    latched piece.
+    env's gate has no at-rest term (``vel_threshold=inf`` in
+    ``ShapeSorterCommand``): the socket holds a latched piece, so (unlike the
+    domino adapter above) no ``OBJECT_VEL_THRESHOLD`` check applies. Release
+    still gates, read off the recorded pad force like every category.
     """
     del variant  # every variant scores alike; only the piece count differs
     latched = state.sections[1][:, :, 0] > 0.5  # (T, k)
