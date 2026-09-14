@@ -5,7 +5,7 @@ category is committed, and a fabricated one pins the contract more sharply
 anyway. Each category's fixture builds an observation in the real layout --
 ``[joint_pos 8 | joint_vel 8 | ee_pose 9 | pad_contact_force 1 |
 object-major sections]``, nothing
-after (ADR-016) -- and a reward column obeying the env's one-step lag, so the
+after (ADR-016) -- and a frame-for-frame reward column, so the
 source self-check runs on every relabel.
 """
 
@@ -24,8 +24,8 @@ from loot_bench.scripts.split_demos import (
     SplitPlan,
     adapter_for,
     easier_target_task_ids,
+    episode_rewards,
     frame_state,
-    lagged_rewards,
     main,
     parse_task_id,
     proprio_width,
@@ -59,11 +59,10 @@ def _head(grasp_pos: np.ndarray, pad_force: float = 0.0) -> np.ndarray:
 def _source_rewards(progress: torch.Tensor, gate: torch.Tensor) -> np.ndarray:
     """The reward column the env would have recorded for this episode.
 
-    Frame ``t`` is paid what the state at ``t - 1`` earned (ADR-006); frame 0
-    is not checked, so it repeats frame 1's value.
+    Frame ``t`` is paid what the state at ``t`` earns: the recorder reads the
+    observation before ``env.step()``, which cancels the env-internal lag.
     """
-    paid = shaped_task_reward(progress[:-1], gate[:-1])
-    return torch.cat([paid[:1], paid]).numpy().astype(np.float32)
+    return shaped_task_reward(progress, gate).numpy().astype(np.float32)
 
 
 def _session_frame(
@@ -363,11 +362,9 @@ class TestHengeRecompute:
 
     @pytest.mark.parametrize(
         ("target", "cut_frame", "k"),
-        [("LOOT-Stack-1Henge-Dk1", 2, 3), ("LOOT-Stack-2Henges-Dk1", 3, 6)],
+        [("LOOT-Stack-1Henge-Dk1", 1, 3), ("LOOT-Stack-2Henges-Dk1", 2, 6)],
     )
-    def test_tier_order_build_cuts_one_frame_after_each_target_success(
-        self, target, cut_frame, k
-    ):
+    def test_tier_order_build_cuts_at_each_target_success(self, target, cut_frame, k):
         obs, qpos, qvel = _henge_episode(_tier_order_frames())
         rel = _relabel(obs, qpos, qvel, target)
         assert rel is not None
@@ -385,9 +382,9 @@ class TestHengeRecompute:
         assert np.array_equal(
             rel.qpos[:, k * 7 :], qpos[: cut_frame + 1, N_BLOCKS * 7 :]
         )
-        # The fixture builds a whole level per frame, so the next tier has
-        # already moved on the paid frame; a real take moves nothing in 50 ms.
-        assert rel.n_dropped_disturbed == 3
+        # The cut lands the moment the target's levels stand, so the later
+        # tiers are still on their spawn cells: nothing dropped was disturbed.
+        assert rel.n_dropped_disturbed == 0
 
     def test_a_held_lintel_earns_no_level(self):
         # The same standing level in both frames; only the grasp site moves
@@ -498,17 +495,18 @@ def test_domino_recompute_and_truncation(row_yaw):
         plan=SplitPlan(adapter, four, three),
     )
     assert rel is not None
-    # The first 3 are complete at frame 1, so their success is paid at frame 2.
-    assert rel.cut_frame == 2
+    # The first 3 are complete at frame 1, so frame 1 is kept as the success.
+    assert rel.cut_frame == 1
     assert rel.obs.shape[1] == PROPRIO + 3 * 7 + 3 + 3 * 7
     assert rel.qpos.shape[1] == 3 * 7 + 8
     assert rel.qvel.shape[1] == 3 * 6 + 8
 
 
 def test_domino_dropped_piece_movement_is_reported():
-    obs, qpos, qvel = _domino_episode([(), (), ()])
-    # Move the dropped 4th piece well past the disturbance tolerance.
-    obs[1:, PROPRIO + 3 * 7] += 0.1
+    # Piece 0 lands on frame 1; the dropped 4th piece moves on frame 1 too,
+    # inside the kept frames, so it is reported.
+    obs, qpos, qvel = _domino_episode([(0,), (), ()])
+    obs[1:, PROPRIO + 3 * 7] += 0.1  # move the dropped 4th piece off its slot
     adapter = adapter_for("LOOT-Domino-4Pieces-Dk1")
     four = variant_from_task_id("LOOT-Domino-4Pieces-Dk1")
     three = variant_from_task_id("LOOT-Domino-3Pieces-Dk1")
@@ -597,7 +595,7 @@ def test_sorter_recompute_and_truncation():
         plan=SplitPlan(adapter, five, three),
     )
     assert rel is not None
-    assert rel.cut_frame == 2  # first-3 latched at frame 1, paid at frame 2
+    assert rel.cut_frame == 1  # first-3 latched at frame 1, paid at frame 1
     assert rel.obs.shape[1] == PROPRIO + 7 + 3 * 7 + 3
     # The cube stays: qpos keeps [cube | first-3 pieces | robot].
     assert rel.qpos.shape[1] == 7 + 3 * 7 + 8
@@ -725,16 +723,17 @@ class TestSkipsAreFatal:
         assert "LOOT-Domino-3Pieces-Dk1: source episodes [0]" in str(error.value)
 
 
-# --- reward lag ------------------------------------------------------------ #
+# --- frame alignment ----------------------------------------------------- #
 
 
-def test_lagged_rewards_pay_success_one_frame_late():
+def test_episode_rewards_come_from_their_own_state():
     progress = torch.tensor([0.5, 1.0, 1.0])
     gate = torch.tensor([False, True, True])
-    rewards = lagged_rewards(progress, gate, last_frame=2)
+    rewards = episode_rewards(progress, gate, last_frame=2)
     assert len(rewards) == 3
-    assert rewards[0].item() == rewards[1].item() < 0.0  # frame 0 stands in
-    assert rewards[2].item() == 0.0  # the success at frame 1, paid at frame 2
+    assert rewards[0].item() < 0.0  # frame 0 earns its own partial progress
+    assert rewards[1].item() == 0.0  # the success at frame 1, paid at frame 1
+    assert rewards[2].item() == 0.0
 
 
 # --- write round-trip ------------------------------------------------------ #

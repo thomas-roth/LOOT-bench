@@ -20,15 +20,21 @@ Each source episode is relabeled without re-simulating:
   ``observation.state`` and from ``qpos``/``qvel``,
 - recompute the target's reward from the stored state, through the same
   ``shaped_task_reward`` and success kernels the env uses,
-- cut one frame past the target's first success, which is the frame the env
-  would have paid ``0`` on and terminated (ADR-006).
+- cut at the target's first success, the frame it is paid ``0`` on.
+
+**Frame alignment.** A row is ``(obs_t, action_t, reward_t)`` with no shift:
+the recorder reads the observation before ``env.step()``
+(``recording_mixin.py``), which cancels ADR-006's env-internal reward lag.
+Do not re-apply it here. ``qpos``/``qvel`` are the exception -- cloned
+*after* the step, so row ``t`` holds the *next* state's sim state and is
+shifted back one to line up with ``observation.state[t]``.
 
 The env's real release gate survives offline: the finger-pad contact force
 is a recorded observation term, so the relabel applies the env's own gate
 straight out of the observation. A per-episode self-check recomputes the
 *source* reward and asserts it matches the recording, so a wrong obs/qpos
-layout, pad-force column or success kernel fails loudly on the first real
-run.
+layout, pad-force column, frame alignment or success kernel fails loudly on
+the first real run.
 
 A source episode in which the target's success is never paid is not a demo
 of the target and is dropped. That is a protocol break (a henge level built
@@ -534,18 +540,15 @@ def episode_state(
     )
 
 
-def lagged_rewards(
+def episode_rewards(
     progress: torch.Tensor, gate: torch.Tensor, last_frame: int
 ) -> torch.Tensor:
-    """Rewards for frames ``0..last_frame``, under the env's reward lag.
+    """Rewards for frames ``0..last_frame``, each from its own state.
 
-    mjlab runs the reward manager before the command manager, so the reward at
-    frame ``t`` is what the state at ``t - 1`` earned (ADR-006). Frame 0's
-    predecessor is the unrecorded reset state, for which the spawn poses at
-    frame 0 stand in -- exact whenever nothing has moved yet.
+    The recording carries no obs/reward shift (see the module docstring's
+    "Frame alignment" note), so nothing is re-aligned here.
     """
-    paid = shaped_task_reward(progress[:last_frame], gate[:last_frame])
-    return torch.cat([paid[:1], paid])
+    return shaped_task_reward(progress[: last_frame + 1], gate[: last_frame + 1])
 
 
 def _check_source_reward(
@@ -554,17 +557,18 @@ def _check_source_reward(
     """Assert the recompute reproduces the source episode's own reward.
 
     The one thing that validates the obs/qpos layout, the pad-force column,
-    and every success kernel against real recorded data. Compared
-    over frames 1.. because of the reward lag; frame 0's predecessor state was
-    never recorded.
+    the frame alignment, and every success kernel against real recorded data.
+    Compared frame-for-frame: row ``t``'s recorded reward is exactly what the
+    state in row ``t``'s observation earns (see the module docstring).
     """
     progress, gate = plan.adapter.progress_and_gate(plan.source, state)
-    residual = (shaped_task_reward(progress[:-1], gate[:-1]) - recorded[1:]).abs()
+    residual = (shaped_task_reward(progress, gate) - recorded).abs()
     mean = residual.mean().item()
     assert mean <= _REWARD_SELF_CHECK_MEAN_TOL, (
         f"source reward self-check failed (mean residual {mean:.2e}, max "
         f"{residual.max().item():.2e}); the obs/qpos layout, the pad-force "
-        "column, or a success kernel disagrees with the recording"
+        "column, the frame alignment, or a success kernel disagrees with the "
+        "recording"
     )
 
 
@@ -617,7 +621,18 @@ def relabel_episode(
     adapter = plan.adapter
     n_src, k = plan.n_src, plan.k
     proprio = proprio_width(obs.shape[1], adapter, n_src)
+
+    obs_t = torch.from_numpy(obs.astype(np.float64))
+    qvel_t = torch.from_numpy(qvel.astype(np.float64))
     recorded = torch.from_numpy(reward.astype(np.float64)).reshape(-1)
+
+    # qvel is cloned post-step, one frame ahead of the pre-step obs at the
+    # same row (see the module docstring's "Frame alignment" note); shift it
+    # back one so the at-rest check reads the qvel for the state obs_t[t]
+    # describes. Row 0 has no predecessor, so it stands in for itself -- exact
+    # whenever nothing has moved yet. Only this recompute copy shifts; the
+    # written dataset below keeps the recorder's original post-step qvel.
+    qvel_t = torch.cat([qvel_t[:1], qvel_t[:-1]])
 
     # qpos/qvel layout: [fixed leading free bodies | objects | robot], each free
     # body 7 qpos and 6 qvel. Release reads out of the recorded observation,
@@ -625,7 +640,14 @@ def relabel_episode(
     fixed = adapter.qpos_fixed_bodies
 
     def state_of(take: int) -> FrameState:
-        return episode_state(obs, qvel, plan, take)
+        return frame_state(
+            obs_t,
+            qvel_t,
+            proprio=proprio,
+            adapter=adapter,
+            n_layout=n_src,
+            take=take,
+        )
 
     _check_source_reward(plan, state_of(n_src), recorded)
 
@@ -633,12 +655,10 @@ def relabel_episode(
     progress, gate = adapter.progress_and_gate(plan.target, target)
     if not bool(gate.any()):
         return None
-    # The env pays a success one frame late, on the frame it also terminates,
-    # so that frame has to be kept. A gate that first holds on the final
-    # recorded frame has no such successor.
-    cut = int(torch.argmax(gate.int()).item()) + 1
-    if cut >= len(gate):
-        return None
+    # The success is paid on the frame the gate first holds, which is also
+    # the frame the env terminates on (no extra shift, see the module
+    # docstring), so that frame is the last one kept.
+    cut = int(torch.argmax(gate.int()).item())
     kept = slice(0, cut + 1)
 
     done = np.zeros((cut + 1, 1), dtype=bool)
@@ -650,7 +670,7 @@ def relabel_episode(
     for width in adapter.obs_section_widths:
         obs_parts.append(obs[kept, offset : offset + k * width])
         offset += n_src * width
-    rewards = lagged_rewards(progress, gate, cut).numpy().reshape(-1, 1)
+    rewards = episode_rewards(progress, gate, cut).numpy().reshape(-1, 1)
 
     return RelabeledEpisode(
         obs=np.concatenate(obs_parts, axis=1).astype(np.float32),
