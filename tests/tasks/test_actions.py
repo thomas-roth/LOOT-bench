@@ -147,7 +147,8 @@ class TestCompiledTask:
 
     def test_the_observation_carries_no_action_term(self, built_env):
         """ "Repeat the last action" was a trivially strong regressor: 0.0242
-        held-out against a BC gate bar of 0.0766."""
+        held-out against the BC gate bar of 0.0766 then in force. The bar was
+        withdrawn (ADR-012); the reading stands."""
         terms = built_env.observation_manager.active_terms["actor"]
         assert "actions" not in terms
         assert built_env.observation_manager.group_obs_dim["actor"] == (

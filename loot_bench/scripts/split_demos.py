@@ -26,14 +26,14 @@ Each source episode is relabeled without re-simulating:
 the recorder reads the observation before ``env.step()``
 (``recording_mixin.py``), which cancels ADR-006's env-internal reward lag.
 Do not re-apply it here. ``qpos``/``qvel`` are the exception -- cloned
-*after* the step, so row ``t`` holds the *next* state's sim state and is
+*after* the step, so row ``t``'s sim state gates row ``t + 1`` and is
 shifted back one to line up with ``observation.state[t]``.
 
 The env's real release gate survives offline: the finger-pad contact force
 is a recorded observation term, so the relabel applies the env's own gate
 straight out of the observation. A per-episode self-check recomputes the
 *source* reward and asserts it matches the recording, so a wrong obs/qpos
-layout, pad-force column, frame alignment or success kernel fails loudly on
+layout, pad-force column, success kernel, or frame alignment fails loudly on
 the first real run.
 
 A source episode in which the target's success is never paid is not a demo

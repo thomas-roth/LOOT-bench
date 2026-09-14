@@ -227,7 +227,9 @@ gets `0`. Not the same column as the boundary. See ADR-010.
 **BC gate**:
 The behaviour-cloning fit (`tests/qc/bc_gate.py`) read on a demonstration set
 before a training run is started. A measurement instrument, not pipeline code:
-observation in, the action chunk out, held-out error read back. See ADR-012.
+observation in, the action chunk out, held-out error read back. It reports
+numbers only — the pass/fail bar of 0.0766 was withdrawn on 2026-09-12 because
+it ordered two known sets backwards. See ADR-012.
 
 **Recovery demonstration**:
 A recorded attempt that starts off the ideal path, near the states a rollout
