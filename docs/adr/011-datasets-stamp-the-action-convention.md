@@ -1,5 +1,15 @@
 # A dataset carries the action convention, and loading checks it
 
+> **Amended: a LeRobot-level fuse exists after all (`loot-fuse-demos`).**
+> `convert` still takes several roots for a training-only fuse, but the
+> consumers of the LeRobot layout itself — `split_demos`, the replay readers,
+> inspection — take one root, so several sessions of one task now fuse into
+> one LeRobot root first and the `.npz` is built from that. The script is a
+> thin wrapper around lerobot's `merge_datasets` plus the sidecar merge
+> (`start_pose_noise` must agree, `episode_seeds` reindexed with an episode
+> offset, session keys carried only when unanimous). See the last consequence
+> below.
+
 The converter writes the **convention record** in force at record time into the
 `.npz`. `load_dataset(path, env)` compares that stamp against the environment a
 training run builds, and raises on a mismatch, naming the field that differs. A
@@ -49,6 +59,9 @@ the action term disagreed.)*
   `np.asarray`, which made the first version of this guard raise `TypeError`
   the first time it ran for real.
 - `live_bridge/lerobot_to_qc.py` is deleted, because it wrote the old
-  convention. `live_bridge/merge_datasets.py` is deleted too: `convert` takes
+  convention. There is no *training-only* merge tool: `convert` takes
   several session roots at once, and a separate merge tool would have to know
-  the file layout as well as the converter does, for one concatenation.
+  the file layout as well as the converter does, for one concatenation. The
+  LeRobot-level fuse (`loot-fuse-demos`) exists anyway, for the consumers
+  that need one root rather than one `.npz` — it wraps lerobot's
+  `merge_datasets` and additionally merges the sidecar this record describes.
