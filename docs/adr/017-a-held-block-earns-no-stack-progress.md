@@ -1,14 +1,22 @@
 # A held block earns no stack progress
 
-Stack's progress is the tallest block's fraction of the target height, and the
-gripper can carry a block to that height without placing it. Progress now
-ignores the block currently in the gripper (`stack_progress(exclude=)`, fed by
-`StackCommand._held_block_mask`), so a lift pays nothing until the block is
-released.
+> **Amended 2026-09-11.** Stack became the henge family (ADR-020): progress
+> is the fraction of levels complete, and a level is a horizontal block at a
+> fixed height. The mechanism here is unchanged; "no stack progress" now
+> means "no level credit". The symbol names, the success sentence and the
+> splitter bullet were updated in place. The file keeps its name because
+> other records cite it as ADR-017.
+
+Stack's progress is the fraction of henge levels complete, and a level is
+credited to any block lying horizontal at its target height (ADR-020), which
+the gripper can carry a block to without placing it. Progress ignores the
+block currently in the gripper (`henge_levels_complete(..., exclude=)`, fed
+by `HengeCommand._held_block_mask`), so a lift pays nothing until the block
+is released.
 
 Without the exclusion the shaped reward peaks while the arm merely holds a
-block aloft, and drops when it lets go and the tower settles a few millimetres
-low. That is a gradient toward hovering, which is the same failure ADR-006
+block aloft, and drops when it lets go and the lintel settles a few
+millimetres low. That is a gradient toward hovering, which is the same failure ADR-006
 closes for the success reward: a policy paid for approaching a goal it never
 has to reach.
 
@@ -19,15 +27,17 @@ drop a block the arm is only reaching past.
 
 ## Consequences
 
-- Success is unaffected. `stack_reached` still asks only whether some block's
-  top face is at the target height, and the release half of the success gate
-  already required an open, force-free gripper. Only the shaping moved.
+- Success is unaffected. The lintel test still asks only whether some unheld
+  block lies horizontal with its centre at a level's target height, and the
+  release half of the success gate already requires force-free pads
+  (ADR-018). Only the shaping moved.
 - The pad reading has to mean "holding something". The DK1's pads overlapped at
   full close and reported force on an empty gripper, which would have marked a
   block held whenever the arm passed near one; `dk1.xml` excludes the pair.
   A new robot needs the same exclusion.
 - `scripts/split_demos.py` reproduces the exclusion offline to relabel a
-  recording, approximating "pads in contact" as "gripper closed" because the
-  contact force is not recorded. Its per-episode self-check bounds the error
-  against the recorded reward; `GRIP_REACH` is shared rather than copied so the
-  two cannot drift.
+  recording. Its held-block mask reads the recorded pad force, which is an
+  observation term since ADR-018, so the offline test is the environment's
+  test and no proxy for "pads in contact" is needed. Its per-episode
+  self-check bounds the error against the recorded reward; `GRIP_REACH` is
+  shared rather than copied so the two cannot drift.

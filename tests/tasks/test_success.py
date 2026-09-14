@@ -25,9 +25,17 @@ from loot_bench.tasks.place.mdp.success import place_progress, place_reached
 from loot_bench.tasks.shape_sorter.mdp.success import SorterLatch
 from loot_bench.tasks.shape_sorter.variants import SHAPE_SORTER_VARIANTS, allowed_faces
 from loot_bench.tasks.stack.mdp.success import (
-    block_top_heights,
-    stack_progress,
-    stack_reached,
+    block_is_horizontal,
+    henge_levels_complete,
+    henge_progress,
+)
+from loot_bench.tasks.stack.variants import (
+    BLOCK_HALF_EXTENTS,
+    BLOCK_LENGTH,
+    BLOCK_WIDTH,
+    HEIGHT_TOL,
+    HENGE_VARIANTS,
+    LEVEL_HEIGHT,
 )
 
 
@@ -327,50 +335,118 @@ class TestContactReleaseGate:
 
 
 # ---------------------------------------------------------------------------
-# stack kernels
+# henge kernels (the stack category)
 # ---------------------------------------------------------------------------
 
+_UP = torch.tensor([1.0, 0.0, 0.0, 0.0])
+_L1 = HENGE_VARIANTS["Henge1"].level_centre_height(1)  # 0.075
+_LEVELS3 = torch.tensor(HENGE_VARIANTS["Henge3"].level_centre_heights)
 
-class TestStackHeight:
-    def test_top_heights_add_half_heights(self):
-        pos_z = torch.tensor([[0.02, 0.06]])
-        half_h = torch.tensor([0.02, 0.03])
-        top = block_top_heights(pos_z, half_h)
-        assert top[0].tolist() == pytest.approx([0.04, 0.09])
 
-    @pytest.mark.parametrize(
-        "top,expected",
-        [(0.11, True), (0.13, True), (0.1099, False), (0.1301, False)],
-    )
-    def test_reached_boundary_at_tol(self, top: float, expected: bool):
-        top_z = torch.tensor([[top]])
-        assert bool(stack_reached(top_z, 0.0, 0.12, 0.01)[0, 0]) is expected
+def _lintel(tilt_deg: float = 0.0) -> torch.Tensor:
+    """A block lying along x (90 deg about y), pitched a further *tilt_deg*.
 
-    def test_any_block_counts_regardless_of_position(self):
-        # Height-only semantics: exactly the blocks whose top face sits in
-        # the tol band count, wherever they are in xy; the rest do not.
-        half_h = torch.full((3,), 0.02)
-        pos_z = torch.tensor([[0.02, 0.02, 0.10]])  # 2 on the table, 1 on top
-        reached = stack_reached(block_top_heights(pos_z, half_h), 0.0, 0.12, 0.01)
-        assert reached.tolist() == [[False, False, True]]
-        assert bool(reached.any(dim=-1)[0])
+    Pitching about y tips the long axis out of the horizontal plane by
+    exactly *tilt_deg*; a roll about the long axis itself would not.
+    """
+    return _quat_axis_angle((0.0, 1.0, 0.0), math.pi / 2 + math.radians(tilt_deg))
 
-    def test_progress_clamps_to_unit_interval(self):
-        assert stack_progress(torch.tensor([[0.20]]), 0.0, 0.12)[0] == 1.0
-        assert stack_progress(torch.tensor([[-0.05]]), 0.0, 0.12)[0] == 0.0
 
-    def test_progress_tracks_tallest_block(self):
-        top_z = torch.tensor([[0.04, 0.08]])
-        assert stack_progress(top_z, 0.0, 0.16)[0].item() == pytest.approx(0.5)
+def _levels(
+    heights: list[float], quats: list[torch.Tensor], exclude=None
+) -> torch.Tensor:
+    """(K,) bool for one env, K = 3 levels, at the shipped tolerance."""
+    return henge_levels_complete(
+        torch.tensor([heights]),
+        torch.stack(quats).unsqueeze(0),
+        0.0,
+        _LEVELS3,
+        HEIGHT_TOL,
+        exclude=None if exclude is None else torch.tensor([exclude]),
+    )[0]
 
-    def test_progress_excludes_held_block(self):
-        # The tallest block is held in the gripper: ignored, so progress
-        # reflects the tallest *resting* block, not the lifted one.
-        top_z = torch.tensor([[0.04, 0.16]])
-        exclude = torch.tensor([[False, True]])
-        assert stack_progress(top_z, 0.0, 0.16)[0].item() == pytest.approx(1.0)
-        p = stack_progress(top_z, 0.0, 0.16, exclude=exclude)
-        assert p[0].item() == pytest.approx(0.25)
+
+class TestBlockIsHorizontal:
+    def test_upright_is_not_horizontal_and_flat_is(self):
+        assert not block_is_horizontal(_UP.view(1, 1, 4))[0, 0]
+        assert block_is_horizontal(_lintel().view(1, 1, 4))[0, 0]
+
+    @pytest.mark.parametrize("tilt_deg,expected", [(4.0, True), (8.0, False)])
+    def test_gate_is_five_point_seven_degrees_not_fifteen(self, tilt_deg, expected):
+        # The old 15 deg boundary would have passed 8 deg. This is the test
+        # that catches a revert of TILT_COS_MAX to the other categories' 0.26.
+        assert bool(block_is_horizontal(_lintel(tilt_deg).view(1, 1, 4))[0, 0]) is (
+            expected
+        )
+
+
+class TestHengeLevelsComplete:
+    def test_trilithon_scores(self):
+        hz = BLOCK_HALF_EXTENTS[2]
+        levels = _levels([hz, hz, _L1], [_UP, _UP, _lintel()])
+        assert levels.tolist() == [True, False, False]
+
+    def test_t_scores_too_the_criterion_encodes_no_structure(self):
+        # Deliberately a near-copy of the trilithon case: one upright, same
+        # lintel. Both build forms are legal (ADR-020); do not delete this
+        # as a duplicate.
+        hz = BLOCK_HALF_EXTENTS[2]
+        levels = _levels([hz, _L1], [_UP, _lintel()])
+        assert levels.tolist() == [True, False, False]
+
+    def test_upright_at_the_target_height_does_not_score(self):
+        levels = _levels([_L1], [_UP])
+        assert not levels.any()
+
+    def test_height_tolerance_is_inclusive_and_tight(self):
+        assert _levels([_L1 + HEIGHT_TOL - 1e-6], [_lintel()])[0]
+        assert not _levels([_L1 + HEIGHT_TOL + 1e-4], [_lintel()])[0]
+
+    def test_held_lintel_earns_nothing_until_released(self):
+        # ADR-017: the same block, same pose; only the mask changes.
+        assert not _levels([_L1], [_lintel()], exclude=[True])[0]
+        assert _levels([_L1], [_lintel()], exclude=[False])[0]
+
+    def test_two_pile_near_miss_is_rejected_on_tilt_not_height(self):
+        # The PRD's Family-1 case: three flats (60 mm) and one upright
+        # (65 mm) carry a lintel at their mean, 2.5 mm under level 1, tilted
+        # by atan(5 / 45) = 6.34 deg over the 45 mm span. The centre is
+        # inside HEIGHT_TOL, so a height-only criterion would have scored
+        # it; the tilt gate is what refuses it.
+        tilt = math.degrees(math.atan(0.005 / (BLOCK_LENGTH - BLOCK_WIDTH)))
+        assert tilt == pytest.approx(6.34, abs=0.01)
+        centre = _L1 - 0.0025
+        assert abs(centre - _L1) <= HEIGHT_TOL
+        assert not block_is_horizontal(_lintel(tilt).view(1, 1, 4))[0, 0]
+        assert not _levels([centre], [_lintel(tilt)]).any()
+
+    def test_progress_drops_on_collapse(self):
+        hz = BLOCK_HALF_EXTENTS[2]
+        l2 = float(_LEVELS3[1])
+        standing = _levels(
+            [hz, _L1, LEVEL_HEIGHT + hz, l2], [_UP, _lintel(), _UP, _lintel()]
+        )
+        assert henge_progress(standing.unsqueeze(0))[0].item() == pytest.approx(2 / 3)
+        # Level 1's lintel is knocked off; level 2's happens to still stand.
+        collapsed = _levels(
+            [hz, hz, LEVEL_HEIGHT + hz, l2], [_UP, _lintel(), _UP, _lintel()]
+        )
+        assert henge_progress(collapsed.unsqueeze(0))[0].item() == pytest.approx(1 / 3)
+
+    def test_success_needs_all_levels_not_just_the_top(self):
+        l3 = float(_LEVELS3[2])
+        top_only = _levels([l3], [_lintel()])
+        assert top_only.tolist() == [False, False, True]
+        assert not top_only.all()
+        every = _levels([_L1, float(_LEVELS3[1]), l3], [_lintel()] * 3)
+        assert every.all()
+
+    def test_table_height_is_subtracted_per_env(self):
+        table_z = torch.tensor([0.0, 1.0])
+        centre_z = torch.tensor([[_L1], [1.0 + _L1]])
+        quat = _lintel().view(1, 1, 4).expand(2, 1, 4)
+        levels = henge_levels_complete(centre_z, quat, table_z, _LEVELS3, HEIGHT_TOL)
+        assert levels[:, 0].tolist() == [True, True]
 
 
 # ---------------------------------------------------------------------------

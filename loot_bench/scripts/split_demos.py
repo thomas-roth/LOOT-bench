@@ -7,12 +7,12 @@ easier task's rollout is already embedded in the harder task's recording. This
 script cuts it out, turning one hard session into a dataset per easier task at
 no extra teleop time.
 
-Supported: **Stack** (``Stack3``/``Stack4``/``Stack5`` within one difficulty),
-**Domino** (base, ``RandomRow``, ``DifferentDominoes``; ``KnockOver`` is not
-splittable, its topple being one chain over all pieces) and **Sorter** (every
-spawn variation). Splits never cross families: a Stack ``Easy`` recording holds
-no ``Hard`` blocks, and the base Domino row is fixed where ``RandomRow``'s is
-sampled.
+Supported: **Stack** (``1Henge``/``2Henges``/``3Henges``, one family: the
+colour tiers navy/teal/white are the cut boundaries), **Domino** (base,
+``RandomRow``, ``DifferentDominoes``; ``KnockOver`` is not splittable, its
+topple being one chain over all pieces) and **Sorter** (every spawn
+variation). Splits never cross families: the base Domino row is fixed where
+``RandomRow``'s is sampled.
 
 Each source episode is relabeled without re-simulating:
 
@@ -36,10 +36,18 @@ straight out of the observation. A per-episode self-check recomputes the
 layout, pad-force column, success kernel, or frame alignment fails loudly on
 the first real run.
 
+A source episode in which the target's success is never paid is not a demo
+of the target and is dropped. That is a protocol break (a henge level built
+from the wrong colour tier, a domino placed out of order), so the run
+**fails**: every relabelable episode of every target is written first, then
+one error lists the dropped episodes per target with a per-episode
+diagnostic, and the process exits non-zero. ``--allow-skips`` demotes that
+to a warning for a session whose loss is understood.
+
 Usage:
     uv run loot-split-demos \\
-        --source-dir dataset/demos/LOOT-Stack5-Easy-Dk1/<stamp> \\
-        --source-task LOOT-Stack5-Easy-Dk1 \\
+        --source-dir dataset/demos/LOOT-Stack-3Henges-Dk1/<stamp> \\
+        --source-task LOOT-Stack-3Henges-Dk1 \\
         --output-dir dataset/demos_split          # all easier same-family tasks
     # or an explicit subset:
         --target-task LOOT-Domino-2Pieces-Dk1
@@ -70,11 +78,11 @@ from loot_bench.tasks.common.success import OBJECT_VEL_THRESHOLD
 from loot_bench.tasks.domino.mdp.success import domino_upright_aligned
 from loot_bench.tasks.stack.mdp.commands import GRIP_REACH
 from loot_bench.tasks.stack.mdp.success import (
-    block_top_heights,
-    stack_progress,
-    stack_reached,
+    block_is_horizontal,
+    henge_levels_complete,
+    henge_progress,
 )
-from loot_bench.tasks.stack.variants import TARGET_BLOCKS
+from loot_bench.tasks.stack.variants import BLOCK_LENGTH, BLOCKS_PER_LEVEL
 
 _EE_POSE_WIDTH = 9
 """Width of ``ee_pose``, the second-to-last proprioceptive obs term (ADR-007)."""
@@ -125,27 +133,77 @@ class FrameState:
 # --------------------------------------------------------------------------- #
 
 
-def _stack_progress_and_gate(
+def _henge_levels(
+    variant: Any, blocks: torch.Tensor, state: FrameState, levels: int
+) -> torch.Tensor:
+    """(T, levels) per-level lintel test over the first ``levels`` levels.
+
+    Env-local poses with the table at ``0.0``, the held block masked out
+    (ADR-017), through the env's own kernel so the tilt gate is never copied.
+    """
+    level_heights = torch.tensor(
+        variant.level_centre_heights[:levels], dtype=blocks.dtype
+    )
+    return henge_levels_complete(
+        blocks[:, :, 2],
+        blocks[:, :, 3:7],
+        0.0,
+        level_heights,
+        variant.height_tol,
+        exclude=_held_block_mask(blocks, state),
+    )
+
+
+def _henge_progress_and_gate(
     variant: Any, state: FrameState
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Stack: height-only success over the block-pose section."""
+    """Stack (henge): a horizontal, unheld lintel at every level's height."""
     blocks = state.sections[0]  # (T, k, 7) env-local pos+quat
-    half_h = torch.tensor(
-        [b.half_extents[2] for b in variant.blocks], dtype=torch.float64
-    )
-    top_z = block_top_heights(blocks[:, :, 2], half_h)
-    task_done = stack_reached(
-        top_z, 0.0, variant.target_height, variant.height_tol
-    ).any(dim=-1)
-    progress = stack_progress(
-        top_z, 0.0, variant.target_height, exclude=_held_block_mask(blocks, state)
-    )
+    complete = _henge_levels(variant, blocks, state, variant.levels)
+    task_done = complete.all(dim=-1)
     at_rest = state.speed.amax(dim=-1) <= OBJECT_VEL_THRESHOLD
-    return progress, task_done & at_rest & state.released
+    return henge_progress(complete), task_done & at_rest & state.released
+
+
+def _henge_skip_diagnostic(variant: Any, state: FrameState) -> str:
+    """Which blocks formed the source's first level 1, if it ever stood.
+
+    A henge relabel fails when level 1 was built from a later colour tier:
+    the target keeps only the first-``k`` blocks, so a white lintel is cut
+    out of the observation and the level it made never counts. Naming the
+    blocks that actually formed level 1 turns the failure into "block 8 was
+    the lintel", which the operator can act on.
+    """
+    blocks = state.sections[0]  # (T, n_src, 7)
+    level_1 = _henge_levels(variant, blocks, state, levels=1)[:, 0]  # (T,)
+    if not bool(level_1.any()):
+        return "the source never completed level 1 either"
+    frame = int(torch.argmax(level_1.int()).item())
+    poses = blocks[frame]
+    horizontal = block_is_horizontal(poses[:, 3:7])
+    at_level = (poses[:, 2] - variant.level_centre_height(1)).abs() <= (
+        variant.height_tol
+    )
+    held = _held_block_mask(blocks, state)[frame]
+    lintels = (horizontal & at_level & ~held).nonzero().reshape(-1)
+    # Supports are the standing blocks under the lintel's footprint: a lintel
+    # overhangs at most half its length on either side of its centre.
+    lintel_xy = poses[lintels, :2]  # (n_lintels, 2)
+    under = (poses[:, None, :2] - lintel_xy[None]).norm(dim=-1) <= BLOCK_LENGTH / 2
+    supports = (~horizontal & under.any(dim=-1)).nonzero().reshape(-1)
+    return (
+        f"level 1 first stood at frame {frame} with lintel block "
+        f"{lintels.tolist()} on standing blocks {supports.tolist()}"
+    )
+
+
+def _generic_skip_diagnostic(variant: Any, state: FrameState) -> str:
+    del variant, state
+    return "the target's first-k objects were never all in place"
 
 
 def _held_block_mask(blocks: torch.Tensor, state: FrameState) -> torch.Tensor:
-    """(T, k) bool marking the block in the gripper, as ``StackCommand`` does.
+    """(T, k) bool marking the block in the gripper, as ``HengeCommand`` does.
 
     A held block earns no progress, so the offline reward has to find the same
     one: the nearest block within ``GRIP_REACH`` while the pads report grip
@@ -199,7 +257,7 @@ def _sorter_progress_and_gate(
 @dataclass(frozen=True)
 class CategoryAdapter:
     categories: tuple[str, ...]
-    """Category segments this adapter owns; Stack spans one per target height."""
+    """Category segments this adapter owns."""
     obs_section_widths: tuple[int, ...]
     """Per-object width of each object-major obs slice, in obs order.
 
@@ -211,12 +269,18 @@ class CategoryAdapter:
     category_of: Callable[[Any], str]
     family: Callable[[Any], Any]
     """Split family key: only variants of one family tail-extend each other
-    (Stack the block difficulty, Domino/Sorter the variation)."""
+    (Stack is one family, Domino/Sorter one per variation)."""
     n_objects: Callable[[Any], int]
     object_signatures: Callable[[Any], tuple]
     """Per-object identity, compared prefix-wise to reject a cross-family plan."""
     splittable: Callable[[Any], bool]
     progress_and_gate: Callable[[Any, FrameState], tuple[torch.Tensor, torch.Tensor]]
+    skip_cause: str
+    """Why a source episode never pays a target's success: the recording
+    protocol the operator has to follow for the relabel to work."""
+    skip_diagnostic: Callable[[Any, FrameState], str] = _generic_skip_diagnostic
+    """Per-episode evidence for a skip, from the *source* variant and the
+    source episode's full state (all ``n_src`` objects)."""
     qpos_fixed_bodies: int = 0
     """Free bodies before the truncatable objects in qpos/qvel, kept verbatim.
     Sorter has 1 (the cube, which also rides in the obs head)."""
@@ -230,21 +294,46 @@ class CategoryAdapter:
         return {self.task_id_middle(v): v for v in self.variants.values()}
 
 
+_ORDER_CAUSE = (
+    "the target's first-k objects were never all placed/inserted before the "
+    "recording ended; check the collection order"
+)
+
+
+def _henge_skip_cause(variants: dict[str, Any]) -> str:
+    """The tier protocol, spelled from the hardest variant's block colours so
+    the message cannot drift from ``order_color``."""
+    hardest = max(variants.values(), key=lambda v: v.levels)
+    tiers = []
+    for level in range(1, hardest.levels + 1):
+        first = (level - 1) * BLOCKS_PER_LEVEL
+        last = first + BLOCKS_PER_LEVEL - 1
+        colour = hardest.block_colors[first]
+        tiers.append(
+            f"level {level} from the {colour} blocks ({first}-{last})"
+            if level == 1
+            else f"level {level} from {colour} ({first}-{last})"
+        )
+    return "build " + ", ".join(tiers) + ", bottom-up"
+
+
 def _make_stack_adapter() -> CategoryAdapter:
-    from loot_bench.tasks.stack.config import category_of, task_id_parts
-    from loot_bench.tasks.stack.variants import STACK_VARIANTS
+    from loot_bench.tasks.stack.config import task_id_parts
+    from loot_bench.tasks.stack.variants import HENGE_VARIANTS
 
     return CategoryAdapter(
-        categories=_STACK_CATEGORIES,
+        categories=("Stack",),
         obs_section_widths=(7,),
-        variants=STACK_VARIANTS,
+        variants=HENGE_VARIANTS,
         id_parts=task_id_parts,
-        category_of=category_of,
-        family=lambda v: v.difficulty,
-        n_objects=lambda v: len(v.blocks),
-        object_signatures=lambda v: tuple(b.difficulty for b in v.blocks),
+        category_of=lambda v: "Stack",
+        family=lambda v: task_id_parts(v)[1],
+        n_objects=lambda v: v.num_blocks,
+        object_signatures=lambda v: v.block_colors,
         splittable=lambda v: True,
-        progress_and_gate=_stack_progress_and_gate,
+        progress_and_gate=_henge_progress_and_gate,
+        skip_cause=_henge_skip_cause(HENGE_VARIANTS),
+        skip_diagnostic=_henge_skip_diagnostic,
     )
 
 
@@ -263,6 +352,7 @@ def _make_domino_adapter() -> CategoryAdapter:
         object_signatures=lambda v: v.half_extents,
         splittable=lambda v: not v.knock_over,
         progress_and_gate=_domino_progress_and_gate,
+        skip_cause=_ORDER_CAUSE,
     )
 
 
@@ -281,14 +371,13 @@ def _make_sorter_adapter() -> CategoryAdapter:
         object_signatures=lambda v: v.shapes,
         splittable=lambda v: True,
         progress_and_gate=_sorter_progress_and_gate,
+        skip_cause=_ORDER_CAUSE,
         qpos_fixed_bodies=1,  # the cube, before the pieces
     )
 
 
-_STACK_CATEGORIES = tuple(f"Stack{n}" for n in TARGET_BLOCKS)
-
 _ADAPTERS: dict[str, Callable[[], CategoryAdapter]] = {
-    **dict.fromkeys(_STACK_CATEGORIES, _make_stack_adapter),
+    "Stack": _make_stack_adapter,
     "Domino": _make_domino_adapter,
     "Sorter": _make_sorter_adapter,
 }
@@ -433,6 +522,21 @@ def frame_state(
         speed=speed[:, :, :3].norm(dim=-1),
         released=obs[:, proprio - _PAD_FORCE_WIDTH] <= MIN_GRIP_FORCE,
         grasp_pos=obs[:, ee_pos : ee_pos + 3],
+    )
+
+
+def episode_state(
+    obs: np.ndarray, qvel: np.ndarray, plan: SplitPlan, take: int
+) -> FrameState:
+    """A recorded episode's state, laid out for the plan's source and narrowed
+    to its first ``take`` objects."""
+    return frame_state(
+        torch.from_numpy(obs.astype(np.float64)),
+        torch.from_numpy(qvel.astype(np.float64)),
+        proprio=proprio_width(obs.shape[1], plan.adapter, plan.n_src),
+        adapter=plan.adapter,
+        n_layout=plan.n_src,
+        take=take,
     )
 
 
@@ -647,7 +751,11 @@ def split_to_task(
 ) -> dict:
     """Relabel every source episode into ``target_task`` and write it out.
 
-    Returns a summary dict; the LeRobot dataset lands at ``out_root``.
+    Returns a summary dict; the LeRobot dataset lands at ``out_root``. A
+    source episode that never pays the target's success is skipped, with a
+    diagnostic under ``skip_diagnostics``; every other episode is still
+    written, so the caller decides whether the skips are fatal after the good
+    ones are safely on disk.
     """
     from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
@@ -656,15 +764,18 @@ def split_to_task(
     seeds: dict[str, int] = {}
     written = 0
     skipped: list[int] = []
+    skip_diagnostics: dict[int, str] = {}
     disturbed: list[int] = []
     kept_frames, source_frames = 0, 0
 
     for source_episode, group in source_episodes:
         source_frames += len(group)
+        obs = _column(group, "observation.state")
+        qvel = _column(group, "observation.qvel")
         episode = relabel_episode(
-            obs=_column(group, "observation.state"),
+            obs=obs,
             qpos=_column(group, "observation.qpos"),
-            qvel=_column(group, "observation.qvel"),
+            qvel=qvel,
             action=_column(group, "action"),
             robot_state=_column(group, "observation.robot_state"),
             reward=np.asarray(group["next.reward"].values, dtype=np.float32).reshape(
@@ -674,6 +785,9 @@ def split_to_task(
         )
         if episode is None:
             skipped.append(source_episode)
+            skip_diagnostics[source_episode] = plan.adapter.skip_diagnostic(
+                plan.source, episode_state(obs, qvel, plan, plan.n_src)
+            )
             continue
         if episode.n_dropped_disturbed:
             disturbed.append(source_episode)
@@ -722,10 +836,32 @@ def split_to_task(
         "target_task": target_task,
         "written": written,
         "skipped": skipped,
+        "skip_diagnostics": skip_diagnostics,
         "disturbed_eps": disturbed,
         "mean_cut_frames": (kept_frames / written) if written else 0,
         "source_frames": source_frames,
     }
+
+
+def _skip_report(adapter: CategoryAdapter, summaries: list[dict]) -> str:
+    """One message for every target with skips: which source episodes never
+    paid the target's success, the protocol that explains it, and the
+    per-episode evidence."""
+    lines = []
+    for summary in summaries:
+        lines.append(
+            f"{summary['target_task']}: source episodes {summary['skipped']} "
+            f"never paid the target's success and were not written "
+            f"({summary['written']} were, under {summary['out_root']})."
+        )
+        for episode, diagnostic in summary["skip_diagnostics"].items():
+            lines.append(f"    ep {episode}: {diagnostic}")
+    lines.append(f"likely cause: {adapter.skip_cause}")
+    lines.append(
+        "The written episodes are complete; re-run with --allow-skips to "
+        "accept the loss."
+    )
+    return "\n".join(lines)
 
 
 def split_dataset(
@@ -734,7 +870,15 @@ def split_dataset(
     output_dir: str,
     target_tasks: list[str] | None = None,
     stamp: str | None = None,
+    allow_skips: bool = False,
 ) -> list[dict]:
+    """Split one recording into every target, then fail on any skip.
+
+    Every target is written before the check, so a session where most
+    episodes relabel cleanly is kept, and one error names all the skips at
+    once rather than the first. ``allow_skips`` demotes that error to the
+    summary's warning; the skips are still reported.
+    """
     adapter = adapter_for(source_task)
     source_variant = variant_from_task_id(source_task)
     if not adapter.splittable(source_variant):
@@ -762,10 +906,16 @@ def split_dataset(
         )
         summary["out_root"] = out_root
         summaries.append(summary)
+
+    with_skips = [s for s in summaries if s["skipped"]]
+    if with_skips and not allow_skips:
+        raise ValueError(_skip_report(adapter, with_skips))
     return summaries
 
 
-def _print_summary(source_task: str, summaries: list[dict]) -> None:
+def _print_summary(
+    source_task: str, adapter: CategoryAdapter, summaries: list[dict]
+) -> None:
     print(f"\n[split] source: {source_task}")
     for summary in summaries:
         print(
@@ -773,6 +923,13 @@ def _print_summary(source_task: str, summaries: list[dict]) -> None:
             f"(mean {summary['mean_cut_frames']:.0f} frames/ep), "
             f"skipped {len(summary['skipped'])} (target success never paid)"
         )
+        if summary["skipped"]:
+            print(
+                f"     WARN skipped source eps {summary['skipped']}; likely "
+                f"cause: {adapter.skip_cause}"
+            )
+            for episode, diagnostic in summary["skip_diagnostics"].items():
+                print(f"       ep {episode}: {diagnostic}")
         if summary["disturbed_eps"]:
             print(
                 f"     WARN dropped objects moved in eps {summary['disturbed_eps']}; "
@@ -787,7 +944,7 @@ def main() -> None:
         "--source-dir", required=True, help="source LeRobot dataset root"
     )
     parser.add_argument(
-        "--source-task", required=True, help="e.g. LOOT-Stack5-Easy-Dk1"
+        "--source-task", required=True, help="e.g. LOOT-Stack-3Henges-Dk1"
     )
     parser.add_argument(
         "--target-task",
@@ -798,20 +955,27 @@ def main() -> None:
     parser.add_argument(
         "--output-dir", required=True, help="output root for the split datasets"
     )
+    parser.add_argument(
+        "--allow-skips",
+        action="store_true",
+        help="only warn about source episodes that never pay a target's success "
+        "(default: write the rest, then exit non-zero)",
+    )
     args = parser.parse_args()
 
-    # Expected user errors (wrong or easiest source, non-easier target) get a
-    # clean message rather than a traceback.
+    # Expected user errors (wrong or easiest source, non-easier target, a
+    # protocol-breaking take) get a clean message rather than a traceback.
     try:
         summaries = split_dataset(
             source_dir=args.source_dir,
             source_task=args.source_task,
             output_dir=args.output_dir,
             target_tasks=args.target_task,
+            allow_skips=args.allow_skips,
         )
     except (ValueError, AssertionError) as error:
         raise SystemExit(f"[split] {error}") from None
-    _print_summary(args.source_task, summaries)
+    _print_summary(args.source_task, adapter_for(args.source_task), summaries)
 
 
 if __name__ == "__main__":

@@ -27,12 +27,20 @@ from loot_bench.tasks.ball.variants import (
     BALL_VARIANTS,
     TARGET_X,
 )
+from loot_bench.tasks.common.actions import delta_action_from_poses
 from loot_bench.tasks.common.env_cfg import CONTROL_STEP_S
+from loot_bench.tasks.common.success import bore_axis_cos_tilt
 from loot_bench.tasks.domino.mdp.commands import DominoCommand
 from loot_bench.tasks.place.mdp.commands import PlaceCommand
 from loot_bench.tasks.shape_sorter.assets import BOARD_POS, load_sorter_layout
 from loot_bench.tasks.shape_sorter.mdp.commands import ShapeSorterCommand
-from loot_bench.tasks.stack.mdp.commands import StackCommand
+from loot_bench.tasks.stack.mdp.commands import GUIDE_UPRIGHT_SPACING, HengeCommand
+from loot_bench.tasks.stack.variants import (
+    BLOCK_HALF_EXTENTS,
+    BLOCK_LENGTH,
+    LEVEL_HEIGHT,
+    TILT_COS_MAX,
+)
 
 _NUM_ENVS = 8
 _STEPS = 10
@@ -125,43 +133,103 @@ def _render_goal(env: ManagerBasedRlEnv, task_id: str, render: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Stack
+# Henge (the Stack category)
 # ---------------------------------------------------------------------------
 
+_HENGE_XY = (0.28, 0.12)
+"""Where the checks teleport the henge (success is position-free).
 
-def _teleport_stack(
-    cmd: StackCommand,
+Beside the build zone, not in it: the robot's home gripper hangs over the
+zone's centre at ~(0.30, 0, 0.20), and a three-level henge is 0.255 m tall,
+so teleporting it there puts lintel 3 inside the wrist and the solver
+returns NaN for the whole env, robot included."""
+
+_SETTLE_STEPS = round(2.0 / CONTROL_STEP_S)
+"""Steps a teleported trilithon is left to settle before it is measured.
+
+Longer than the generic ``_STEPS``: the acceptance gate (ADR-020) reads the
+settled per-lintel centre error and tilt off this run, and a three-level
+trilithon takes more than half a second to stop creeping."""
+
+_DRIVE_STEPS = 100
+"""IK drive budget for lowering the grasp site to the level-1 lintel height."""
+
+
+def _lintel_quat(n: int, device: str) -> torch.Tensor:
+    """Block long axis (local z) along world x: a 90 deg rotation about y."""
+    y_axis = torch.tensor([0.0, 1.0, 0.0], device=device).unsqueeze(0).expand(n, 3)
+    return quat_from_angle_axis(torch.full((n,), math.pi / 2, device=device), y_axis)
+
+
+def _write_block(block, pos: torch.Tensor, quat: torch.Tensor, device: str) -> None:
+    block.write_root_link_pose_to_sim(torch.cat([pos, quat], dim=-1))
+    block.write_root_link_velocity_to_sim(torch.zeros(pos.shape[0], 6, device=device))
+
+
+def _teleport_trilithons(
+    cmd: HengeCommand,
     env: ManagerBasedRlEnv,
     device: str,
     *,
     xy: tuple[float, float],
 ) -> None:
-    """Stack every block at one xy, resting directly on top of each other."""
+    """Build every level as a trilithon at one xy, each on top of the last.
+
+    Level ``k`` uses blocks ``3k``, ``3k + 1`` (uprights, spaced
+    ``GUIDE_UPRIGHT_SPACING`` apart along x) and ``3k + 2`` (the lintel,
+    lying across them along x), i.e. the recording protocol's tier order.
+    """
     origins = env.scene.env_origins
-    half_h = [b.half_extents[2] for b in cmd.variant.blocks]
-    quat = _upright_quat(cmd.num_envs, device)
-    xy_t = torch.tensor(xy, device=device)
-    cum = 0.0
-    for i, block in enumerate(cmd.blocks):
-        h = half_h[i]
-        z = origins[:, 2] + cum + h
-        pos = torch.cat([origins[:, :2] + xy_t, z.unsqueeze(-1)], dim=-1)
-        block.write_root_link_pose_to_sim(torch.cat([pos, quat], dim=-1))
-        block.write_root_link_velocity_to_sim(
-            torch.zeros(cmd.num_envs, 6, device=device)
+    hx, _hy, hz = BLOCK_HALF_EXTENTS
+    base_xy = origins[:, :2] + torch.tensor(xy, device=device)
+    upright = _upright_quat(cmd.num_envs, device)
+    lintel = _lintel_quat(cmd.num_envs, device)
+    for level in range(cmd.variant.levels):
+        base_z = origins[:, 2] + level * LEVEL_HEIGHT
+        blocks = cmd.blocks[3 * level : 3 * level + 3]
+        for block, sign in zip(blocks[:2], (-1.0, 1.0), strict=True):
+            off = torch.tensor([sign * GUIDE_UPRIGHT_SPACING / 2, 0.0], device=device)
+            pos = torch.cat([base_xy + off, (base_z + hz).unsqueeze(-1)], dim=-1)
+            _write_block(block, pos, upright, device)
+        # Lying, the block's local x (half extent hx) is vertical.
+        pos = torch.cat([base_xy, (base_z + BLOCK_LENGTH + hx).unsqueeze(-1)], dim=-1)
+        _write_block(blocks[2], pos, lintel, device)
+
+
+def _report_settle(cmd: HengeCommand, env: ManagerBasedRlEnv) -> None:
+    """Print the acceptance-gate numbers per lintel after settling.
+
+    ``HEIGHT_TOL`` and ``TILT_COS_MAX`` are provisional until measured
+    (ADR-020): the centre error is the slack one, the tilt is the tight one,
+    because differential settle across an upright pair tilts the lintel and
+    that error compounds upward through the levels standing on it.
+    """
+    table_z = env.scene.env_origins[:, 2]
+    up = torch.tensor([0.0, 0.0, 1.0], device=cmd.device).unsqueeze(0)
+    up = up.expand(cmd.num_envs, 3)
+    for level in range(cmd.variant.levels):
+        block = cmd.blocks[3 * level + 2]
+        height = block.data.root_link_pos_w[:, 2] - table_z
+        err = (height - cmd.variant.level_centre_height(level + 1)).abs()
+        cos = bore_axis_cos_tilt(block.data.root_link_quat_w, up)
+        print(
+            f"        lintel {level + 1}: centre error max {err.max() * 1000:.2f} mm "
+            f"(HEIGHT_TOL {cmd.variant.height_tol * 1000:.1f} mm), "
+            f"|cos| max {cos.max():.4f} (TILT_COS_MAX {TILT_COS_MAX})"
         )
-        cum += 2 * h
 
 
-def _check_stack3_easy(device: str, *, render: bool = False) -> str | None:
-    task_id = "LOOT-Stack3-Easy-Dk1"
+def _check_henge_3levels(device: str, *, render: bool = False) -> str | None:
+    """Three teleported trilithons must score after settling."""
+    task_id = "LOOT-Stack-3Henges-Dk1"
     env = _make_env(task_id, device)
-    cmd = cast(StackCommand, env.command_manager.get_term("task"))
+    cmd = cast(HengeCommand, env.command_manager.get_term("task"))
     zeros = _zeros(env, device)
     env.step(zeros)
-    _teleport_stack(cmd, env, device, xy=(0.30, 0.0))
-    for _ in range(_STEPS):
+    _teleport_trilithons(cmd, env, device, xy=_HENGE_XY)
+    for _ in range(_SETTLE_STEPS):
         env.step(zeros)
+    _report_settle(cmd, env)
     frac = cmd.progress.mean().item()
     reward_err = _reward_convention_error(env, zeros)
     _render_goal(env, task_id, render)
@@ -171,89 +239,122 @@ def _check_stack3_easy(device: str, *, render: bool = False) -> str | None:
 
 _GRIP_CLOSE = -2.0  # last action dim, raw value that fully closes the gripper
 _GRIP_OPEN = 2.0
-_GRIP_STEPS = 60  # sim steps for the fingers to close on the pinned cube
+_GRIP_STEPS = 60  # sim steps for the fingers to close on the pinned block
 
 
-def _check_stack_held_block_excluded(
+def _check_henge_held_lintel_excluded(
     device: str, *, render: bool = False
 ) -> str | None:
-    """A block gripped and lifted to target height must NOT earn progress.
+    """A lintel gripped at level height must NOT earn level credit.
 
-    Exercises the held-block exclusion (``StackCommand._held_block_mask`` +
-    ``stack_progress(exclude=...)``) against the real grip-contact sensor:
-    block 0 is pinned into the closing gripper at the grasp site while the
-    others rest at half target height. Only the resting blocks may count until
-    the gripper opens.
+    Exercises the held-block exclusion (``HengeCommand._held_block_mask`` +
+    ``henge_levels_complete(exclude=...)``) against the real grip-contact
+    sensor, in the recording protocol's own geometry: the grasp site is
+    driven down to the level-1 lintel height, blocks 1 and 2 are stood up
+    as trilithon uprights under it, and block 0 is pinned between the
+    closing pads end-to-end (long axis along the closing axis, so the pads
+    hang outside its ends beside the uprights). While the pads are loaded
+    the lintel is held and level 1 must not count; once they open it rests
+    on the uprights and must count. The lintel is re-pinned every step, so
+    it has to have something under it: a released block written into free
+    air falls 12 mm inside one control step and reads under tolerance.
     """
-    task_id = "LOOT-Stack3-Easy-Dk1"
+    task_id = "LOOT-Stack-1Henge-Dk1"
     env = _make_env(task_id, device)
-    cmd = cast(StackCommand, env.command_manager.get_term("task"))
+    cmd = cast(HengeCommand, env.command_manager.get_term("task"))
     robot = env.scene["robot"]
     ne, dim = _NUM_ENVS, env.action_manager.action.shape[1]
     origins = env.scene.env_origins
-    table_z = origins[:, 2]
-    target = cmd.variant.target_height
-    quat = _upright_quat(ne, device)
+    site_ids = cmd.grasp_cfg.site_ids
     env.step(_zeros(env, device))
 
-    def grip_action(value: float) -> torch.Tensor:
+    def action(grip: float, delta: torch.Tensor | None = None) -> torch.Tensor:
         a = torch.zeros((ne, dim), device=device)
-        a[:, -1] = value
+        if delta is not None:
+            a[:, :-1] = delta
+        a[:, -1] = grip
         return a
 
-    def park_resting_blocks() -> None:
-        # Blocks 1.. rest on the table at distinct xy, tops at half target.
-        for i in range(1, cmd.num_blocks):
-            dx = 0.24 + 0.09 * ((i - 1) % 3)
-            dy = 0.12 + 0.09 * ((i - 1) // 3)
-            xy = origins[:, :2] + torch.tensor([dx, dy], device=device)
-            z = table_z + 0.5 * target - cmd._half_h[i]
-            pose = torch.cat([xy, z.unsqueeze(-1), quat], dim=-1)
-            cmd.blocks[i].write_root_link_pose_to_sim(pose)
-            cmd.blocks[i].write_root_link_velocity_to_sim(
-                torch.zeros(ne, 6, device=device)
-            )
+    def site_pose() -> tuple[torch.Tensor, torch.Tensor]:
+        return (
+            robot.data.site_pos_w[:, site_ids].squeeze(1),
+            robot.data.site_quat_w[:, site_ids].squeeze(1),
+        )
 
-    def pin_cube_to_grasp() -> None:
-        pos = robot.data.site_pos_w[:, cmd.grasp_cfg.site_ids].squeeze(1)
-        q = robot.data.site_quat_w[:, cmd.grasp_cfg.site_ids].squeeze(1)
-        cmd.blocks[0].write_root_link_pose_to_sim(torch.cat([pos, q], dim=-1))
-        cmd.blocks[0].write_root_link_velocity_to_sim(torch.zeros(ne, 6, device=device))
+    # Lower the open gripper to the lintel height over the build zone.
+    home_quat = site_pose()[1].clone()
+    lintel_z = origins[:, 2] + cmd.variant.level_centre_height(1)
+    target = torch.cat(
+        [
+            origins[:, :2] + torch.tensor(_HENGE_XY, device=device),
+            lintel_z.unsqueeze(-1),
+        ],
+        dim=-1,
+    )
+    for _ in range(_DRIVE_STEPS):
+        pos, quat = site_pose()
+        env.step(
+            action(_GRIP_OPEN, delta_action_from_poses(pos, quat, target, home_quat))
+        )
+    residual = float((site_pose()[0] - target).norm(dim=-1).max())
+    if residual > 0.01:
+        return f"grasp site never reached the lintel height (residual {residual * 1000:.1f} mm)"
+
+    # Two uprights under the lintel's ends. The DK1 closes along site y,
+    # which at the home yaw is world x, so the uprights go along x.
+    upright = _upright_quat(ne, device)
+    for block, sign in zip(cmd.blocks[1:3], (-1.0, 1.0), strict=True):
+        off = torch.tensor([sign * GUIDE_UPRIGHT_SPACING / 2, 0.0], device=device)
+        pos = torch.cat(
+            [
+                target[:, :2] + off,
+                (origins[:, 2] + BLOCK_HALF_EXTENTS[2]).unsqueeze(-1),
+            ],
+            dim=-1,
+        )
+        _write_block(block, pos, upright, device)
+
+    # End-to-end grip: local z (the long axis) onto site y, the closing axis.
+    x_axis = torch.tensor([1.0, 0.0, 0.0], device=device).unsqueeze(0).expand(ne, 3)
+    flat = quat_from_angle_axis(torch.full((ne,), math.pi / 2, device=device), x_axis)
+
+    def pin_lintel_to_grasp() -> None:
+        pos, quat = site_pose()
+        pos = torch.cat([pos[:, :2], lintel_z.unsqueeze(-1)], dim=-1)
+        _write_block(cmd.blocks[0], pos, quat_mul(quat, flat), device)
 
     for _ in range(_GRIP_STEPS):
-        park_resting_blocks()
-        pin_cube_to_grasp()
-        env.step(grip_action(_GRIP_CLOSE))
+        pin_lintel_to_grasp()
+        env.step(action(_GRIP_CLOSE))
     held_progress = cmd.progress.mean().item()
     force = cmd._grip_sensor.data.force.norm(dim=-1).amax(dim=-1)  # pyright: ignore[reportOptionalMemberAccess]
     gripping = bool((~cmd._contact_gate(cmd._grip_sensor)).all())
 
     _render_goal(env, task_id, render)
 
-    # Open the gripper at the same pose: the cube must count again.
+    # Open the gripper at the same pose: the lintel must count again.
     for _ in range(20):
-        park_resting_blocks()
-        pin_cube_to_grasp()
-        env.step(grip_action(_GRIP_OPEN))
+        pin_lintel_to_grasp()
+        env.step(action(_GRIP_OPEN))
     released_progress = cmd.progress.mean().item()
     env.close()
 
     if not gripping:
         return f"grip sensor never registered a grasp (max force={force.mean():.2f} N)"
-    if held_progress > 0.6:
+    if held_progress > 0.1:
         return (
-            f"held cube counted toward progress: held={held_progress:.3f} "
-            "(expected ~0.5, the resting blocks only)"
+            f"held lintel counted toward level credit: held={held_progress:.3f} "
+            "(expected 0.0, nothing else is horizontal)"
         )
     if released_progress < 0.9:
         return (
-            f"released cube did not count: released={released_progress:.3f} "
-            "(expected ~1.0)"
+            f"released lintel did not count: released={released_progress:.3f} "
+            "(expected 1.0)"
         )
     return None
 
 
-def _check_stack_empty_gripper_no_grip(
+def _check_henge_empty_gripper_no_grip(
     device: str, *, render: bool = False
 ) -> str | None:
     """An empty, fully-closed gripper must not register grip force.
@@ -261,18 +362,17 @@ def _check_stack_empty_gripper_no_grip(
     Guards the finger<->finger contact exclusion in the DK1 model: without it
     the closed empty fingers self-collide, the grip sensor reads force, and
     ``_held_block_mask`` would wrongly exclude any resting block within
-    ``grip_reach`` (e.g. a freshly placed stack top). Every block is sunk out
+    ``grip_reach`` (e.g. a freshly placed lintel). Every block is sunk out
     of reach here, so any force can only be finger self-contact.
     """
-    env = _make_env("LOOT-Stack3-Easy-Dk1", device)
-    cmd = cast(StackCommand, env.command_manager.get_term("task"))
+    env = _make_env("LOOT-Stack-1Henge-Dk1", device)
+    cmd = cast(HengeCommand, env.command_manager.get_term("task"))
     ne, dim = _NUM_ENVS, env.action_manager.action.shape[1]
     quat = _upright_quat(ne, device)
     for block in cmd.blocks:
         sunk = env.scene.env_origins.clone()
         sunk[:, 2] -= 1.0
-        block.write_root_link_pose_to_sim(torch.cat([sunk, quat], dim=-1))
-        block.write_root_link_velocity_to_sim(torch.zeros(ne, 6, device=device))
+        _write_block(block, sunk, quat, device)
     close = torch.zeros((ne, dim), device=device)
     close[:, -1] = _GRIP_CLOSE
     for _ in range(_GRIP_STEPS):
@@ -629,9 +729,9 @@ _CHECKS: list[tuple[str, str]] = [
     ("Place     RandS-FixedT ", "place_rands_fixedt"),
     ("Place     FixedS-RandT ", "place_fixeds_randt"),
     ("Place     FixedS-FixedT", "place_fixeds_fixedt"),
-    ("Stack3    Easy         ", "stack3_easy"),
-    ("Stack3    Easy-HeldBlock", "stack_held_block"),
-    ("Stack3    Easy-EmptyGrip", "stack_empty_gripper"),
+    ("Stack     3Henges      ", "henge_3levels"),
+    ("Stack     1Henge-HeldLintel", "henge_held_lintel"),
+    ("Stack     1Henge-EmptyGrip", "henge_empty_gripper"),
     ("Domino    3Pieces       ", "domino_3pieces"),
     ("Domino    3Pieces-KnockOver", "domino_knockover"),
     ("Sorter    3Shapes-Full ", "shape_sorter_full"),
@@ -644,12 +744,12 @@ _CHECKS: list[tuple[str, str]] = [
 def _dispatch(key: str, device: str, *, render: bool = False) -> str | None:
     if key.startswith("place_"):
         return _check_place(_PLACE_TASK_IDS[key], device, render=render)
-    if key == "stack3_easy":
-        return _check_stack3_easy(device, render=render)
-    if key == "stack_held_block":
-        return _check_stack_held_block_excluded(device, render=render)
-    if key == "stack_empty_gripper":
-        return _check_stack_empty_gripper_no_grip(device, render=render)
+    if key == "henge_3levels":
+        return _check_henge_3levels(device, render=render)
+    if key == "henge_held_lintel":
+        return _check_henge_held_lintel_excluded(device, render=render)
+    if key == "henge_empty_gripper":
+        return _check_henge_empty_gripper_no_grip(device, render=render)
     if key == "domino_3pieces":
         return _check_domino_3pieces(device, render=render)
     if key == "domino_knockover":

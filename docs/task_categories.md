@@ -6,9 +6,9 @@ Goal:
 - use a script to create demonstrations for smaller tasks
   - split at progress rewards
   - adapt rewards (scale progress rewards to [0,1], add episode success)
-  - adapt observations to fit task (e.g. only 2 cubes for Stack2 (remove last 2 cubes from Stack4))
+  - adapt observations to fit task (e.g. only 3 blocks for 1Henge (remove the last 6 blocks from 3Henges))
 
-Pay attention to the drawing of random numbers from a seed. First draw all randomness for the easiest task (e.g. Stack2), and then continue step-wise to the hardest task (e.g. then Stack3 and after that Stack4). This allows the cutoff to work.
+Pay attention to the drawing of random numbers from a seed. First draw all randomness for the easiest task (e.g. 1Henge), and then continue step-wise to the hardest task (e.g. then 2Henges and after that 3Henges). This allows the cutoff to work.
 
 ### Global Modifiers:
 - Margin
@@ -21,35 +21,57 @@ always randomize objects & goal poses (position and orientation) a little if not
 
 ## Category: Stack
 
-Stack blocks to reach a target height. Only the final height matters; block
-position does not. Every variant carries `2n` blocks, more than the minimum
-needed, so support structures (staircase, pyramid) are viable strategies —
-height, not block count, is the constraint. The blocks of a variant are
-identical, so exactly `n` of them reach the target and no other count does.
+Build a henge: a *level* is one horizontal block (a lintel) held at a fixed
+height by whatever stands under it, and the task is to stack one, two or
+three levels on top of each other. Only the lintel is scored, never the
+supports (`docs/adr/020-a-henge-level-is-a-horizontal-block-at-a-fixed-height.md`).
 
 | **Evaluated Capabilities** | Description |
 | --- | --- |
-| Long-horizon precision | Place n blocks in sequence without toppling the tower. |
-| Robustness | Continue building even with an unstable base. |
+| Long-horizon precision | Place up to nine blocks in sequence within millimetre tolerances. |
+| Reorientation | Turn a standing block into a lying one: knock it over, then re-grasp it. |
+| Robustness | Keep building on a base that may be unstable. |
 
-| **Task** | Description |
-| --- | --- |
-| Stack3 | Build a stack three blocks high. |
-| Stack4 | Build a stack four blocks high. |
-| Stack5 | Build a stack five blocks high. |
+| **Task** | Levels | Blocks | Lintel centres (m) | Episode |
+| --- | --- | --- | --- | --- |
+| 1Henge | 1 | 3 | 0.075 | 75 s |
+| 2Henges | 2 | 6 | 0.075, 0.160 | 150 s |
+| 3Henges | 3 | 9 | 0.075, 0.160, 0.245 | 225 s |
 
-| **Variation** | Description |
-| --- | --- |
-| `Easy` | 0.04 m cubes (ratio 1.0, 100 g). The balanced baseline. |
-| `Medium` | 0.03 x 0.03 x 0.05 m (ratio 1.67, 70 g). Smaller landing area and grasp target, higher center of mass per placement, taller tower. |
-| `Hard` | 0.025 x 0.025 x 0.06 m (ratio 2.4, 59 g). Same axis pushed further; Stack5 tops out at a 0.30 m tower, the highest the arm can still place a block on. |
+There is no variation axis; the task ids are `LOOT-Stack-1Henge-Dk1`,
+`LOOT-Stack-2Henges-Dk1` and `LOOT-Stack-3Henges-Dk1`.
 
-The footprint stays square because blocks spawn at a random yaw, so the
-variation axis is exactly the height:width ratio. Mass follows the shape
-(`BLOCK_DENSITY`), so the slenderest block is also the lightest.
+Two builds complete a level and the criterion prefers neither:
+
+```
+  trilithon              T
+   +-----+            +-----+
+   |     |            |     |      lintel: one block lying flat
+   #     #               #         upright(s): block(s) standing on end
+  ---------          ---------     table
+```
+
+The trilithon costs a third block and stands. The T is faster and tips.
+Nothing rewards or forbids either; the physics decides, and its verdict only
+matters from 2Henges up, where a level has to carry the next one.
+
+One block type serves as upright and as lintel: a square prism of
+0.065 x 0.020 x 0.020 m, 40.6 g. The cross-section is square because a block
+spawns at a random yaw and must grasp identically standing and lying. Blocks
+are coloured in tiers of three, navy, teal and white, one tier per level:
+1Henge's blocks are the first three of 2Henges, which are the first six of
+3Henges.
+
+Operator protocol, which the code cannot enforce: build level 1 from the navy
+blocks, level 2 from teal, level 3 from white, bottom-up, or a 3Henges
+recording will not split into the easier tasks. Grip lintels end-to-end (a
+grip across the width scrapes both uprights at zero clearance). Space
+trilithon uprights about 36 mm apart. Blocks spawn standing, so make a lintel
+by knocking the block over with the closed gripper and re-grasping it; the
+wrist cannot roll it flat in one motion.
 
 Spawns stage from the fixed table (object `i` on cell `i`, ±1 cm jitter),
-with the tower site kept clear; see `docs/adr/019-fixed-spawn-points.md`.
+with the build site kept clear; see `docs/adr/019-fixed-spawn-points.md`.
 
 ## Category: Domino
 

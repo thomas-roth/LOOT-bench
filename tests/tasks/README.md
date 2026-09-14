@@ -10,7 +10,8 @@ Pytest suites for the simulator-free task logic:
 
 - `test_success.py`: the per-category success criteria in each
   `tasks/<cat>/mdp/success.py` (`domino_upright_aligned`,
-  `domino_fallen_along_row`, `chain_topple_success`, `stack_reached`,
+  `domino_fallen_along_row`, `chain_topple_success`, `block_is_horizontal` /
+  `henge_levels_complete` / `henge_progress`,
   `ball_in_target_zone`, `SorterLatch`, `place_reached`/`place_progress`)
   plus the shared gates: `SuccessGate`
    from `common/success.py` and `ContactReleaseGate` from
@@ -21,6 +22,10 @@ Pytest suites for the simulator-free task logic:
   every cell inside the shared envelope at all four jitter corners, every
   cell clear of the category's work zone, tables long enough for the maximum
   object count) plus Place's envelope draw and push-apart.
+  `test_stack_variants.py` also drives the henge geometry/tolerance
+  enumeration (`variants.alternative_builds`, the pure function behind the
+  import-time assertion) with known-bad `(L, w, HEIGHT_TOL, TILT_COS_MAX,
+  levels)` rows, so a loosened constant is caught here as well as at import.
 
 Run them after touching a category's `mdp/success.py`, `tasks/common/success.py`,
 `tasks/common/fixed_spawns.py`, or a category's spawn table.
@@ -95,7 +100,8 @@ domino past its tip-over point and simulates the chain reaction, so it verifies
 the row topples along the row axis, all leaning the same way, in row order,
 not just that objects end up "fallen".
 The shape-sorter check reorients the free cube so the target hole faces up, then drives the piece through the mouth in two stations so the latched outside-to-inside crossing fires.
-Two stack checks pin the held-block exclusion against the real grip sensor: `Easy-HeldBlock` confirms a cube gripped above target height earns no progress until released, `Easy-EmptyGrip` confirms an empty closed gripper registers no grip force (so a resting block near the fingers is not wrongly excluded).
+The henge check teleports a three-level trilithon into `LOOT-Stack-3Henges-Dk1`, lets it settle for 2 s, and prints the acceptance-gate numbers per lintel (centre error against `HEIGHT_TOL`, `|cos|` against `TILT_COS_MAX`) before asserting the levels score; record them in `docs/sim_settings.md` when they change.
+Two more henge checks pin the held-block exclusion against the real grip sensor: `1Henge-HeldLintel` lowers the gripper to the level-1 height and confirms a lintel gripped there earns no level credit until released, `1Henge-EmptyGrip` confirms an empty closed gripper registers no grip force (so a resting block near the fingers is not wrongly excluded).
 This confirms the metric *can* fire when objects are placed correctly; it does not verify that reward shaping guides a policy there.
 Run it after touching a category's `mdp/commands.py` or success-metric logic.
 

@@ -13,11 +13,12 @@ the play loop is mjlab's, and training is QC-FQL (offline-to-online RL), which
 lives in a **separate `qc` checkout** reached by `PYTHONPATH` — this repo holds
 only the seam to it, in `loot_bench/qc/`.
 
-Five task categories, 49 tasks total, currently registered for one robot
+Five task categories, 43 tasks total, currently registered for one robot
 (`-Dk1`) → task ids look like `LOOT-<Category>-<Task>[-<Variation>]-<Robot>`:
-`tasks/stack` (stack blocks to a target height; the height is part of the
-category segment, so it registers as `Stack3`/`Stack4`/`Stack5` x
-`Easy`/`Medium`/`Hard`),
+`tasks/stack` (henge building; a level is one horizontal block, a lintel,
+carried by one or two blocks standing on end; registered as `Stack` x
+`1Henge`/`2Henges`/`3Henges`, no difficulty axis; both the T and the
+trilithon are legal, see ADR-020),
 `tasks/domino` (place and optionally knock over a row of dominoes; the row is
 at a **fixed** pose every reset, because a teleoperator needs a layout that
 does not move between takes — the `RandomRow` variant is the one that opts
@@ -58,7 +59,7 @@ uv run pyright             # type check (config in pyrightconfig.json, basic mod
 uv run pre-commit run --all-files
 
 # Play a task (wraps mjlab's player after importing loot_bench to register tasks)
-uv run loot-play LOOT-Stack3-Easy-Dk1
+uv run loot-play LOOT-Stack-2Henges-Dk1
 
 # List all registered task IDs (mjlab's built-ins included; --filter/--count narrow it)
 uv run loot-list-tasks
@@ -71,7 +72,12 @@ uv run loot-convert-demos --success-dir dataset/demos/<task>/<stamp> \
 
 # One hard recording -> a demo set per easier same-family task, no re-simulation
 uv run loot-split-demos --source-dir dataset/demos/<task>/<stamp> \
-    --source-task LOOT-Stack5-Easy-Dk1 --output-dir dataset/demos_split
+    --source-task LOOT-Stack-3Henges-Dk1 --output-dir dataset/demos_split
+
+# Several LeRobot sessions -> one LeRobot root (plus merged sidecar), for the
+# consumers that take one root (split_demos, replay readers, inspection)
+uv run loot-fuse-demos --src out/demos/success/<task>/<stamp_a> \
+    --src out/demos/success/<task>/<stamp_b> --out out/demos/fused/<task>/<stamp>
 
 # Verification scripts (see tests/tasks/README.md), not installed as console scripts
 uv run python tests/tasks/build_sim_registered_tasks.py
