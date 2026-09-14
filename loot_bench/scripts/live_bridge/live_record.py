@@ -147,6 +147,9 @@ VIEW_ORBIT = "orbit"
 VIEW_CYCLE = (VIEW_FRONT, VIEW_WRIST, VIEW_ORBIT)
 
 GRASP_SITE_NAME = "grasp_site"
+# Sorter-cube body name (xmls/sorter.xml); compiled model prefixes it with
+# the entity name (e.g. "cube/sorter"), so callers match by suffix.
+SORTER_BODY_NAME = "sorter"
 # Robot body prefix; laser ray skips these geoms, stops at first other hit.
 ROBOT_ENTITY_PREFIX = "robot/"
 
@@ -344,6 +347,9 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
         self._vis_wrist: MujocoNativeDebugVisualizer | None = None
         self._vis_gripper_laser: MujocoNativeDebugVisualizer | None = None
         self._grasp_site_id: int = -1
+        # Sorter-cube body for the horizontal laser branch; -1 when the
+        # task has no sorter (laser stays vertical).
+        self._sorter_body_id: int = -1
         # Finger-pad geoms for the laser's held-body contact check; resolved
         # lazily on first laser frame, then cached for the session.
         self._pad_geom_ids: list[int] | None = None
@@ -395,6 +401,7 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
             print(
                 f"[WARN] No '{GRASP_SITE_NAME}' site in model — gripper laser disabled"
             )
+        self._sorter_body_id = _find_sorter_body_id(self.mjm)
         # PiP renderer has its own scene; needs its own cached visualizer.
         if self._wrist_renderer is not None and self._wrist_cam_id_pip >= 0:
             self._vis_wrist = MujocoNativeDebugVisualizer(
@@ -441,6 +448,11 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
         # dot. The projection drops from the object's xz (not the grasp
         # site's), so an off-centre grip still previews where the object
         # would land; a translucent box in its orientation marks the pose.
+        # With a grasped shape and the beam origin inside the sorter cube's
+        # "plus" (face-aligned in x or y, at/below the cube top), the beam
+        # instead runs horizontally through the held object along a single
+        # world x/y axis, with the dot on the cube wall. Anywhere else it
+        # stays vertical.
         if self._grasp_site_id >= 0 and self._vis_gripper_laser is not None:
             assert self.mjd is not None
             grasp_pos = self.mjd.site_xpos[self._grasp_site_id].copy()
@@ -449,8 +461,17 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
                     self._pad_geom_ids = _find_pad_geom_ids(self.mjm)
                 except Exception:
                     self._pad_geom_ids = []
+            if self._sorter_body_id is None or self._sorter_body_id < 0:
+                try:
+                    self._sorter_body_id = _find_sorter_body_id(self.mjm)
+                except Exception:
+                    self._sorter_body_id = -1
             hit, held_half, held_mat, beam_top = _cast_gripper_ray(
-                self.mjm, self.mjd, grasp_pos, self._pad_geom_ids
+                self.mjm,
+                self.mjd,
+                grasp_pos,
+                self._pad_geom_ids,
+                self._sorter_body_id,
             )
             if hit is not None:
                 self._vis_gripper_laser.add_cylinder(
@@ -459,17 +480,26 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
                     radius=GRIPPER_LASER_ROD_RADIUS,
                     color=GRIPPER_LASER_COLOR,
                 )
-                dot_bottom = hit.copy()
-                dot_bottom[2] += GRIPPER_LASER_DOT_LIFT
-                dot_top = dot_bottom.copy()
-                dot_top[2] += GRIPPER_LASER_DOT_THICKNESS
+                ray_vec = hit - beam_top
+                ray_len = float(np.linalg.norm(ray_vec))
+                horizontal = ray_len > 1e-9 and abs(ray_vec[2]) < 1e-9
+                if horizontal:
+                    # Landing dot on the cube wall, oriented along the ray.
+                    unit = ray_vec / ray_len
+                    dot_bottom = hit - unit * GRIPPER_LASER_DOT_THICKNESS
+                    dot_top = hit + unit * GRIPPER_LASER_DOT_LIFT
+                else:
+                    dot_bottom = hit.copy()
+                    dot_bottom[2] += GRIPPER_LASER_DOT_LIFT
+                    dot_top = dot_bottom.copy()
+                    dot_top[2] += GRIPPER_LASER_DOT_THICKNESS
                 self._vis_gripper_laser.add_cylinder(
                     start=dot_bottom,
                     end=dot_top,
                     radius=GRIPPER_LASER_DOT_RADIUS,
                     color=GRIPPER_LASER_COLOR,
                 )
-                if held_half is not None and held_mat is not None:
+                if held_half is not None and held_mat is not None and not horizontal:
                     fp_half = np.asarray(held_half, dtype=float) + _FOOTPRINT_INFLATE
                     r = np.asarray(held_mat, dtype=float).reshape(3, 3)
                     world_hz = (
@@ -666,6 +696,22 @@ def _find_site_id(mj_model: "_mujoco.MjModel", suffix: str) -> int:
     return -1
 
 
+def _find_sorter_body_id(
+    mj_model: "_mujoco.MjModel", suffix: str = SORTER_BODY_NAME
+) -> int:
+    """Return the id of the first body whose name is, or ends with, ``suffix``.
+
+    Same suffix-match rationale as _find_site_id: the compiled model
+    prefixes entity bodies (e.g. "cube/sorter"). Returns -1 if none match
+    (e.g. non-sorter tasks), in which case the laser stays vertical.
+    """
+    for bi in range(int(mj_model.nbody)):
+        name = _mujoco.mj_id2name(mj_model, _mujoco.mjtObj.mjOBJ_BODY, bi) or ""
+        if name == suffix or name.endswith("/" + suffix):
+            return bi
+    return -1
+
+
 def _find_pad_geom_ids(mjm: "_mujoco.MjModel") -> list[int]:
     """Geom ids of the finger pads (suffix match: model prefixes robot geoms)."""
     ids = []
@@ -789,15 +835,16 @@ def _held_footprint_geom(mjm: "_mujoco.MjModel", body_id: int) -> "int | None":
     return None
 
 
-def _cast_down_ray(
+def _cast_ray(
     mjm: "_mujoco.MjModel",
     mjd: "_mujoco.MjData",
     origin: np.ndarray,
+    vec: np.ndarray,
     skip_body_ids: "set[int] | None" = None,
 ) -> "np.ndarray | None":
-    """Down ray from origin; pierces robot geoms and skipped bodies."""
+    """Cast a ray from origin along vec; pierces robot geoms and skipped bodies."""
     skip = skip_body_ids or set()
-    vec = np.array([0.0, 0.0, -1.0])
+    vec = np.asarray(vec, dtype=float).reshape(3)
     pnt = origin.copy()
     geomid = np.zeros(1, dtype=np.int32)
     for _ in range(_GRIPPER_RAY_MAX_BOUNCES):
@@ -822,6 +869,16 @@ def _cast_down_ray(
     return None
 
 
+def _cast_down_ray(
+    mjm: "_mujoco.MjModel",
+    mjd: "_mujoco.MjData",
+    origin: np.ndarray,
+    skip_body_ids: "set[int] | None" = None,
+) -> "np.ndarray | None":
+    """Down ray from origin; pierces robot geoms and skipped bodies."""
+    return _cast_ray(mjm, mjd, origin, np.array([0.0, 0.0, -1.0]), skip_body_ids)
+
+
 class _GripperRay(NamedTuple):
     hit: np.ndarray | None
     held_half: np.ndarray | None
@@ -829,19 +886,97 @@ class _GripperRay(NamedTuple):
     beam_top: np.ndarray
 
 
+# Sorter-cube outer half extents (m), matching ``cube.half_size`` in
+# ``tasks/shape_sorter/xmls/sorter_layout.json``. Kept as a local constant
+# (like the other thresholds above) so the category-agnostic recorder does
+# not import a task category.
+_SORTER_CUBE_HALF = (0.05, 0.05, 0.05)
+# The cube face may be up to this many times farther from the gripper center
+# than the floor and still result in a horizontal-mode laser.
+_SORTER_HORIZONTAL_LASER_WEIGHT = 2.0
+
+
+def _point_box_surface_dist(
+    pnt: np.ndarray,
+    centre: np.ndarray,
+    mat: "np.ndarray | None",
+    half: tuple[float, float, float] = _SORTER_CUBE_HALF,
+) -> float:
+    """Distance from a point to the closest face of an oriented box."""
+    try:
+        rot = (
+            np.asarray(mat, dtype=float).reshape(3, 3) if mat is not None else np.eye(3)
+        )
+        half_v = np.asarray(half, dtype=float)
+        local = rot.T @ (np.asarray(pnt, dtype=float) - np.asarray(centre, dtype=float))
+        clamped = np.clip(local, -half_v, half_v)
+        return float(np.linalg.norm(local - clamped))
+    except Exception:
+        return float(
+            np.linalg.norm(
+                np.asarray(pnt, dtype=float) - np.asarray(centre, dtype=float)
+            )
+        )
+
+
+def _ray_box_param(
+    origin: np.ndarray,
+    vec: np.ndarray,
+    centre: np.ndarray,
+    mat: "np.ndarray | None",
+    half: tuple[float, float, float] = _SORTER_CUBE_HALF,
+) -> "float | None":
+    """Parametric distance along ``vec`` to the box surface, else None.
+
+    Origin inside the box returns the exit distance; origin outside returns
+    the entry distance. Used to plant the dot on the cube face when the
+    physics ray misses (e.g. aiming over the top face).
+    """
+    try:
+        rot = (
+            np.asarray(mat, dtype=float).reshape(3, 3) if mat is not None else np.eye(3)
+        )
+        half_v = np.asarray(half, dtype=float)
+        o = rot.T @ (np.asarray(origin, dtype=float) - np.asarray(centre, dtype=float))
+        v = rot.T @ np.asarray(vec, dtype=float).reshape(3)
+        t_enter, t_exit = 0.0, float("inf")
+        for i in range(3):
+            if abs(v[i]) < 1e-12:
+                if abs(o[i]) > half_v[i]:
+                    return None
+            else:
+                t1 = (-half_v[i] - o[i]) / v[i]
+                t2 = (half_v[i] - o[i]) / v[i]
+                t_enter = max(t_enter, min(t1, t2))
+                t_exit = min(t_exit, max(t1, t2))
+        if t_exit < 0.0 or t_exit < t_enter:
+            return None
+        return float(t_exit if t_enter <= 1e-9 else t_enter)
+    except Exception:
+        return None
+
+
 def _cast_gripper_ray(
     mjm: "_mujoco.MjModel",
     mjd: "_mujoco.MjData",
     origin: np.ndarray,
     pad_geom_ids: "list[int] | None" = None,
+    sorter_body_id: "int | None" = None,
 ) -> _GripperRay:
-    """Down projection of the held object (gripper laser).
+    """Projection of the held object (gripper laser).
 
     Returns ``(hit, held_half, held_mat, beam_top)``: ``hit`` is None on
     miss; ``held_half``/``held_mat`` size/orient the footprint preview and
     are None with an empty gripper. The projection drops from the *object's*
     xz, not the grasp site's: an off-centre (end-held / tilted) block lands
     its footprint under itself, where it would actually land on release.
+
+    With a grasped shape and a known sorter cube body, the beam instead
+    points horizontally from the held object's center toward the sorter cube in
+    strict x or y direction whenever the held object's center sits inside the x
+    and y area of the cube's closest face. Anywhere else, above the cube, with a
+    cube face more than ``_SORTER_HORIZONTAL_CUBE_WEIGHT`` times farther than
+    the workbench, or in a diagonal quadrant, the default vertical beam is kept.
     """
     held = _find_held_body(mjm, mjd, origin, pad_geom_ids)
     if held is None:
@@ -851,7 +986,64 @@ def _cast_gripper_ray(
     except Exception:
         return _GripperRay(_cast_down_ray(mjm, mjd, origin), None, None, origin.copy())
     beam_top = np.array([centre[0], centre[1], origin[2]])
-    hit = _cast_down_ray(mjm, mjd, beam_top, skip_body_ids={held})
+    sorter_centre: np.ndarray | None = None
+    sorter_mat: np.ndarray | None = None
+    sorter_sid = int(sorter_body_id) if sorter_body_id is not None else -1
+    if sorter_sid >= 0:
+        try:
+            sorter_centre = np.asarray(mjd.xpos[sorter_sid], dtype=float).reshape(3)
+        except Exception:
+            sorter_centre = None
+        try:
+            sorter_mat = np.asarray(mjd.xmat[sorter_sid], dtype=float).reshape(3, 3)
+        except Exception:
+            sorter_mat = None
+    skip: set[int] = {held} if sorter_centre is None else {held, sorter_sid}
+    # The switch decision is anchored on the held object's centre. The wrist
+    # rides above the object, so its height would read "above the cube" even
+    # when the object is level with a face.
+    ref = centre.copy()
+    floor_hit = _cast_down_ray(mjm, mjd, ref, skip_body_ids=skip)
+    if sorter_centre is not None:
+        floor_dist = (
+            float(np.linalg.norm(floor_hit - ref))
+            if floor_hit is not None
+            else float("inf")
+        )
+        cube_dist = _point_box_surface_dist(ref, sorter_centre, sorter_mat)
+        try:
+            rot = sorter_mat if sorter_mat is not None else np.eye(3)
+            half_v = np.asarray(_SORTER_CUBE_HALF, dtype=float)
+            local = np.asarray(rot.T @ (ref - sorter_centre), dtype=float).reshape(3)
+            wz = np.abs(rot[2, :])
+            up = int(np.argmax(wz))
+            horiz = [i for i in range(3) if i != up]
+            rel_up = float(local[up] * rot[2, up])
+            above_cube = rel_up > float(half_v[up])
+            face_aligned = bool(
+                abs(local[horiz[0]]) <= half_v[horiz[0]]
+                or abs(local[horiz[1]]) <= half_v[horiz[1]]
+            )
+            in_plus = not above_cube and face_aligned
+        except Exception:
+            in_plus = False
+        if in_plus and cube_dist <= _SORTER_HORIZONTAL_LASER_WEIGHT * floor_dist:
+            dx = float(sorter_centre[0] - centre[0])
+            dy = float(sorter_centre[1] - centre[1])
+            if abs(dx) >= abs(dy):
+                vec = np.array([1.0 if dx >= 0.0 else -1.0, 0.0, 0.0])
+            else:
+                vec = np.array([0.0, 1.0 if dy >= 0.0 else -1.0, 0.0])
+            h_origin = centre.copy()
+            h_hit = _cast_ray(mjm, mjd, h_origin, vec, skip_body_ids={held})
+            if h_hit is None:
+                t = _ray_box_param(h_origin, vec, sorter_centre, sorter_mat)
+                h_hit = (
+                    h_origin + vec * t if t is not None else h_origin + vec * cube_dist
+                )
+            beam_top = h_origin
+            floor_hit = h_hit
+    hit = floor_hit
     gid = _held_footprint_geom(mjm, held)
     if gid is None:
         held_half: np.ndarray | None = np.array(_FOOTPRINT_FALLBACK_HALF, dtype=float)
