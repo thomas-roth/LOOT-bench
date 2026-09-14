@@ -157,14 +157,27 @@ GRIPPER_LASER_DOT_RADIUS = 0.015  # m
 GRIPPER_LASER_DOT_LIFT = 0.001  # m above the hit surface, avoids z-fighting
 GRIPPER_LASER_DOT_THICKNESS = 0.002  # m
 # Generous upper bound on robot geoms (fingers, wrist, forearm...) the ray
-# may pierce before reaching a non-robot surface.
-_GRIPPER_RAY_MAX_BOUNCES = 15
+# may pierce before reaching a non-robot surface, plus the extra jumps spent
+# exiting a pierced held block (one 5 mm jump per 5 mm of block thickness).
+_GRIPPER_RAY_MAX_BOUNCES = 25
 _GRIPPER_RAY_NUDGE = 1e-4  # m, push past a pierced surface before recasting
 
 # Max distance (m) from the grasp site for a body to count as held. Mirrors
 # GRIP_REACH in tasks/stack/mdp/commands.py (same 0.08 m the success gate
-# uses). Purely geometric here: no contact sensor / torch, just mjd.xpos.
+# uses). Proximity fallback only; pad contacts find the held body first.
 _HELD_PROXIMITY = 0.08
+# A pad contact counts as touching at or below this gap (m). Penetration is
+# negative; 1 mm of tolerance covers a lightly resting grip.
+_CONTACT_TOUCH_DIST = 1e-3
+# A graspable object geom: largest half extent (m) below this. Keeps the
+# table/board (and the floor plane) from ever counting as held.
+_SMALL_GEOM_MAX_HALF = 0.05
+# Finger-pad geom name suffixes (compiled model prefixes them with robot/).
+_PAD_GEOM_SUFFIXES = ("finger_left_pad_collision", "finger_right_pad_collision")
+# Step (m) past a zero-distance hit. mj_ray reports ~0 when the origin sits
+# inside a geom (projection xz buried in the held block); the normal nudge
+# would need hundreds of bounces to exit, so jump instead.
+_GRIPPER_RAY_EXIT_STEP = 0.005
 # Ghost footprint preview (KISS alternative to a full block ghost): one
 # translucent axis-aligned box at the laser hit, sized from the held geom.
 _FOOTPRINT_COLOR = (1.0, 0.0, 1.0, 0.35)
@@ -328,6 +341,9 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
         self._vis_wrist: MujocoNativeDebugVisualizer | None = None
         self._vis_gripper_laser: MujocoNativeDebugVisualizer | None = None
         self._grasp_site_id: int = -1
+        # Finger-pad geoms for the laser's held-body contact check; resolved
+        # lazily on first laser frame, then cached for the session.
+        self._pad_geom_ids: list[int] | None = None
         self._wrist_renderer = wrist_renderer
         self._wrist_cam_id_pip = wrist_cam_id_pip
         self._pip_app = pip_app
@@ -418,16 +434,24 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
         for i in range(ngeom_before, viewer.user_scn.ngeom):
             viewer.user_scn.geoms[i].category = _mujoco.mjtCatBit.mjCAT_DECOR
 
-        # Gripper laser: down ray from grasp site, beam plus landing dot. The
-        # ray pierces the held block; when it did, a translucent box in the
-        # held block's orientation marks the landing pose.
+        # Gripper laser: down projection of the held object, beam plus landing
+        # dot. The projection drops from the object's xz (not the grasp
+        # site's), so an off-centre grip still previews where the object
+        # would land; a translucent box in its orientation marks the pose.
         if self._grasp_site_id >= 0 and self._vis_gripper_laser is not None:
             assert self.mjd is not None
             grasp_pos = self.mjd.site_xpos[self._grasp_site_id].copy()
-            hit, held_half, held_mat = _cast_gripper_ray(self.mjm, self.mjd, grasp_pos)
+            if self._pad_geom_ids is None:
+                try:
+                    self._pad_geom_ids = _find_pad_geom_ids(self.mjm)
+                except Exception:
+                    self._pad_geom_ids = []
+            hit, held_half, held_mat, beam_top = _cast_gripper_ray(
+                self.mjm, self.mjd, grasp_pos, self._pad_geom_ids
+            )
             if hit is not None:
                 self._vis_gripper_laser.add_cylinder(
-                    start=grasp_pos,
+                    start=beam_top,
                     end=hit,
                     radius=GRIPPER_LASER_ROD_RADIUS,
                     color=GRIPPER_LASER_COLOR,
@@ -481,6 +505,8 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
             ):
                 self.env.unwrapped.update_visualizers(self._vis_wrist)
             img = self._wrist_renderer.render()
+            if VIEW_CYCLE[self._view_idx] == VIEW_FRONT:
+                img = img[::-1, ::-1]
             QImage, QPixmap = _get_qimage_and_qpixmap()
             h, w = img.shape[0], img.shape[1]
             qimg = QImage(img.tobytes(), w, h, QImage.Format_RGB888)
@@ -637,75 +663,205 @@ def _find_site_id(mj_model: "_mujoco.MjModel", suffix: str) -> int:
     return -1
 
 
-def _cast_gripper_ray(
-    mjm: "_mujoco.MjModel", mjd: "_mujoco.MjData", origin: np.ndarray
-) -> tuple[np.ndarray | None, np.ndarray | None, np.ndarray | None]:
-    """Down ray from origin to first non-robot, non-held surface.
+def _find_pad_geom_ids(mjm: "_mujoco.MjModel") -> list[int]:
+    """Geom ids of the finger pads (suffix match: model prefixes robot geoms)."""
+    ids = []
+    for gi in range(int(mjm.ngeom)):
+        name = _mujoco.mj_id2name(mjm, _mujoco.mjtObj.mjOBJ_GEOM, gi) or ""
+        if name.endswith(_PAD_GEOM_SUFFIXES):
+            ids.append(gi)
+    return ids
 
-    Returns ``(hit, held_half, held_mat)``: ``hit`` is None on miss,
-    ``held_half``/``held_mat`` describe the pierced held body, else None.
-    Held = body centre within _HELD_PROXIMITY of the grasp site (pure numpy,
-    ~2 us per mj_ray). Only the held block is skipped; stacked blocks and
-    the table still stop the ray.
+
+def _geom_is_small(mjm: "_mujoco.MjModel", gid: int) -> bool:
+    try:
+        return bool(
+            np.max(np.asarray(mjm.geom_size[gid], dtype=float)[:3])
+            < _SMALL_GEOM_MAX_HALF
+        )
+    except Exception:
+        return False
+
+
+def _body_is_robot(mjm: "_mujoco.MjModel", body_id: int) -> bool:
+    try:
+        name = _mujoco.mj_id2name(mjm, _mujoco.mjtObj.mjOBJ_BODY, int(body_id)) or ""
+    except Exception:
+        return False
+    return name.startswith(ROBOT_ENTITY_PREFIX)
+
+
+def _body_has_small_geom(mjm: "_mujoco.MjModel", body_id: int) -> bool:
+    try:
+        bodyids = np.asarray(mjm.geom_bodyid)
+        sizes = np.asarray(mjm.geom_size, dtype=float)[:, :3]
+    except Exception:
+        return False
+    small = np.max(sizes, axis=1) < _SMALL_GEOM_MAX_HALF
+    return bool(np.any(small & (bodyids == int(body_id))))
+
+
+def _find_held_body(
+    mjm: "_mujoco.MjModel",
+    mjd: "_mujoco.MjData",
+    origin: np.ndarray,
+    pad_geom_ids: "list[int] | None" = None,
+) -> "int | None":
+    """Body id of the object in the gripper, else None.
+
+    Pad contacts first: while the pads touch a small object it is held no
+    matter how badly (tilted / edge-held / slipped) it sits in the fingers.
+    Proximity fallback: the nearest small body riding with the grasp site.
+    World body 0, robot bodies and large geoms (table/board) never qualify.
     """
+    if pad_geom_ids:
+        pad = {int(g) for g in pad_geom_ids}
+        try:
+            ncon = int(mjd.ncon)
+        except Exception:
+            ncon = 0
+        best: int | None = None
+        best_d = float("inf")
+        for i in range(ncon):
+            try:
+                c = mjd.contact[i]
+                g1, g2, dist = int(c.geom1), int(c.geom2), float(c.dist)
+            except Exception:
+                continue
+            if dist >= _CONTACT_TOUCH_DIST:
+                continue
+            if g1 in pad:
+                other = g2
+            elif g2 in pad:
+                other = g1
+            else:
+                continue
+            try:
+                body_id = int(mjm.geom_bodyid[other])
+            except Exception:
+                continue
+            if body_id == 0 or _body_is_robot(mjm, body_id):
+                continue
+            if not _geom_is_small(mjm, other):
+                continue
+            try:
+                d = float(np.linalg.norm(np.asarray(mjd.xpos[body_id]) - origin))
+            except Exception:
+                d = float("inf")
+            if d < best_d:
+                best, best_d = body_id, d
+        if best is not None:
+            return best
+    try:
+        nbody = int(mjm.nbody)
+    except Exception:
+        return None
+    best = None
+    best_d = _HELD_PROXIMITY
+    for bid in range(1, nbody):
+        try:
+            pos = np.asarray(mjd.xpos[bid], dtype=float)
+        except Exception:
+            continue
+        d = float(np.linalg.norm(pos - origin))
+        if d >= best_d or _body_is_robot(mjm, bid):
+            continue
+        if not _body_has_small_geom(mjm, bid):
+            continue
+        best, best_d = bid, d
+    return best
+
+
+def _held_footprint_geom(mjm: "_mujoco.MjModel", body_id: int) -> "int | None":
+    """First small box geom of the body (its footprint size), else None."""
+    try:
+        bodyids = np.asarray(mjm.geom_bodyid)
+        box_type = int(_mujoco.mjtGeom.mjGEOM_BOX.value)
+        for gid in np.where(bodyids == int(body_id))[0]:
+            gid = int(gid)
+            if _geom_is_small(mjm, gid) and int(mjm.geom_type[gid]) == box_type:
+                return gid
+    except Exception:
+        pass
+    return None
+
+
+def _cast_down_ray(
+    mjm: "_mujoco.MjModel",
+    mjd: "_mujoco.MjData",
+    origin: np.ndarray,
+    skip_body_ids: "set[int] | None" = None,
+) -> "np.ndarray | None":
+    """Down ray from origin; pierces robot geoms and skipped bodies."""
+    skip = skip_body_ids or set()
     vec = np.array([0.0, 0.0, -1.0])
     pnt = origin.copy()
     geomid = np.zeros(1, dtype=np.int32)
-    held_half: np.ndarray | None = None
-    held_mat: np.ndarray | None = None
     for _ in range(_GRIPPER_RAY_MAX_BOUNCES):
         dist = _mujoco.mj_ray(mjm, mjd, pnt, vec, None, True, -1, geomid)
         if dist < 0:
-            return None, held_half, held_mat
+            return None
         hit = pnt + dist * vec
+        if dist < _GRIPPER_RAY_NUDGE:
+            # Origin inside the geom: jump, don't crawl, so the loop exits
+            # within its bounce budget.
+            pnt = pnt + _GRIPPER_RAY_EXIT_STEP * vec
+            continue
         gid = int(geomid[0])
-        body_id = int(mjm.geom_bodyid[gid])
-        body_name = _mujoco.mj_id2name(mjm, _mujoco.mjtObj.mjOBJ_BODY, body_id) or ""
-        if body_name.startswith(ROBOT_ENTITY_PREFIX):
-            pnt = hit + _GRIPPER_RAY_NUDGE * vec
-            continue
-        # Held block: its centre rides with the gripper, so it sits within
-        # reach of the ray origin. Pierce it (and remember its size for the
-        # footprint preview) instead of stopping on its top face. Guards keep
-        # the placement surfaces hittable: world body 0 (floor plane) and
-        # large geoms (table/board) are never treated as held.
         try:
-            body_pos = np.asarray(mjd.xpos[body_id])
+            body_id = int(mjm.geom_bodyid[gid])
         except Exception:
-            body_pos = None
-        is_held_candidate = (
-            body_pos is not None
-            and body_id != 0
-            and float(np.linalg.norm(body_pos - origin)) < _HELD_PROXIMITY
-        )
-        if is_held_candidate:
-            try:
-                geom_size = np.asarray(mjm.geom_size[gid], dtype=float)
-                is_small = bool(np.max(geom_size[:3]) < 0.05)
-            except Exception:
-                geom_size = None
-                is_small = False
-            if not is_small:
-                return hit, held_half, held_mat
-            if held_half is None:
-                try:
-                    is_box = int(mjm.geom_type[gid]) == int(
-                        _mujoco.mjtGeom.mjGEOM_BOX.value
-                    )
-                except Exception:
-                    is_box = False
-                if is_box and geom_size is not None:
-                    held_half = geom_size.copy()
-                else:
-                    held_half = np.array(_FOOTPRINT_FALLBACK_HALF, dtype=float)
-                try:
-                    held_mat = np.asarray(mjd.xmat[body_id], dtype=float).reshape(3, 3)
-                except Exception:
-                    held_mat = None
+            return hit
+        if body_id in skip or _body_is_robot(mjm, body_id):
             pnt = hit + _GRIPPER_RAY_NUDGE * vec
             continue
-        return hit, held_half, held_mat
-    return None, held_half, held_mat
+        return hit
+    return None
+
+
+def _cast_gripper_ray(
+    mjm: "_mujoco.MjModel",
+    mjd: "_mujoco.MjData",
+    origin: np.ndarray,
+    pad_geom_ids: "list[int] | None" = None,
+) -> tuple[
+    "np.ndarray | None",
+    "np.ndarray | None",
+    "np.ndarray | None",
+    np.ndarray,
+]:
+    """Down projection of the held object (gripper laser).
+
+    Returns ``(hit, held_half, held_mat, beam_top)``: ``hit`` is None on
+    miss; ``held_half``/``held_mat`` size/orient the footprint preview and
+    are None with an empty gripper. The projection drops from the *object's*
+    xz, not the grasp site's: an off-centre (end-held / tilted) block lands
+    its footprint under itself, where it would actually land on release.
+    """
+    held = _find_held_body(mjm, mjd, origin, pad_geom_ids)
+    if held is None:
+        return _cast_down_ray(mjm, mjd, origin), None, None, origin.copy()
+    try:
+        centre = np.asarray(mjd.xpos[held], dtype=float).reshape(3)
+    except Exception:
+        return _cast_down_ray(mjm, mjd, origin), None, None, origin.copy()
+    beam_top = np.array([centre[0], centre[1], origin[2]])
+    hit = _cast_down_ray(mjm, mjd, beam_top, skip_body_ids={held})
+    gid = _held_footprint_geom(mjm, held)
+    if gid is None:
+        held_half: np.ndarray | None = np.array(_FOOTPRINT_FALLBACK_HALF, dtype=float)
+    else:
+        try:
+            held_half = np.asarray(mjm.geom_size[gid], dtype=float).copy()
+        except Exception:
+            held_half = np.array(_FOOTPRINT_FALLBACK_HALF, dtype=float)
+    try:
+        held_mat: np.ndarray | None = np.asarray(mjd.xmat[held], dtype=float).reshape(
+            3, 3
+        )
+    except Exception:
+        held_mat = None
+    return hit, held_half, held_mat, beam_top
 
 
 def _build_wrist_pip(mj_model: "_mujoco.MjModel | None"):
