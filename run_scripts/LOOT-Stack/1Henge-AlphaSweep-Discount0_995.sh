@@ -14,4 +14,5 @@ exec "$HERE/../sweep.sh" \
   --offline_steps 400000 \
   --online_steps 1000000 \
   --eval_interval 300000 \
-  --discount 0.995
+  --discount 0.995 \
+  --agent.discount 0.995
