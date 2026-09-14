@@ -34,9 +34,9 @@ supports (`docs/adr/020-a-henge-level-is-a-horizontal-block-at-a-fixed-height.md
 
 | **Task** | Levels | Blocks | Lintel centres (m) | Episode |
 | --- | --- | --- | --- | --- |
-| 1Henge | 1 | 3 | 0.075 | 45 s |
-| 2Henges | 2 | 6 | 0.075, 0.160 | 90 s |
-| 3Henges | 3 | 9 | 0.075, 0.160, 0.245 | 135 s |
+| 1Henge | 1 | 3 | 0.075 | 75 s |
+| 2Henges | 2 | 6 | 0.075, 0.160 | 150 s |
+| 3Henges | 3 | 9 | 0.075, 0.160, 0.245 | 225 s |
 
 There is no variation axis; the task ids are `LOOT-Stack-1Henge-Dk1`,
 `LOOT-Stack-2Henges-Dk1` and `LOOT-Stack-3Henges-Dk1`.

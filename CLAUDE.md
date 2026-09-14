@@ -74,6 +74,11 @@ uv run loot-convert-demos --success-dir dataset/demos/<task>/<stamp> \
 uv run loot-split-demos --source-dir dataset/demos/<task>/<stamp> \
     --source-task LOOT-Stack-3Henges-Dk1 --output-dir dataset/demos_split
 
+# Several LeRobot sessions -> one LeRobot root (plus merged sidecar), for the
+# consumers that take one root (split_demos, replay readers, inspection)
+uv run loot-fuse-demos --src out/demos/success/<task>/<stamp_a> \
+    --src out/demos/success/<task>/<stamp_b> --out out/demos/fused/<task>/<stamp>
+
 # Verification scripts (see tests/tasks/README.md), not installed as console scripts
 uv run python tests/tasks/build_sim_registered_tasks.py
 uv run python tests/tasks/check_success_reward.py

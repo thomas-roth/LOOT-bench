@@ -18,7 +18,7 @@ from loot_bench.tasks.stack.variants import BLOCKS_PER_LEVEL, HengeVariantCfg
 COMMAND_NAME = "task"
 
 SECONDS_PER_BLOCK = 25.0
-"""Episode budget per block, so 45 / 90 / 135 s for 1 / 2 / 3 levels.
+"""Episode budget per block, so 75 / 150 / 225 s for 1 / 2 / 3 levels.
 
 ADR-016 has the ``Place`` demos (one carry-and-place) at median 5.9 s,
 p90 11.8 s, max 17.5 s. A henge block costs that *plus*, for a lintel, a
@@ -30,8 +30,8 @@ truncates at the episode length (ADR-016), so a short budget produces
 silently *truncated* demos, while a long one only wastes steps on takes
 that were failing anyway.
 
-The consequence, accepted knowingly (ADR-020): at 135 s = 2700 steps QC's
-100-step action horizon covers 3.7 % of an episode, against the 33-50 %
+The consequence, accepted knowingly (ADR-020): at 225 s = 4500 steps QC's
+100-step action horizon covers 2.2 % of an episode, against the 33-50 %
 band ADR-016 validates. Do not "fix" it by shortening the episode."""
 
 

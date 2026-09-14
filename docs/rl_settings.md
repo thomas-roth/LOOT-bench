@@ -84,8 +84,8 @@ time:
 **Terminations (all tasks)**
 
 - `time_out`: the episode length is exceeded. It scales with the task's
-  object count, at 15 s per object where one is carried and placed (Place is
-  15 s; Stack's henges are 45 / 90 / 135 s for 3 / 6 / 9 blocks).
+   object count, at 25 s per object where one is carried and placed (Place is
+   15 s; Stack's henges are 75 / 150 / 225 s for 3 / 6 / 9 blocks).
 - `success`: the gate above is fully satisfied.
 - A category can add more failure or end conditions, see below.
 
@@ -134,9 +134,9 @@ time:
   so neither can be tuned alone.
 - **Randomization**: the blocks stage standing from the fixed table once at
   the start of the episode, each at a random yaw.
-- **Episode length**: 45 / 90 / 135 s (900 / 1800 / 2700 steps at 20 Hz),
-  15 s per block, because a lintel costs a carry-and-place plus a knock-over
-  and a re-grasp. At 2700 steps QC's 100-step horizon covers 3.7 % of an
+- **Episode length**: 75 / 150 / 225 s (1500 / 3000 / 4500 steps at 20 Hz),
+  25 s per block, because a lintel costs a carry-and-place plus a knock-over
+  and a re-grasp. At 4500 steps QC's 100-step horizon covers 2.2 % of an
   episode, against the 33-50 % band ADR-016 validates. That departure is
   accepted knowingly: a shorter budget yields silently truncated recordings,
   and the discount experiment is closed (ADR-014).

@@ -1,8 +1,9 @@
 # Script tests
 
 Tests for the standalone tools in `loot_bench/scripts/` that are not the play
-loop. Right now that is the demo splitter, `split_demos.py`. Run from the
-**repo root**.
+loop. Right now that is the demo splitter, `split_demos.py`, and the session
+fuse, `fuse_demos.py` (`test_fuse_demos.py`: sidecar merge rules, episode
+reindexing, fused-root converts). Run from the **repo root**.
 
 ```bash
 uv run pytest tests/scripts/ -v

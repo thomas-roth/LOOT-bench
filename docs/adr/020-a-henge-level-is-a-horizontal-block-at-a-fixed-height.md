@@ -24,9 +24,9 @@ termination so the two cannot drift.
 
 | Task | Levels | Blocks | Lintel centres (m) | Episode |
 | --- | --- | --- | --- | --- |
-| `1Henge` | 1 | 3 | 0.075 | 45 s |
-| `2Henges` | 2 | 6 | 0.075, 0.160 | 90 s |
-| `3Henges` | 3 | 9 | 0.075, 0.160, 0.245 | 135 s |
+| `1Henge` | 1 | 3 | 0.075 | 75 s |
+| `2Henges` | 2 | 6 | 0.075, 0.160 | 150 s |
+| `3Henges` | 3 | 9 | 0.075, 0.160, 0.245 | 225 s |
 
 The block is one square prism, `0.065 x 0.020 x 0.020 m` (40.6 g), serving
 as upright and as lintel. The cross-section is square because a block spawns
@@ -174,9 +174,9 @@ lintel costs one reorientation.
 
 ADR-016 records the `Place` demos at median 5.9 s, p90 11.8 s, max 17.5 s
 for one carry-and-place. A lintel adds a knock-over and a re-grasp, so the
-budget is 15 s per block: 45 / 90 / 135 s, or 900 / 1800 / 2700 steps.
+budget is 25 s per block: 75 / 150 / 225 s, or 1500 / 3000 / 4500 steps.
 
-At 2700 steps QC's 100-step horizon covers 3.7 % of an episode, against the
+At 4500 steps QC's 100-step horizon covers 2.2 % of an episode, against the
 33-50 % band ADR-016 validates. This is a known departure, accepted because
 the recorder truncates at the episode length (ADR-016, "The episode budget"),
 so an under-budgeted episode silently yields truncated demos rather than

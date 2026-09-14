@@ -28,9 +28,9 @@ the task segment.
 
 | Task id (`-Dk1`)          | Levels | Blocks | Lintel centre heights (m) | Episode           |
 | ------------------------- | ------ | ------ | ------------------------- | ----------------- |
-| `LOOT-Stack-1Henge`       | 1      | 3      | 0.075                     | 45 s (900 steps)  |
-| `LOOT-Stack-2Henges`      | 2      | 6      | 0.075, 0.160              | 90 s (1800 steps) |
-| `LOOT-Stack-3Henges`      | 3      | 9      | 0.075, 0.160, 0.245       | 135 s (2700 steps) |
+| `LOOT-Stack-1Henge`       | 1      | 3      | 0.075                     | 75 s (1500 steps)  |
+| `LOOT-Stack-2Henges`      | 2      | 6      | 0.075, 0.160              | 150 s (3000 steps) |
+| `LOOT-Stack-3Henges`      | 3      | 9      | 0.075, 0.160, 0.245       | 225 s (4500 steps) |
 
 Heights are the lintel's *centre* above the table, measured at 20 Hz.
 
@@ -140,4 +140,6 @@ uv run loot-play LOOT-Stack-2Henges-Dk1
 directly right of the robot as a build guide (uprights at 36 mm spacing).
 Success is position-free: each level's ghost greens when that level is
 accepted anywhere, and the ghost itself is a legal build to copy. Markers
-are viewer-only; they never enter observations or the dataset.
+are viewer-only; they never enter observations or the dataset. The recorder
+adds a gripper laser with a footprint preview under the held block and a
+wrist-camera PiP: operator aids, viewer-only like the ghost.

@@ -74,12 +74,12 @@ def test_level_centre_heights():
 
 # --- the geometry/tolerance assertion ------------------------------------- #
 
-_GOOD = (BLOCK_LENGTH, BLOCK_WIDTH, HEIGHT_TOL, TILT_COS_MAX)
+_SHIPPED_GEOMETRY = (BLOCK_LENGTH, BLOCK_WIDTH, HEIGHT_TOL, TILT_COS_MAX)
 
 
 @pytest.mark.parametrize("levels", LEVELS)
 def test_shipped_constants_admit_no_alternative_build(levels):
-    assert alternative_builds(*_GOOD, levels) == []
+    assert alternative_builds(*_SHIPPED_GEOMETRY, levels) == []
 
 
 @pytest.mark.parametrize(

@@ -58,7 +58,7 @@ import threading
 import time
 import traceback
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 from types import SimpleNamespace
 
 import mujoco as _mujoco
@@ -162,9 +162,12 @@ GRIPPER_LASER_DOT_THICKNESS = 0.002  # m
 _GRIPPER_RAY_MAX_BOUNCES = 25
 _GRIPPER_RAY_NUDGE = 1e-4  # m, push past a pierced surface before recasting
 
-# Max distance (m) from the grasp site for a body to count as held. Mirrors
-# GRIP_REACH in tasks/stack/mdp/commands.py (same 0.08 m the success gate
-# uses). Proximity fallback only; pad contacts find the held body first.
+# Max distance (m) from the grasp site for a body to count as held.
+# Recorder-owned: same 0.08 m Stack's held exclusion and Ball's release
+# gate use, but this threshold feeds no reward, only the viewer fallback
+# below, so it stays here instead of importing one category into the
+# category-agnostic recorder. Proximity fallback only; pad contacts find
+# the held body first.
 _HELD_PROXIMITY = 0.08
 # A pad contact counts as touching at or below this gap (m). Penetration is
 # negative; 1 mm of tolerance covers a lightly resting grip.
@@ -819,17 +822,19 @@ def _cast_down_ray(
     return None
 
 
+class _GripperRay(NamedTuple):
+    hit: np.ndarray | None
+    held_half: np.ndarray | None
+    held_mat: np.ndarray | None
+    beam_top: np.ndarray
+
+
 def _cast_gripper_ray(
     mjm: "_mujoco.MjModel",
     mjd: "_mujoco.MjData",
     origin: np.ndarray,
     pad_geom_ids: "list[int] | None" = None,
-) -> tuple[
-    "np.ndarray | None",
-    "np.ndarray | None",
-    "np.ndarray | None",
-    np.ndarray,
-]:
+) -> _GripperRay:
     """Down projection of the held object (gripper laser).
 
     Returns ``(hit, held_half, held_mat, beam_top)``: ``hit`` is None on
@@ -840,11 +845,11 @@ def _cast_gripper_ray(
     """
     held = _find_held_body(mjm, mjd, origin, pad_geom_ids)
     if held is None:
-        return _cast_down_ray(mjm, mjd, origin), None, None, origin.copy()
+        return _GripperRay(_cast_down_ray(mjm, mjd, origin), None, None, origin.copy())
     try:
         centre = np.asarray(mjd.xpos[held], dtype=float).reshape(3)
     except Exception:
-        return _cast_down_ray(mjm, mjd, origin), None, None, origin.copy()
+        return _GripperRay(_cast_down_ray(mjm, mjd, origin), None, None, origin.copy())
     beam_top = np.array([centre[0], centre[1], origin[2]])
     hit = _cast_down_ray(mjm, mjd, beam_top, skip_body_ids={held})
     gid = _held_footprint_geom(mjm, held)
@@ -861,7 +866,7 @@ def _cast_gripper_ray(
         )
     except Exception:
         held_mat = None
-    return hit, held_half, held_mat, beam_top
+    return _GripperRay(hit, held_half, held_mat, beam_top)
 
 
 def _build_wrist_pip(mj_model: "_mujoco.MjModel | None"):

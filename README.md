@@ -70,6 +70,15 @@ uv run loot-split-demos \
 
 Every episode is truncated to the target's objects and cut on the frame the target's success would have been paid, with the reward recomputed through the environment's own success kernels. Pass `--target-task` (repeatable) to write only some of them. Each episode's own reward is recomputed first and checked against the recording, so a layout or threshold that no longer matches the environment fails immediately instead of writing a corrupt dataset.
 
+### Fusing Demos
+The `loot-fuse-demos` command merges several recorded LeRobot sessions into one LeRobot root (episodes reindexed, sidecars merged), for the consumers that take a single root: `loot-split-demos`, the replay readers, inspection. `loot-convert-demos` already fuses at `.npz` time; this covers everything upstream of it.
+```shell
+uv run loot-fuse-demos \
+    --src out/demos/success/<task>/<timestamp_a> \
+    --src out/demos/success/<task>/<timestamp_b> \
+    --out out/demos/fused/<task>/<timestamp>
+```
+
 ## Training
 
 `run_scripts/` holds ready-made QC-FQL launches (Linux/cluster only, they need a `qc` checkout next to this repo). They consist of different run scripts, each pinning task, dataset, and configuration, as well as a generic sweep script to start a task experiment run with multiple alphas and seeds:
