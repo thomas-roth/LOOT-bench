@@ -46,9 +46,6 @@ assert len(COLOR_NAMES) >= HARDEST_COUNT, (
 HOLE_SLACK = 0.005
 """Radial slack (m) added to every hole's bounding radius (x margin)."""
 
-TILT_TOL_DEG = 30.0
-"""Max piece-to-hole axis misalignment (deg) that still latches (margin = 1)."""
-
 # Tier boundaries are the easier variants' piece counts (3 and 4).
 _FIRST_TIER = 3
 _SECOND_TIER = 4
@@ -97,7 +94,9 @@ class ShapeSorterVariantCfg:
 
     @property
     def colors(self) -> tuple[str, ...]:
-        return tuple(order_color(i, _FIRST_TIER, _SECOND_TIER) for i in range(self.num_pieces))
+        return tuple(
+            order_color(i, _FIRST_TIER, _SECOND_TIER) for i in range(self.num_pieces)
+        )
 
     def __post_init__(self):
         assert self.shapes == _SHAPES_BY_COUNT[len(self.shapes)], (

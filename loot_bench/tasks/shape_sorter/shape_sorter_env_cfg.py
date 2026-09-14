@@ -15,6 +15,7 @@ from loot_bench.tasks.shape_sorter.assets import get_sorter_piece_spec, get_sort
 from loot_bench.tasks.shape_sorter.variants import ShapeSorterVariantCfg
 
 COMMAND_NAME = "task"
+SECONDS_PER_PIECE = 20.0
 
 
 def make_shape_sorter_env_cfg(
@@ -74,11 +75,6 @@ def make_shape_sorter_env_cfg(
         ),
     )
 
-    # Teleop budget: ~10 s per insertion, matching the domino category's
-    # ~20 s per placement (a sorter insertion is one grasp-place cycle with
-    # no travel between slots, so half the domino rate).
-    episode_length_s = 10.0 * variant.num_pieces
-
     return make_manipulation_env_cfg(
         entities=entities,
         fixed_props=("table",),
@@ -98,7 +94,7 @@ def make_shape_sorter_env_cfg(
         task_terminations=task_terminations,
         sensors=sensors,
         env_spacing=2.0,
-        episode_length_s=episode_length_s,
+        episode_length_s=SECONDS_PER_PIECE * variant.num_pieces,
         # ~90 convex mesh parts on the cube colliding with pieces, table and
         # gripper need real contact/constraint headroom: a fixed base for the
         # cube assembly plus per-piece contacts, mirroring the domino

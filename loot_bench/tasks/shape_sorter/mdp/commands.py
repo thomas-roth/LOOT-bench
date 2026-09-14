@@ -26,15 +26,17 @@ from loot_bench.tasks.common.debug_markers import PENDING_ALPHA, marker_color
 from loot_bench.tasks.common.fixed_spawns import SPAWN_JITTER, sample_fixed_spawns
 from loot_bench.tasks.common.scatter import write_upright_spawn
 from loot_bench.tasks.common.success import SuccessGate
-from loot_bench.tasks.shape_sorter.assets import BOARD_POS, load_sorter_layout
+from loot_bench.tasks.shape_sorter.assets import (
+    BOARD_POS,
+    PIECE_SCALE,
+    load_sorter_layout,
+)
 from loot_bench.tasks.shape_sorter.mdp.success import (
     SorterLatch,
     peg_axial_lateral,
-    peg_axis_cos_tilt,
 )
 from loot_bench.tasks.shape_sorter.variants import (
     HOLE_SLACK,
-    TILT_TOL_DEG,
     ShapeSorterVariantCfg,
     allowed_faces,
 )
@@ -105,9 +107,6 @@ class ShapeSorterCommandCfg(CommandTermCfg):
     variant: ShapeSorterVariantCfg
     hole_slack: float = HOLE_SLACK
     """Radial slack (m) added to every hole's bounding radius (x margin)."""
-    tilt_tol_deg: float = TILT_TOL_DEG
-    """Max piece-to-hole axis misalignment (deg) that still latches. Unlike
-    ``hole_slack``, not scaled by the variant margin (see ``variants.py``)."""
 
     def build(self, env: ManagerBasedRlEnv) -> ShapeSorterCommand:
         return ShapeSorterCommand(self, env)
@@ -135,8 +134,11 @@ class ShapeSorterCommand(CommandTerm):
         self._axis_local = torch.tensor(
             [h.axis_out for h in holes], device=dev, dtype=torch.float32
         )
+        # Meshes are scaled uniformly by PIECE_SCALE (see assets), so the sim
+        # length is the layout half_len times that factor.
         piece_half = torch.tensor(
-            [layout.pieces[s].half_len for s in variant.shapes], device=dev
+            [layout.pieces[s].half_len * PIECE_SCALE[s] for s in variant.shapes],
+            device=dev,
         )
         hole_radius = (
             torch.tensor([h.bounding_radius for h in holes], device=dev)
@@ -150,7 +152,6 @@ class ShapeSorterCommand(CommandTerm):
             hole_radius=hole_radius,
             piece_half=piece_half,
             s_cross=-(wall_t + piece_half),
-            tilt_cos=math.cos(math.radians(cfg.tilt_tol_deg)),
         )
 
         self._flat_quats = quat_from_angle_axis(
@@ -229,8 +230,7 @@ class ShapeSorterCommand(CommandTerm):
         axial, lateral = peg_axial_lateral(
             self.piece_pos_w, self.socket_mouth_w, self.socket_axis_w
         )
-        cos_tilt = peg_axis_cos_tilt(self.piece_quat_w, self.socket_axis_w)
-        latched = self._latch.update(axial, lateral, cos_tilt)
+        latched = self._latch.update(axial, lateral)
         all_latched = latched.all(dim=1)
         self.progress = latched.float().mean(dim=1)
 

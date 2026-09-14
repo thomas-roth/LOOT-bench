@@ -200,15 +200,12 @@ def _latch() -> SorterLatch:
         hole_radius=torch.tensor([0.05]),
         piece_half=torch.tensor([0.03]),
         s_cross=torch.tensor([-0.05]),
-        tilt_cos=math.cos(math.radians(30.0)),
     )
 
 
-def _step(
-    latch: SorterLatch, axial: float, lateral: float = 0.0, cos_tilt: float = 1.0
-):
+def _step(latch: SorterLatch, axial: float, lateral: float = 0.0):
     one = torch.ones(1, 1)
-    return latch.update(axial * one, lateral * one, cos_tilt * one)
+    return latch.update(axial * one, lateral * one)
 
 
 class TestSorterLatch:
@@ -217,7 +214,7 @@ class TestSorterLatch:
         assert not _step(latch, 0.02)[0, 0]  # in channel, above the plane
         assert _step(latch, -0.06)[0, 0]  # crossed the plane
         # Piece tumbles around inside the hollow cube, far from the channel.
-        assert _step(latch, -0.2, lateral=0.3, cos_tilt=0.1)[0, 0]
+        assert _step(latch, -0.2, lateral=0.3)[0, 0]
 
     def test_no_latch_without_prior_channel_step(self):
         # Appearing below the plane without an in-channel step above it (e.g.
@@ -225,10 +222,14 @@ class TestSorterLatch:
         latch = _latch()
         assert not _step(latch, -0.06)[0, 0]
 
-    def test_tilted_crossing_does_not_latch(self):
+    def test_tilted_crossing_latches(self):
+        # Orientation is intentionally unchecked: centered + fully deep +
+        # channel approach already proves hole passage (a centroid cannot get
+        # there without going through). A corner-first shove that ends up
+        # fully inside must count.
         latch = _latch()
         _step(latch, 0.02)
-        assert not _step(latch, -0.06, cos_tilt=0.5)[0, 0]
+        assert _step(latch, -0.06)[0, 0]
 
     def test_reset_clears_latch_and_history(self):
         latch = _latch()
@@ -238,17 +239,6 @@ class TestSorterLatch:
         assert not latch.latched[0, 0]
         # History cleared: the piece sitting below the plane cannot re-latch.
         assert not _step(latch, -0.06)[0, 0]
-
-    @pytest.mark.parametrize(
-        "tilt_deg,expected",
-        [(29.0, True), (31.0, False)],
-    )
-    def test_tilt_boundary(self, tilt_deg: float, expected: bool):
-        # The latch's tilt test is strict (cos_tilt > tilt_cos): a crossing
-        # at 29 deg off-axis latches, at 31 deg it does not.
-        latch = _latch()
-        _step(latch, 0.02)
-        assert bool(_step(latch, -0.06, cos_tilt=math.cos(math.radians(tilt_deg)))[0, 0]) is expected
 
     def test_near_miss_outside_channel_does_not_latch(self):
         # Just outside the hole radius on the approach step: the crossing
@@ -524,7 +514,9 @@ class TestSorterVariants:
         from loot_bench.tasks.shape_sorter.variants import HARDEST_COUNT
 
         assert HARDEST_COUNT == 5
-        assert max(v.num_pieces for v in SHAPE_SORTER_VARIANTS.values()) == HARDEST_COUNT
+        assert (
+            max(v.num_pieces for v in SHAPE_SORTER_VARIANTS.values()) == HARDEST_COUNT
+        )
 
     def test_shapes_tail_extend(self):
         shapes5 = SHAPE_SORTER_VARIANTS["ShapeSorter5Full"].shapes
@@ -545,8 +537,7 @@ class TestSorterVariants:
     def test_tolerances_are_single_sourced(self):
         """The command term reads the variants module's tolerances."""
         from loot_bench.tasks.shape_sorter.mdp import commands as sorter_commands
-        from loot_bench.tasks.shape_sorter.variants import HOLE_SLACK, TILT_TOL_DEG
+        from loot_bench.tasks.shape_sorter.variants import HOLE_SLACK
 
         assert sorter_commands.ShapeSorterCommandCfg.hole_slack == HOLE_SLACK
-        assert sorter_commands.ShapeSorterCommandCfg.tilt_tol_deg == TILT_TOL_DEG
-        assert pytest.approx((0.005, 30.0)) == (HOLE_SLACK, TILT_TOL_DEG)
+        assert pytest.approx(0.005) == HOLE_SLACK

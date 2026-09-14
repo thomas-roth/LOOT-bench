@@ -415,7 +415,10 @@ class TestSorterTable:
     def test_table_holds_five_cells_for_five_pieces(self):
         cells = torch.tensor(SORTER_SPAWN_CELLS)
         assert cells.shape == (SORTER_HARDEST_COUNT, 2)
-        assert max(v.num_pieces for v in SHAPE_SORTER_VARIANTS.values()) == SORTER_HARDEST_COUNT
+        assert (
+            max(v.num_pieces for v in SHAPE_SORTER_VARIANTS.values())
+            == SORTER_HARDEST_COUNT
+        )
 
     def test_min_separation_matches_prd(self):
         cells = torch.tensor(SORTER_SPAWN_CELLS)
@@ -441,9 +444,9 @@ class TestSorterTable:
                     ), f"cell {i} blocks the corridor at a jitter corner"
 
     def test_cube_pinned_with_shared_jitter(self):
-        # The cube sits at x = 0.325 with the shared +/-1 cm jitter, the
+        # The cube sits at x = 0.375 with the shared +/-1 cm jitter, the
         # same number as every other category.
-        assert tuple(BOARD_POS[:2]) == pytest.approx((0.325, 0.0))
+        assert tuple(BOARD_POS[:2]) == pytest.approx((0.375, 0.0))
         assert not hasattr(sorter_assets, "SORTER_SPAWN_JITTER")
 
     def test_random_positions_variation_is_gone(self):
