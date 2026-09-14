@@ -31,18 +31,22 @@ from loot_bench.tasks.domino.mdp.commands import DOMINO_SPAWN_CELLS
 from loot_bench.tasks.place.mdp.commands import FIXED_SPAWN_XY, FIXED_TARGET_XY
 from loot_bench.tasks.shape_sorter.assets import BOARD_POS
 from loot_bench.tasks.shape_sorter.mdp.commands import SORTER_SPAWN_CELLS
-from loot_bench.tasks.stack.mdp.commands import STACK_SPAWN_CELLS
+from loot_bench.tasks.stack.mdp.commands import HENGE_SPAWN_CELLS
 
-_BUILD_TASK = "LOOT-Stack3-Easy-Dk1"
+_BUILD_TASK = "LOOT-Stack-3Henges-Dk1"
 """Task the check builds (robot and table are shared by every category)."""
 
-_HOVER = 0.05
+_HOVER = 0.10
 """[m] grasp-site height above the table surface.
 
-Above the tallest spawn (a Hard block tops out at 0.06 m standing, but the
-site hovers over the cell, not over a block) and below the reach dome's
-ceiling (0.20 m even at the far cells), so a solve here means the gripper
-can descend onto anything staged in the cell.
+Above the tallest spawn: a henge block stands 0.065 m on its cell, and the
+fingers reach ~0.035 m below the site, so anything lower would drive the
+gripper into the very block sitting on the cell being probed. Still well
+below the reach dome's ceiling (0.20 m even at the far cells), so a solve
+here means the gripper can descend onto anything staged in the cell. If
+this hover makes a cell unreachable, that is a real reach finding about the
+geometry; report it rather than lowering the hover. Measured 2026-09-11 at
+this hover: worst stack-cell residual 0.486 mm, worst overall 0.497 mm.
 """
 
 _MAX_STEPS = 200
@@ -60,7 +64,7 @@ def _targets() -> list[tuple[str, float, float]]:
     out: list[tuple[str, float, float]] = []
     cube_pin: tuple[float, float] = (float(BOARD_POS[0]), float(BOARD_POS[1]))
     tables: list[tuple[str, tuple[tuple[float, float], ...]]] = [
-        ("stack", STACK_SPAWN_CELLS),
+        ("stack", HENGE_SPAWN_CELLS),
         ("domino", DOMINO_SPAWN_CELLS),
         ("sorter", SORTER_SPAWN_CELLS),
         ("sorter-cube", (cube_pin,)),

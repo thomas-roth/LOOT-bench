@@ -17,7 +17,7 @@ from loot_bench.tasks.common.actions import (
     GRIPPER_ACTION_NAME,
 )
 
-TASK_ID = "LOOT-Stack3-Easy-Dk1"
+TASK_ID = "LOOT-Stack-1Henge-Dk1"
 
 PLACE_TASK_ID = "LOOT-Place-RandS-RandT-Dk1"
 """The one category that declares the object-filtered contact sensor.

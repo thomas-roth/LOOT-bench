@@ -26,6 +26,7 @@ loot-play = "loot_bench.scripts.play:main"
 loot-list-tasks = "loot_bench.scripts.list_tasks:main"
 loot-record-demos = "loot_bench.scripts.live_bridge.live_record:main"
 loot-convert-demos = "loot_bench.qc.convert:main"
+loot-fuse-demos = "loot_bench.scripts.fuse_demos:main"
 loot-split-demos = "loot_bench.scripts.split_demos:main"
 
 [build-system]

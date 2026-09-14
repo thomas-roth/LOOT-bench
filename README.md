@@ -32,7 +32,7 @@ uv run loot-list-tasks --filter LOOT --count
 ### Playing a Task
 The `loot-play` command starts mjlab's player on one task ID, so you can look at the scene and the robot. Give a checkpoint to see a policy, or `--agent zero` to hold the robot still.
 ```shell
-uv run loot-play LOOT-Stack3-Easy-Dk1 --agent zero --viewer native --num-envs 1
+uv run loot-play LOOT-Stack-2Henges-Dk1 --agent zero --viewer native --num-envs 1
 ```
 
 ## Data Collection
@@ -64,11 +64,20 @@ The `loot-split-demos` command turns one recording of a hard task into a demo se
 ```shell
 uv run loot-split-demos \
     --source-dir dataset/demos/<task>/<timestamp> \
-    --source-task LOOT-Stack5-Easy-Dk1 \
+    --source-task LOOT-Stack-3Henges-Dk1 \
     --output-dir dataset/demos_split
 ```
 
 Every episode is truncated to the target's objects and cut on the frame the target's success would have been paid, with the reward recomputed through the environment's own success kernels. Pass `--target-task` (repeatable) to write only some of them. Each episode's own reward is recomputed first and checked against the recording, so a layout or threshold that no longer matches the environment fails immediately instead of writing a corrupt dataset.
+
+### Fusing Demos
+The `loot-fuse-demos` command merges several recorded LeRobot sessions into one LeRobot root (episodes reindexed, sidecars merged), for the consumers that take a single root: `loot-split-demos`, the replay readers, inspection. `loot-convert-demos` already fuses at `.npz` time; this covers everything upstream of it.
+```shell
+uv run loot-fuse-demos \
+    --src out/demos/success/<task>/<timestamp_a> \
+    --src out/demos/success/<task>/<timestamp_b> \
+    --out out/demos/fused/<task>/<timestamp>
+```
 
 ## Training
 

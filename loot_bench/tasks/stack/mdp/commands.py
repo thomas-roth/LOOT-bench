@@ -1,13 +1,14 @@
-"""Task command for the stack category.
+"""Task command for the henge (stack) category.
 
-There is no goal pose to sample — the target height is a per-task constant —
+There is no goal pose to sample: the level heights are per-task constants,
 so at every resample the command only resets the success gate and spawns the
-blocks from the fixed table (object ``i`` on cell ``i``, upright, with
+blocks from the fixed table (object ``i`` on cell ``i``, standing, with
 +/-1 cm jitter via ``sample_fixed_spawns``; seed-prefix safe, so an easier
 task's reset is a prefix of a harder task's).
 
-Every step it recomputes the height-only success criterion (``success.py``
-kernels) and feeds it through the shared at-rest + released gate.
+Every step it recomputes which levels have a lintel (``success.py``
+kernels, with the held block masked out per ADR-017) and feeds "all levels
+standing" through the shared at-rest + released gate.
 """
 
 from __future__ import annotations
@@ -35,38 +36,41 @@ from loot_bench.tasks.common.debug_markers import (
 from loot_bench.tasks.common.fixed_spawns import SPAWN_JITTER, sample_fixed_spawns
 from loot_bench.tasks.common.scatter import write_upright_spawn
 from loot_bench.tasks.common.success import OBJECT_VEL_THRESHOLD, SuccessGate
-from loot_bench.tasks.stack.mdp.success import (
-    block_top_heights,
-    stack_progress,
-    stack_reached,
+from loot_bench.tasks.stack.mdp.success import henge_levels_complete, henge_progress
+from loot_bench.tasks.stack.variants import (
+    BLOCK_HALF_EXTENTS,
+    BLOCK_WIDTH,
+    LEVEL_HEIGHT,
+    HengeVariantCfg,
 )
-from loot_bench.tasks.stack.variants import StackVariantCfg
 
 if TYPE_CHECKING:
     from mjlab.envs.manager_based_rl_env import ManagerBasedRlEnv
     from mjlab.viewer.debug_visualizer import DebugVisualizer
 
-# Debug-vis plane color while the target height is not reached yet.
-_PLANE_RGBA = (0.95, 0.95, 0.95, 1.0)
-
-SHOW_GOAL_STACK = False
-"""Draw the ghost target stack (:meth:`StackCommand._draw_goal_stack`).
-
-Switched on by ``scripts/play.py`` only: a build guide for interactive play,
-not something a teleop recording should show."""
-
 GRIP_REACH = 0.08
 """Max distance (m) from the grasp site for a block to count as held.
 
-Shared with ``scripts/split_demos.py``, which reproduces the held-block
-exclusion offline and would otherwise recompute a different reward."""
+Shared with ``loot_bench/scripts/split_demos.py``, which reproduces the
+held-block exclusion offline and would otherwise recompute a different
+reward."""
 
-# Clearance (m) between the tower site and the guide tower, so the guide
-# never overlaps the stack it describes.
-_GOAL_STACK_MARGIN = 0.06
-_GOAL_STACK_RGBA = (0.55, 0.75, 1.0, 1.0)  # base (pending) color, alpha unused
+GUIDE_UPRIGHT_SPACING = 0.036
+"""Centre-to-centre spacing (m) of the ghost trilithon's uprights.
 
-STACK_SPAWN_CELLS: tuple[tuple[float, float], ...] = (
+The guide is the only place a teleoperator sees the trilithon geometry, so it
+draws the spacing the gripper actually needs: at least ``w/2 + 0.022``
+= 32 mm to lower the second upright past the first with the 22 mm pad
+half-width, at most ``L - w`` = 45 mm before the lintel stops overhanging
+both, and 36 mm leaves ~4 mm of clearance on both that placement and the
+end-to-end lintel grip (ADR-020)."""
+
+_GOAL_HENGE_RGBA = (0.55, 0.75, 1.0, 1.0)  # base (pending) color, alpha unused
+
+# Local-to-world rotation laying a block's long axis (local z) along world y.
+_LINTEL_MAT = np.array([[1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, -1.0, 0.0]])
+
+HENGE_SPAWN_CELLS: tuple[tuple[float, float], ...] = (
     (0.22, 0.15),
     (0.22, -0.15),
     (0.22, 0.27),
@@ -76,62 +80,98 @@ STACK_SPAWN_CELLS: tuple[tuple[float, float], ...] = (
     (0.35, 0.30),
     (0.35, -0.30),
     (0.45, 0.00),
-    (0.45, 0.12),
-    (0.45, -0.12),
 )
-"""Fixed spawn cells, object ``i`` takes cell ``i`` (Stack5 uses the first 10).
+"""Fixed spawn cells, object ``i`` takes cell ``i`` (3Henges uses all nine).
 
-Clustered near the robot with the tower site left free, so a recording
-session starts with the work area empty. Stack3's reset is a prefix of
-Stack4's and Stack4's a prefix of Stack5's. Minimum pairwise separation
-0.1166, exactly the gripper-derived pitch for the largest (Easy) block.
+Clustered near the robot with the build zone left free, so a recording
+session starts with the work area empty. 1Henge's reset is a prefix of
+2Henges' and 2Henges' a prefix of 3Henges'. Minimum pairwise separation
+0.12 m against the 0.088 m pitch an upright 20 mm-square prism needs
+(``2 * 0.01 jitter + 2 * 0.01414 radius + 0.04 clearance``), so the table
+carries real margin rather than sitting on the bound.
 """
 
-TOWER_ZONE_X = (0.24, 0.32)
-"""Tower-site x span (m), kept free of spawns.
+BUILD_ZONE_X = (0.24, 0.32)
+"""Build-zone x span (m), kept free of spawns.
 
 Near the robot rather than far, which inverts the intuitive "work far, stage
-near" arrangement: the reach dome tops out a tall tower only near the base
-(see ADR-019), so the tower stands where the arm can still top it out.
+near" arrangement: the reach dome tops out a three-level henge only near the
+base (see ADR-019), so the henge stands where the arm can still place its
+top lintel.
 """
 
-TOWER_ZONE_HALF_WIDTH = 0.07
-"""Tower-site |y| half-width (m), kept free of spawns."""
+BUILD_ZONE_HALF_WIDTH = 0.07
+"""Build-zone |y| half-width (m), kept free of spawns."""
 
-TOWER_HALO_MARGIN = 0.02
-"""Extra margin (m) around the tower zone, on top of object radius + jitter."""
-
-
-def stack_spawn_is_clear(x: float, y: float, object_radius: float) -> bool:
-    """Whether a jittered ``(x, y)`` spawn pose is clear of the tower site."""
-    halo = object_radius + SPAWN_JITTER + TOWER_HALO_MARGIN
-    x0, x1 = TOWER_ZONE_X
-    return not (x0 - halo <= x <= x1 + halo and abs(y) <= TOWER_ZONE_HALF_WIDTH + halo)
+BUILD_HALO_MARGIN = 0.02
+"""Extra margin (m) around the build zone, on top of object radius + jitter."""
 
 
-def get_command(env: ManagerBasedRlEnv, name: str) -> StackCommand:
-    return cast(StackCommand, env.command_manager.get_term(name))
+def henge_spawn_is_clear(x: float, y: float, object_radius: float) -> bool:
+    """Whether a jittered ``(x, y)`` spawn pose is clear of the build zone."""
+    halo = object_radius + SPAWN_JITTER + BUILD_HALO_MARGIN
+    x0, x1 = BUILD_ZONE_X
+    return not (x0 - halo <= x <= x1 + halo and abs(y) <= BUILD_ZONE_HALF_WIDTH + halo)
+
+
+def goal_henge_parts(levels: int) -> list[tuple[int, str, np.ndarray, np.ndarray]]:
+    """Ghost-trilithon parts for a ``levels``-level reference henge.
+
+    Table-relative env-local poses, directly right of the robot. Lintel
+    centres are the level targets, uprights ``GUIDE_UPRIGHT_SPACING``
+    apart: a legal build, copyable outright. Reach-probed for the L3
+    grasp band. Returns ``(level, part, center, mat)`` (``level`` 0-based).
+    """
+    half = np.array(BLOCK_HALF_EXTENTS) + MARKER_INFLATE
+    cx, gy = 0.0, -0.20
+    parts: list[tuple[int, str, np.ndarray, np.ndarray]] = []
+    for level in range(levels):
+        base = level * LEVEL_HEIGHT
+        for sign in (-1.0, 1.0):
+            parts.append(
+                (
+                    level,
+                    f"upright_{sign}",
+                    np.array(
+                        [cx, gy + sign * GUIDE_UPRIGHT_SPACING / 2, base + half[2]]
+                    ),
+                    np.eye(3),
+                )
+            )
+        parts.append(
+            (
+                level,
+                "lintel",
+                np.array([cx, gy, base + LEVEL_HEIGHT - BLOCK_WIDTH / 2]),
+                _LINTEL_MAT,
+            )
+        )
+    return parts
+
+
+def get_command(env: ManagerBasedRlEnv, name: str) -> HengeCommand:
+    return cast(HengeCommand, env.command_manager.get_term(name))
 
 
 @dataclass(kw_only=True)
-class StackCommandCfg(CommandTermCfg):
+class HengeCommandCfg(CommandTermCfg):
     block_names: tuple[str, ...]
     """All block entities, in the variant's (tail-extending) index order."""
-    variant: StackVariantCfg
+    variant: HengeVariantCfg
     grasp_cfg: SceneEntityCfg
     """Robot grasp site, used to find the held block; site set by wiring."""
     block_vel_threshold: float = OBJECT_VEL_THRESHOLD
     """Max linear speed (m/s) of any block to count success."""
     grip_reach: float = GRIP_REACH
 
-    def build(self, env: ManagerBasedRlEnv) -> StackCommand:
-        return StackCommand(self, env)
+    def build(self, env: ManagerBasedRlEnv) -> HengeCommand:
+        return HengeCommand(self, env)
 
 
-class StackCommand(CommandTerm):
-    cfg: StackCommandCfg
+class HengeCommand(CommandTerm):
+    cfg: HengeCommandCfg
 
-    def __init__(self, cfg: StackCommandCfg, env: ManagerBasedRlEnv):
+    def __init__(self, cfg: HengeCommandCfg, env: ManagerBasedRlEnv):
         super().__init__(cfg, env)
         variant = cfg.variant
         self.variant = variant
@@ -143,19 +183,19 @@ class StackCommand(CommandTerm):
         self.grasp_cfg = cfg.grasp_cfg
         self.grasp_cfg.resolve(env.scene)
 
-        E, N = self.num_envs, self.num_blocks
+        E, N, K = self.num_envs, self.num_blocks, variant.levels
         dev = self.device
 
-        halves = [b.half_extents for b in variant.blocks]
-        self._half_h = torch.tensor([h[2] for h in halves], device=dev)
-        self._spawn_cells = torch.tensor(STACK_SPAWN_CELLS, device=dev)
+        self._half_h = torch.full((N,), BLOCK_HALF_EXTENTS[2], device=dev)
+        self._level_heights = torch.tensor(variant.level_centre_heights, device=dev)
+        self._spawn_cells = torch.tensor(HENGE_SPAWN_CELLS, device=dev)
         assert self._spawn_cells.shape[0] >= N, (
             f"spawn table holds {self._spawn_cells.shape[0]} cells, variant needs {N}"
         )
 
         self.block_pos_w = torch.zeros(E, N, 3, device=dev)
         self.block_quat_w = torch.zeros(E, N, 4, device=dev)
-        self.block_reached = torch.zeros(E, N, device=dev, dtype=torch.bool)
+        self.levels_complete = torch.zeros(E, K, device=dev, dtype=torch.bool)
         self.progress = torch.zeros(E, device=dev)
         self._gate = SuccessGate(E, dev, vel_threshold=cfg.block_vel_threshold)
         self._contact_gate = ContactReleaseGate()
@@ -163,21 +203,24 @@ class StackCommand(CommandTerm):
             ContactSensor, env.scene.sensors[GRIP_CONTACT_SENSOR_NAME]
         )
 
-        self.metrics["max_height_frac"] = torch.zeros(E, device=dev)
+        self.metrics["levels_frac"] = torch.zeros(E, device=dev)
         self.metrics["episode_success"] = torch.zeros(E, device=dev)
 
     @property
     def command(self) -> torch.Tensor:
-        """(E, 1) target height — constant per task (``command_obs=False``)."""
+        """(E, 1) top level's lintel centre height, constant per task
+        (``command_obs=False``)."""
         return torch.full(
-            (self.num_envs, 1), self.variant.target_height, device=self.device
+            (self.num_envs, 1),
+            self.variant.level_centre_heights[-1],
+            device=self.device,
         )
 
     # Helpers used by observation/reward/termination terms. ----------------
 
     @property
     def success(self) -> torch.Tensor:
-        """(E,) float: target height reached, blocks at rest, released."""
+        """(E,) float: every level standing, blocks at rest, released."""
         return self._gate.success
 
     @property
@@ -195,34 +238,38 @@ class StackCommand(CommandTerm):
             [b.data.root_link_quat_w for b in self.blocks], dim=1
         )
         table_z = self._env.scene.env_origins[:, 2]
-        target = self.variant.target_height
-        top_z = block_top_heights(self.block_pos_w[:, :, 2], self._half_h)
 
-        self.block_reached = stack_reached(
-            top_z, table_z, target, self.variant.height_tol
-        )
         robot = self._env.scene["robot"]
         pads_free = self._contact_gate(self._grip_sensor)  # pads exert no force
         held = self._held_block_mask(robot, gripping=~pads_free)
-        task_done = self.block_reached.any(dim=-1)
-        self.progress = stack_progress(top_z, table_z, target, exclude=held)
+        self.levels_complete = henge_levels_complete(
+            self.block_pos_w[:, :, 2],
+            self.block_quat_w,
+            table_z,
+            self._level_heights,
+            self.variant.height_tol,
+            exclude=held,
+        )
+        self.progress = henge_progress(self.levels_complete)
+        # One predicate for reward and termination: the exact level count,
+        # not a float comparison on progress.
+        task_done = self.levels_complete.all(dim=-1)
 
         speed = torch.stack(
             [b.data.root_link_lin_vel_w for b in self.blocks], dim=1
         ).norm(dim=-1)  # (E, N)
-        released = pads_free
-        self._gate.update(task_done, speed, released)
+        self._gate.update(task_done, speed, released=pads_free)
 
-        self.metrics["max_height_frac"] = self.progress
+        self.metrics["levels_frac"] = self.progress
         self.metrics["episode_success"] = self.episode_success
 
     def _held_block_mask(self, robot: Entity, gripping: torch.Tensor) -> torch.Tensor:
         """(E, N) bool marking the single block currently held in the gripper.
 
         Held = the pads exert grip force and the block is the one nearest the
-        grasp site, within ``grip_reach``. Excluded from progress so a block
-        merely lifted to the target height is not mistaken for a placed stack;
-        it counts again the instant it is released.
+        grasp site, within ``grip_reach``. Excluded from level credit so a
+        lintel merely carried to a level's height is not mistaken for a
+        placed one; it counts again the instant it is released.
         """
         grasp_pos = robot.data.site_pos_w[:, self.grasp_cfg.site_ids].squeeze(1)
         dist = (self.block_pos_w - grasp_pos.unsqueeze(1)).norm(dim=-1)  # (E, N)
@@ -240,11 +287,12 @@ class StackCommand(CommandTerm):
         origins = self._env.scene.env_origins[env_ids]
 
         self._gate.reset(env_ids)
-        self.block_reached[env_ids] = False
+        self.levels_complete[env_ids] = False
 
         # Object i takes cell i with +/-1 cm jitter (one rand draw per block,
         # in index order), so an easier task's reset is a prefix of a harder
-        # task's (Stack3 -> Stack4 -> Stack5).
+        # task's (1Henge -> 2Henges -> 3Henges). Blocks spawn standing, so
+        # the uprights come for free and each lintel costs one knock-over.
         xy, spawn_yaw = sample_fixed_spawns(self._spawn_cells, n, self.num_blocks)
         write_upright_spawn(self.blocks, xy, spawn_yaw, self._half_h, origins, env_ids)
 
@@ -252,74 +300,42 @@ class StackCommand(CommandTerm):
         pass
 
     def _debug_vis_impl(self, visualizer: DebugVisualizer) -> None:
+        # No marker over the build zone itself: a plane at the top level's
+        # height occluded everything under it, which is the whole structure.
         env_indices = visualizer.get_env_indices(self.num_envs)
         if not env_indices:
             return
-        cx = (TOWER_ZONE_X[0] + TOWER_ZONE_X[1]) / 2
-        cy = 0.0
-        hx = (TOWER_ZONE_X[1] - TOWER_ZONE_X[0]) / 2
-        hy = TOWER_ZONE_HALF_WIDTH
         for batch in env_indices:
-            # Thin translucent plane at the target height over the tower site.
             origin = self._env.scene.env_origins[batch].cpu().numpy()
-            center = origin + np.array([cx, cy, self.variant.target_height])
-            reached = bool(self.block_reached[batch].any())
-            success = bool(self.success[batch] > 0.5)
-            visualizer.add_box(
-                center=center,
-                size=np.array([hx, hy, 0.001]),
-                mat=np.eye(3),
-                color=marker_color(_PLANE_RGBA, reached, success),
-                label=f"target_height_{batch}",
-            )
-            if SHOW_GOAL_STACK:
-                self._draw_goal_stack(visualizer, batch, origin, cx, success)
+            self._draw_goal_henge(visualizer, batch, origin)
 
-    def _level_reached(self, batch: int) -> np.ndarray:
-        """(target_blocks,) bool: the resting stack has reached that level.
-
-        Read off ``progress``, so the guide fills up exactly like the reward —
-        a block merely lifted to a level lights nothing.
-        """
-        variant = self.variant
-        height = float(self.progress[batch]) * variant.target_height
-        levels = variant.block_height * np.arange(1, variant.target_blocks + 1)
-        return height >= levels - variant.height_tol
-
-    def _draw_goal_stack(
-        self,
-        visualizer: DebugVisualizer,
-        batch: int,
-        origin: np.ndarray,
-        cx: float,
-        success: bool,
+    def _draw_goal_henge(
+        self, visualizer: DebugVisualizer, batch: int, origin: np.ndarray
     ) -> None:
-        """Ghost stack of ``target_blocks`` blocks beside the tower site.
+        """Ghost trilithon per level, directly right of the robot.
 
-        Stands beside the tower site rather than in it: success is
-        height-only, so the real stack's xy is free.
+        Position-free success, so the ghost is one possible solution, not
+        the required spot. Trilithon form (the T stays legal by criterion,
+        not shown); tinted off ``levels_complete``, so a level greens when
+        accepted anywhere. Buildable directly (see :func:`goal_henge_parts`).
         """
-        variant = self.variant
-        half = np.array(variant.blocks[0].half_extents) + MARKER_INFLATE
-        gy = TOWER_ZONE_HALF_WIDTH + _GOAL_STACK_MARGIN + half[1]
-        reached = self._level_reached(batch)
-        for level in range(variant.target_blocks):
-            center = origin + np.array([cx, gy, (level + 0.5) * variant.block_height])
-            color = marker_color(_GOAL_STACK_RGBA, bool(reached[level]), success)
+        half = np.array(BLOCK_HALF_EXTENTS) + MARKER_INFLATE
+        success = bool(self.success[batch] > 0.5)
+        reached = self.levels_complete[batch].tolist()
+        for level, part, center, mat in goal_henge_parts(self.variant.levels):
+            color = marker_color(_GOAL_HENGE_RGBA, bool(reached[level]), success)
+            center = origin + center
+            label = f"goal_henge_{batch}_{level}_{part}"
             visualizer.add_box(
-                center=center,
-                size=half,
-                mat=np.eye(3),
-                color=color,
-                label=f"goal_stack_{batch}_{level}",
+                center=center, size=half, mat=mat, color=color, label=label
             )
-            # Red edges mark it as a virtual target, not a real block (same
-            # convention as the domino slot markers).
+            # Red edges mark it as a virtual target, not a real block
+            # (same convention as the domino slot markers).
             add_box_wireframe(
                 visualizer,
                 center=center,
                 half_extents=half,
-                mat=np.eye(3),
+                mat=mat,
                 color=OUTLINE_RGBA,
-                label_prefix=f"goal_stack_outline_{batch}_{level}",
+                label_prefix=f"{label}_outline",
             )

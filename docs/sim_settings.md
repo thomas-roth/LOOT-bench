@@ -42,9 +42,27 @@ cube pinned into the closing gripper, then lifted and shaken 5.5 s):
   than train. train_acc is identical to train. Same numbers on both
   machines.
 - sweep (free-space): same ordering, everything sub-mm over 6 s.
-- stack (6-cube tower at rest): all profiles incl. reference settle ~3 mm,
-  nothing collapses. The per-profile numbers vary between machines (chaotic
-  settling), so only the gross outcome counts.
+- stack (6-cube tower at rest, the pre-henge block): all profiles incl.
+  reference settle ~3 mm, nothing collapses. The per-profile numbers vary
+  between machines (chaotic settling), so only the gross outcome counts.
+- henge (3-level trilithon of 0.065 x 0.020 x 0.020 m blocks teleported in
+  and settled 2 s under the decided settings, 8 envs, GPU; measured
+  2026-09-11 by `tests/tasks/check_success_reward.py`, which prints these):
+
+  | lintel | centre error, max | `\|cos(body z, up)\|`, max |
+  | --- | --- | --- |
+  | 1 | 0.92 mm | 0.0032 |
+  | 2 | 1.71 mm | 0.0066 |
+  | 3 | 2.06 mm | 0.0070 |
+
+  Against `HEIGHT_TOL` = 3 mm and `TILT_COS_MAX` = 0.10. The centre error
+  compounds upward (each level's uprights sink into the lintel below) and is
+  the number that is close to its gate, at 2.1 of 3 mm on lintel 3. The
+  tilt is the gate that would decide whether the task is recordable
+  (0.10 allows only 4.5 mm of end-height difference across an upright pair,
+  and a tilted lintel 1 tilts everything above it), and it settles more
+  than an order of magnitude inside it. Neither constant was changed on
+  this measurement; see ADR-020 for why they cannot move independently.
 
 Takeaways: the 10/20 caps cost nothing and change nothing at num_envs=1
 (train_acc = train in both speed and trajectories — the solver converges

@@ -51,13 +51,14 @@ Usage:
 import lerobot.datasets.lerobot_dataset  # noqa: F401,E402,I001
 
 import argparse
+import contextlib
 import datetime
 import gc
 import threading
 import time
 import traceback
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 from types import SimpleNamespace
 
 import mujoco as _mujoco
@@ -156,9 +157,40 @@ GRIPPER_LASER_DOT_RADIUS = 0.015  # m
 GRIPPER_LASER_DOT_LIFT = 0.001  # m above the hit surface, avoids z-fighting
 GRIPPER_LASER_DOT_THICKNESS = 0.002  # m
 # Generous upper bound on robot geoms (fingers, wrist, forearm...) the ray
-# may pierce before reaching a non-robot surface.
-_GRIPPER_RAY_MAX_BOUNCES = 15
+# may pierce before reaching a non-robot surface, plus the extra jumps spent
+# exiting a pierced held block (one 5 mm jump per 5 mm of block thickness).
+_GRIPPER_RAY_MAX_BOUNCES = 25
 _GRIPPER_RAY_NUDGE = 1e-4  # m, push past a pierced surface before recasting
+
+# Max distance (m) from the grasp site for a body to count as held.
+# Recorder-owned: same 0.08 m Stack's held exclusion and Ball's release
+# gate use, but this threshold feeds no reward, only the viewer fallback
+# below, so it stays here instead of importing one category into the
+# category-agnostic recorder. Proximity fallback only; pad contacts find
+# the held body first.
+_HELD_PROXIMITY = 0.08
+# A pad contact counts as touching at or below this gap (m). Penetration is
+# negative; 1 mm of tolerance covers a lightly resting grip.
+_CONTACT_TOUCH_DIST = 1e-3
+# A graspable object geom: largest half extent (m) below this. Keeps the
+# table/board (and the floor plane) from ever counting as held.
+_SMALL_GEOM_MAX_HALF = 0.05
+# Finger-pad geom name suffixes (compiled model prefixes them with robot/).
+_PAD_GEOM_SUFFIXES = ("finger_left_pad_collision", "finger_right_pad_collision")
+# Step (m) past a zero-distance hit. mj_ray reports ~0 when the origin sits
+# inside a geom (projection xz buried in the held block); the normal nudge
+# would need hundreds of bounces to exit, so jump instead.
+_GRIPPER_RAY_EXIT_STEP = 0.005
+# Ghost footprint preview (KISS alternative to a full block ghost): one
+# translucent axis-aligned box at the laser hit, sized from the held geom.
+_FOOTPRINT_COLOR = (1.0, 0.0, 1.0, 0.35)
+_FOOTPRINT_INFLATE = 0.0015  # m, same anti-z-fight margin as MARKER_INFLATE
+_FOOTPRINT_FALLBACK_HALF = (0.010, 0.010, 0.010)  # m, if held geom isn't a box
+
+# Wrist PiP render size. Fixed 640x480 (2x the original 320x240): sharp
+# enough when enlarged, no per-resize renderer recreation.
+_PIP_WIDTH = 640
+_PIP_HEIGHT = 480
 
 
 def ask_operator() -> int:
@@ -312,6 +344,9 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
         self._vis_wrist: MujocoNativeDebugVisualizer | None = None
         self._vis_gripper_laser: MujocoNativeDebugVisualizer | None = None
         self._grasp_site_id: int = -1
+        # Finger-pad geoms for the laser's held-body contact check; resolved
+        # lazily on first laser frame, then cached for the session.
+        self._pad_geom_ids: list[int] | None = None
         self._wrist_renderer = wrist_renderer
         self._wrist_cam_id_pip = wrist_cam_id_pip
         self._pip_app = pip_app
@@ -402,14 +437,24 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
         for i in range(ngeom_before, viewer.user_scn.ngeom):
             viewer.user_scn.geoms[i].category = _mujoco.mjtCatBit.mjCAT_DECOR
 
-        # Gripper laser: down ray from grasp site, beam plus landing dot.
+        # Gripper laser: down projection of the held object, beam plus landing
+        # dot. The projection drops from the object's xz (not the grasp
+        # site's), so an off-centre grip still previews where the object
+        # would land; a translucent box in its orientation marks the pose.
         if self._grasp_site_id >= 0 and self._vis_gripper_laser is not None:
             assert self.mjd is not None
             grasp_pos = self.mjd.site_xpos[self._grasp_site_id].copy()
-            hit = _cast_gripper_ray(self.mjm, self.mjd, grasp_pos)
+            if self._pad_geom_ids is None:
+                try:
+                    self._pad_geom_ids = _find_pad_geom_ids(self.mjm)
+                except Exception:
+                    self._pad_geom_ids = []
+            hit, held_half, held_mat, beam_top = _cast_gripper_ray(
+                self.mjm, self.mjd, grasp_pos, self._pad_geom_ids
+            )
             if hit is not None:
                 self._vis_gripper_laser.add_cylinder(
-                    start=grasp_pos,
+                    start=beam_top,
                     end=hit,
                     radius=GRIPPER_LASER_ROD_RADIUS,
                     color=GRIPPER_LASER_COLOR,
@@ -424,6 +469,22 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
                     radius=GRIPPER_LASER_DOT_RADIUS,
                     color=GRIPPER_LASER_COLOR,
                 )
+                if held_half is not None and held_mat is not None:
+                    fp_half = np.asarray(held_half, dtype=float) + _FOOTPRINT_INFLATE
+                    r = np.asarray(held_mat, dtype=float).reshape(3, 3)
+                    world_hz = (
+                        abs(r[2, 0]) * fp_half[0]
+                        + abs(r[2, 1]) * fp_half[1]
+                        + abs(r[2, 2]) * fp_half[2]
+                    )
+                    fp_center = hit.copy()
+                    fp_center[2] += GRIPPER_LASER_DOT_LIFT + world_hz
+                    self._vis_gripper_laser.add_box(
+                        center=fp_center,
+                        size=fp_half,
+                        mat=r,
+                        color=_FOOTPRINT_COLOR,
+                    )
 
         # PiP wrist render, throttled (never at full frame rate).
         now = time.perf_counter()
@@ -438,6 +499,7 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
                 self.mjd,
                 camera=self._wrist_cam_id_pip,
             )
+            _disable_pip_shadows(self._wrist_renderer)
             # update_scene rebuilds the scene, so re-add target markers.
             if (
                 self._show_debug_vis
@@ -446,8 +508,11 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
             ):
                 self.env.unwrapped.update_visualizers(self._vis_wrist)
             img = self._wrist_renderer.render()
+            if VIEW_CYCLE[self._view_idx] == VIEW_FRONT:
+                img = img[::-1, ::-1]
             QImage, QPixmap = _get_qimage_and_qpixmap()
-            qimg = QImage(img.tobytes(), 320, 240, QImage.Format_RGB888)
+            h, w = img.shape[0], img.shape[1]
+            qimg = QImage(img.tobytes(), w, h, QImage.Format_RGB888)
             self._pip_label.setPixmap(QPixmap.fromImage(qimg))
             self._pip_app.processEvents()
 
@@ -554,6 +619,31 @@ class _LiveRecordingViewer(RecordingViewerMixin, NativeViewerWrapper):
     # _execute_step, ghost-color helpers) is inherited from RecordingViewerMixin.
 
 
+def _disable_shadows_global(mj_model: "_mujoco.MjModel | None") -> None:
+    """Turn off shadow casting at the model level (all renderers at once).
+
+    The main viewer additionally clears its RND_SHADOW scene flag via
+    ViewerConfig(enable_shadows=False); the wrist PiP clears its own scene
+    flag in _build_wrist_pip / the PiP update. Setting light_castshadow here
+    is what makes it truly global: no light casts, so neither renderer nor
+    any training camera can produce shadows.
+    """
+    if mj_model is None:
+        return
+    try:
+        mj_model.light_castshadow[:] = False
+    except Exception as exc:  # pragma: no cover - model-variant guard
+        print(f"[WARN] Could not disable light shadows: {exc}")
+
+
+def _disable_pip_shadows(wrist_renderer: "_mujoco.Renderer | None") -> None:
+    """Clear the PiP scene's shadow flag (cheap, idempotent)."""
+    if wrist_renderer is None:
+        return
+    with contextlib.suppress(Exception):
+        wrist_renderer.scene.flags[_mujoco.mjtRndFlag.mjRND_SHADOW] = 0
+
+
 def _find_camera_id(mj_model: "_mujoco.MjModel", suffix: str) -> int:
     """Return first camera matching suffix; -1 if none (prefix-aware)."""
     for ci in range(mj_model.ncam):
@@ -576,10 +666,137 @@ def _find_site_id(mj_model: "_mujoco.MjModel", suffix: str) -> int:
     return -1
 
 
-def _cast_gripper_ray(
-    mjm: "_mujoco.MjModel", mjd: "_mujoco.MjData", origin: np.ndarray
-) -> np.ndarray | None:
-    """Down ray from origin to first non-robot surface; None if no hit."""
+def _find_pad_geom_ids(mjm: "_mujoco.MjModel") -> list[int]:
+    """Geom ids of the finger pads (suffix match: model prefixes robot geoms)."""
+    ids = []
+    for gi in range(int(mjm.ngeom)):
+        name = _mujoco.mj_id2name(mjm, _mujoco.mjtObj.mjOBJ_GEOM, gi) or ""
+        if name.endswith(_PAD_GEOM_SUFFIXES):
+            ids.append(gi)
+    return ids
+
+
+def _geom_is_small(mjm: "_mujoco.MjModel", gid: int) -> bool:
+    try:
+        return bool(
+            np.max(np.asarray(mjm.geom_size[gid], dtype=float)[:3])
+            < _SMALL_GEOM_MAX_HALF
+        )
+    except Exception:
+        return False
+
+
+def _body_is_robot(mjm: "_mujoco.MjModel", body_id: int) -> bool:
+    try:
+        name = _mujoco.mj_id2name(mjm, _mujoco.mjtObj.mjOBJ_BODY, int(body_id)) or ""
+    except Exception:
+        return False
+    return name.startswith(ROBOT_ENTITY_PREFIX)
+
+
+def _body_has_small_geom(mjm: "_mujoco.MjModel", body_id: int) -> bool:
+    try:
+        bodyids = np.asarray(mjm.geom_bodyid)
+        sizes = np.asarray(mjm.geom_size, dtype=float)[:, :3]
+    except Exception:
+        return False
+    small = np.max(sizes, axis=1) < _SMALL_GEOM_MAX_HALF
+    return bool(np.any(small & (bodyids == int(body_id))))
+
+
+def _find_held_body(
+    mjm: "_mujoco.MjModel",
+    mjd: "_mujoco.MjData",
+    origin: np.ndarray,
+    pad_geom_ids: "list[int] | None" = None,
+) -> "int | None":
+    """Body id of the object in the gripper, else None.
+
+    Pad contacts first: while the pads touch a small object it is held no
+    matter how badly (tilted / edge-held / slipped) it sits in the fingers.
+    Proximity fallback: the nearest small body riding with the grasp site.
+    World body 0, robot bodies and large geoms (table/board) never qualify.
+    """
+    if pad_geom_ids:
+        pad = {int(g) for g in pad_geom_ids}
+        try:
+            ncon = int(mjd.ncon)
+        except Exception:
+            ncon = 0
+        best: int | None = None
+        best_d = float("inf")
+        for i in range(ncon):
+            try:
+                c = mjd.contact[i]
+                g1, g2, dist = int(c.geom1), int(c.geom2), float(c.dist)
+            except Exception:
+                continue
+            if dist >= _CONTACT_TOUCH_DIST:
+                continue
+            if g1 in pad:
+                other = g2
+            elif g2 in pad:
+                other = g1
+            else:
+                continue
+            try:
+                body_id = int(mjm.geom_bodyid[other])
+            except Exception:
+                continue
+            if body_id == 0 or _body_is_robot(mjm, body_id):
+                continue
+            if not _geom_is_small(mjm, other):
+                continue
+            try:
+                d = float(np.linalg.norm(np.asarray(mjd.xpos[body_id]) - origin))
+            except Exception:
+                d = float("inf")
+            if d < best_d:
+                best, best_d = body_id, d
+        if best is not None:
+            return best
+    try:
+        nbody = int(mjm.nbody)
+    except Exception:
+        return None
+    best = None
+    best_d = _HELD_PROXIMITY
+    for bid in range(1, nbody):
+        try:
+            pos = np.asarray(mjd.xpos[bid], dtype=float)
+        except Exception:
+            continue
+        d = float(np.linalg.norm(pos - origin))
+        if d >= best_d or _body_is_robot(mjm, bid):
+            continue
+        if not _body_has_small_geom(mjm, bid):
+            continue
+        best, best_d = bid, d
+    return best
+
+
+def _held_footprint_geom(mjm: "_mujoco.MjModel", body_id: int) -> "int | None":
+    """First small box geom of the body (its footprint size), else None."""
+    try:
+        bodyids = np.asarray(mjm.geom_bodyid)
+        box_type = int(_mujoco.mjtGeom.mjGEOM_BOX.value)
+        for gid in np.where(bodyids == int(body_id))[0]:
+            gid = int(gid)
+            if _geom_is_small(mjm, gid) and int(mjm.geom_type[gid]) == box_type:
+                return gid
+    except Exception:
+        pass
+    return None
+
+
+def _cast_down_ray(
+    mjm: "_mujoco.MjModel",
+    mjd: "_mujoco.MjData",
+    origin: np.ndarray,
+    skip_body_ids: "set[int] | None" = None,
+) -> "np.ndarray | None":
+    """Down ray from origin; pierces robot geoms and skipped bodies."""
+    skip = skip_body_ids or set()
     vec = np.array([0.0, 0.0, -1.0])
     pnt = origin.copy()
     geomid = np.zeros(1, dtype=np.int32)
@@ -588,35 +805,103 @@ def _cast_gripper_ray(
         if dist < 0:
             return None
         hit = pnt + dist * vec
-        body_name = (
-            _mujoco.mj_id2name(
-                mjm, _mujoco.mjtObj.mjOBJ_BODY, mjm.geom_bodyid[geomid[0]]
-            )
-            or ""
-        )
-        if not body_name.startswith(ROBOT_ENTITY_PREFIX):
+        if dist < _GRIPPER_RAY_NUDGE:
+            # Origin inside the geom: jump, don't crawl, so the loop exits
+            # within its bounce budget.
+            pnt = pnt + _GRIPPER_RAY_EXIT_STEP * vec
+            continue
+        gid = int(geomid[0])
+        try:
+            body_id = int(mjm.geom_bodyid[gid])
+        except Exception:
             return hit
-        pnt = hit + _GRIPPER_RAY_NUDGE * vec
+        if body_id in skip or _body_is_robot(mjm, body_id):
+            pnt = hit + _GRIPPER_RAY_NUDGE * vec
+            continue
+        return hit
     return None
 
 
+class _GripperRay(NamedTuple):
+    hit: np.ndarray | None
+    held_half: np.ndarray | None
+    held_mat: np.ndarray | None
+    beam_top: np.ndarray
+
+
+def _cast_gripper_ray(
+    mjm: "_mujoco.MjModel",
+    mjd: "_mujoco.MjData",
+    origin: np.ndarray,
+    pad_geom_ids: "list[int] | None" = None,
+) -> _GripperRay:
+    """Down projection of the held object (gripper laser).
+
+    Returns ``(hit, held_half, held_mat, beam_top)``: ``hit`` is None on
+    miss; ``held_half``/``held_mat`` size/orient the footprint preview and
+    are None with an empty gripper. The projection drops from the *object's*
+    xz, not the grasp site's: an off-centre (end-held / tilted) block lands
+    its footprint under itself, where it would actually land on release.
+    """
+    held = _find_held_body(mjm, mjd, origin, pad_geom_ids)
+    if held is None:
+        return _GripperRay(_cast_down_ray(mjm, mjd, origin), None, None, origin.copy())
+    try:
+        centre = np.asarray(mjd.xpos[held], dtype=float).reshape(3)
+    except Exception:
+        return _GripperRay(_cast_down_ray(mjm, mjd, origin), None, None, origin.copy())
+    beam_top = np.array([centre[0], centre[1], origin[2]])
+    hit = _cast_down_ray(mjm, mjd, beam_top, skip_body_ids={held})
+    gid = _held_footprint_geom(mjm, held)
+    if gid is None:
+        held_half: np.ndarray | None = np.array(_FOOTPRINT_FALLBACK_HALF, dtype=float)
+    else:
+        try:
+            held_half = np.asarray(mjm.geom_size[gid], dtype=float).copy()
+        except Exception:
+            held_half = np.array(_FOOTPRINT_FALLBACK_HALF, dtype=float)
+    try:
+        held_mat: np.ndarray | None = np.asarray(mjd.xmat[held], dtype=float).reshape(
+            3, 3
+        )
+    except Exception:
+        held_mat = None
+    return _GripperRay(hit, held_half, held_mat, beam_top)
+
+
 def _build_wrist_pip(mj_model: "_mujoco.MjModel | None"):
-    """Build wrist PiP window once; call before the HW thread starts."""
+    """Wrist PiP with aspect-locked resize."""
     if mj_model is None:
         return None, -1, None, None, None
     cam_id = _find_camera_id(mj_model, WRIST_CAMERA_NAME)
     if cam_id < 0:
         return None, -1, None, None, None
 
-    from PyQt5.QtWidgets import QLabel, QMainWindow
+    from PyQt5.QtWidgets import QLabel, QMainWindow, QSizePolicy
 
-    renderer = _mujoco.Renderer(mj_model, height=240, width=320)
+    class _AspectWindow(QMainWindow):
+        def resizeEvent(self, event):  # noqa: N802
+            super().resizeEvent(event)
+            central = self.centralWidget()
+            if central is None:
+                return
+            want = int(round(central.width() * _PIP_HEIGHT / _PIP_WIDTH))
+            if abs(central.height() - want) > 1:
+                self.resize(self.width(), want + self.height() - central.height())
+
+    renderer = _mujoco.Renderer(mj_model, height=_PIP_HEIGHT, width=_PIP_WIDTH)
+    _disable_pip_shadows(renderer)
     app = _get_pip_app()
-    window = QMainWindow()
+    window = _AspectWindow()
     label = QLabel()
+    label.setScaledContents(True)
+    label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+    label.setMinimumSize(320, 240)
     window.setCentralWidget(label)
     window.setWindowTitle("wrist")
-    window.resize(320, 240)
+    window.resize(_PIP_WIDTH, _PIP_HEIGHT)
+    with contextlib.suppress(Exception):
+        window.move(app.primaryScreen().availableGeometry().topLeft())
     window.show()
     return renderer, cam_id, app, window, label
 
@@ -762,6 +1047,10 @@ def main():
     mj_model = _get_mj_model(env)
     if mj_model is None:
         print("[WARN] Ghost-at-home overlay disabled (could not locate MjModel)")
+    # Global shadow kill: no light casts, so the main viewer, the wrist PiP
+    # and any camera render shadow-free (cfg.enable_shadows=False already
+    # clears the main viewer's scene flag; PiP clears its own flag).
+    _disable_shadows_global(mj_model)
 
     # Dataset dirs are created lazily; never wipe existing data.
     base_dir = Path(args.dataset_dir) if args.dataset_dir else DEMOS_DIR

@@ -47,17 +47,13 @@ from loot_bench.tasks.shape_sorter.mdp.commands import (
 from loot_bench.tasks.shape_sorter.variants import HARDEST_COUNT as SORTER_HARDEST_COUNT
 from loot_bench.tasks.shape_sorter.variants import SHAPE_SORTER_VARIANTS
 from loot_bench.tasks.stack.mdp.commands import (
-    STACK_SPAWN_CELLS,
-    TOWER_HALO_MARGIN,
-    TOWER_ZONE_HALF_WIDTH,
-    TOWER_ZONE_X,
-    stack_spawn_is_clear,
+    BUILD_HALO_MARGIN,
+    BUILD_ZONE_HALF_WIDTH,
+    BUILD_ZONE_X,
+    HENGE_SPAWN_CELLS,
+    henge_spawn_is_clear,
 )
-from loot_bench.tasks.stack.variants import (
-    DIFFICULTIES,
-    STACK_VARIANTS,
-    block_half_extents,
-)
+from loot_bench.tasks.stack.variants import BLOCK_HALF_EXTENTS, HENGE_VARIANTS
 
 
 def _example_tables() -> dict[str, dict]:
@@ -272,12 +268,10 @@ class TestValidateSpawnTable:
 def _category_tables() -> dict[str, dict]:
     """Real per-category spawn tables, same spec shape as :func:`_example_tables`.
 
-    Stack uses the largest (Easy) block radius: one table serves every
-    difficulty, so validation runs against the strictest footprint.
+    Stack's blocks spawn standing, so the footprint is the prism's square
+    cross-section.
     """
-    stack_radius = max(
-        math.hypot(*block_half_extents(difficulty)[:2]) for difficulty in DIFFICULTIES
-    )
+    stack_radius = math.hypot(*BLOCK_HALF_EXTENTS[:2])
     domino_radius = math.hypot(*BASE_HALF_EXTENTS[:2])
     layout = load_sorter_layout()
     sorter_radius = max(
@@ -286,11 +280,11 @@ def _category_tables() -> dict[str, dict]:
     )
     return {
         "stack": {
-            "cells": torch.tensor(STACK_SPAWN_CELLS),
+            "cells": torch.tensor(HENGE_SPAWN_CELLS),
             "object_radius": stack_radius,
             "pitch": spawn_pitch(stack_radius, stack_radius),
-            "max_objects": max(len(v.blocks) for v in STACK_VARIANTS.values()),
-            "is_clear": lambda x, y: stack_spawn_is_clear(x, y, stack_radius),
+            "max_objects": max(v.num_blocks for v in HENGE_VARIANTS.values()),
+            "is_clear": lambda x, y: henge_spawn_is_clear(x, y, stack_radius),
         },
         "domino": {
             "cells": torch.tensor(DOMINO_SPAWN_CELLS),
@@ -328,30 +322,30 @@ class TestCategoryTables:
             == []
         )
 
-    def test_stack_table_holds_eleven_cells_for_ten_blocks(self):
+    def test_stack_table_holds_nine_cells_for_nine_blocks(self):
         spec = _category_tables()["stack"]
-        assert spec["cells"].shape == (11, 2)
-        assert spec["max_objects"] == 10
+        assert spec["cells"].shape == (9, 2)
+        assert spec["max_objects"] == 9
 
-    def test_stack_tower_zone_predicate(self):
-        # Tower zone x in [0.24, 0.32], |y| <= 0.07, plus a halo of object
+    def test_stack_build_zone_predicate(self):
+        # Build zone x in [0.24, 0.32], |y| <= 0.07, plus a halo of object
         # radius + jitter + margin, is blocked; everything else is clear.
         spec = _category_tables()["stack"]
         radius = spec["object_radius"]
-        halo = radius + SPAWN_JITTER + TOWER_HALO_MARGIN
-        assert TOWER_ZONE_X == (0.24, 0.32)
-        assert TOWER_ZONE_HALF_WIDTH == 0.07
-        assert not stack_spawn_is_clear(0.28, 0.0, radius)
+        halo = radius + SPAWN_JITTER + BUILD_HALO_MARGIN
+        assert BUILD_ZONE_X == (0.24, 0.32)
+        assert BUILD_ZONE_HALF_WIDTH == 0.07
+        assert not henge_spawn_is_clear(0.28, 0.0, radius)
         for cell in spec["cells"].tolist():
-            assert stack_spawn_is_clear(cell[0], cell[1], radius)
-        x0, x1 = TOWER_ZONE_X
-        assert not stack_spawn_is_clear(x1 + halo - 1e-3, 0.0, radius)
-        assert stack_spawn_is_clear(x1 + halo + 1e-3, 0.0, radius)
-        assert not stack_spawn_is_clear(x0 - halo + 1e-3, 0.0, radius)
-        assert not stack_spawn_is_clear(
-            0.28, TOWER_ZONE_HALF_WIDTH + halo - 1e-3, radius
+            assert henge_spawn_is_clear(cell[0], cell[1], radius)
+        x0, x1 = BUILD_ZONE_X
+        assert not henge_spawn_is_clear(x1 + halo - 1e-3, 0.0, radius)
+        assert henge_spawn_is_clear(x1 + halo + 1e-3, 0.0, radius)
+        assert not henge_spawn_is_clear(x0 - halo + 1e-3, 0.0, radius)
+        assert not henge_spawn_is_clear(
+            0.28, BUILD_ZONE_HALF_WIDTH + halo - 1e-3, radius
         )
-        assert stack_spawn_is_clear(0.28, TOWER_ZONE_HALF_WIDTH + halo + 1e-3, radius)
+        assert henge_spawn_is_clear(0.28, BUILD_ZONE_HALF_WIDTH + halo + 1e-3, radius)
 
 
 class TestDominoRowLane:

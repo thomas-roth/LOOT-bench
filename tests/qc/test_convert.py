@@ -23,7 +23,7 @@ from loot_bench.qc.transitions import QC_KEYS
 
 OBS_DIM = 5
 ACTION_DIM = 7
-TASK_ID = "LOOT-Stack3-Easy-Dk1"
+TASK_ID = "LOOT-Stack-1Henge-Dk1"
 START_POSE_NOISE = 0.0
 
 
