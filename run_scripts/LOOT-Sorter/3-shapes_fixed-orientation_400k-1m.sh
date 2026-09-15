@@ -8,7 +8,7 @@ export LOOT_RUN_SCRIPT="$(basename "${BASH_SOURCE[0]}" .sh)"
 exec "$HERE/../sweep.sh" \
   Sorter_3-Shapes_Fixed-Orientation_400k-1m \
   LOOT-Sorter-3Shapes-FixedOrientation-Dk1 \
-  dataset/qc/sorter_3-shapes_fixed-orientation_60-demos_2026-09-14.npz \
+  dataset/qc/sorter_3-shapes_fixed-orientation_111-demos_2026-09-15.npz \
   --discount 0.995 \
   "$@" \
   -- \
