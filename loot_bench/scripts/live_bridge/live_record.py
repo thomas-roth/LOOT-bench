@@ -26,13 +26,13 @@ Key bindings:
     saved counts and the currently valid keys.
 
 Usage:
-    uv run loot-record-demos
+    uv run loot-record-demos --task <TASK_ID>
 
     With real follower arm:
-    uv run loot-record-demos --follower
+    uv run loot-record-demos --task <TASK_ID> --follower
 
     With explicit ports:
-    uv run loot-record-demos --follower \\
+    uv run loot-record-demos --task <TASK_ID> --follower \\
         --follower-port /dev/ttyACM1 --leader-port /dev/ttyACM0
 
     The file is still runnable directly, which is the fallback if the console
@@ -1127,6 +1127,22 @@ def main():
         description="Live teleop + sim mirroring + recording"
     )
     parser.add_argument(
+        "--task",
+        type=str,
+        required=True,
+        help="Name of task to be recorded.",
+    )
+    parser.add_argument(
+        "--operator",
+        type=int,
+        default=None,
+        choices=(1, 2, 3, 4),
+        help=(
+            "Operator number (1-Minh / 2-Darius / 3-Thomas / 4-Till). "
+            "If omitted, the script prompts for it interactively."
+        ),
+    )
+    parser.add_argument(
         "--follower-port",
         type=str,
         default=None,
@@ -1145,12 +1161,6 @@ def main():
             "Connect to the real follower robot. By default only the leader is "
             "read and its action also drives observation.robot_state."
         ),
-    )
-    parser.add_argument(
-        "--task",
-        type=str,
-        default="LOOT-Place-FixedS-FixedT-Dk1",
-        help="MJLab task name",
     )
     parser.add_argument(
         "--dataset-dir",
@@ -1196,7 +1206,7 @@ def main():
     args = parser.parse_args()
 
     # 0. Identify operator for session metadata.
-    operator_id = ask_operator()
+    operator_id = args.operator if args.operator is not None else ask_operator()
 
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
     print(f"[INFO] Using device: {device}")
