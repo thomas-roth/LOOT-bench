@@ -9,8 +9,6 @@ exec "$HERE/../sweep.sh" \
   Sorter_4-Shapes_Fixed-Orientation_500k-1m \
   LOOT-Sorter-4Shapes-FixedOrientation-Dk1 \
   dataset/qc/sorter_4-shapes_fixed-orientation_57-demos_2026-09-14.npz \
-  --alphas 1,10,100 \
-  --num-seeds 3 \
   --discount 0.995 \
   "$@" \
   -- \
