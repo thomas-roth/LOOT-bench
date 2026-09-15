@@ -12,9 +12,9 @@
 #
 # Options:
 #   --run-group NAME   replace RUN_GROUP
-#   --num-seeds N      how many random seeds       (default: 1)
+#   --num-seeds N      how many random seeds       (default: 3)
 #   --seeds A,B,C      exact seeds, instead of random ones
-#   --alphas A,B,C     the alphas to sweep         (default: 0.03,0.1,0.3,1,3,10)
+#   --alphas A,B,C     the alphas to sweep         (default: 1,10,100)
 #   --max-parallel N   runs going at once          (default: 3)
 #   --tag TAG          an extra wandb tag; repeatable
 #   --dry-run          print the runs that would start, start none
@@ -52,8 +52,8 @@ export RUN_DIR
 LOOT_RUN_SCRIPT="${LOOT_RUN_SCRIPT:-$(basename "${BASH_SOURCE[0]}" .sh)}"
 export LOOT_RUN_SCRIPT
 
-DEFAULT_NUM_SEEDS=1
-DEFAULT_ALPHAS="0.03,0.1,0.3,1,3,10"  # FQL default
+DEFAULT_NUM_SEEDS=3
+DEFAULT_ALPHAS="1,10,100"
 DEFAULT_MAX_PARALLEL=3
 
 die() {
@@ -450,10 +450,10 @@ start_run() {
   echo "[sweep] alpha $alpha seed $seed started, pid $LAST_PID, log $log_dir/train.log"
 }
 
-# Alpha-major, so the first alpha is finished first if the sweep is cut short.
+# Seed-major, so one seed runs across all alphas before the next seed.
 queue=()
-for alpha in "${alphas[@]}"; do
-  for seed in "${seeds[@]}"; do
+for seed in "${seeds[@]}"; do
+  for alpha in "${alphas[@]}"; do
     queue+=("$alpha $seed")
   done
 done
