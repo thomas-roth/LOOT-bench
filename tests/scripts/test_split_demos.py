@@ -153,6 +153,7 @@ class TestTaskIds:
             assert easier_target_task_ids(f"LOOT-Sorter-5Shapes-{variation}-Dk1") == [
                 f"LOOT-Sorter-4Shapes-{variation}-Dk1",
                 f"LOOT-Sorter-3Shapes-{variation}-Dk1",
+                f"LOOT-Sorter-2Shapes-{variation}-Dk1",
             ]
 
     def test_unsplittable_category_and_malformed_id(self):

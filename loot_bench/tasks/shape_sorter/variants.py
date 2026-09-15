@@ -2,16 +2,16 @@
 
 A variant fixes the shape count and one spawn mode:
 
-- ShapeSorter{3,4,5}FixedOrientation: the cube always spawns at the same
+- ShapeSorter{2,3,4,5}FixedOrientation: the cube always spawns at the same
   deterministic pose (only its xy position is jittered).
-- ShapeSorter{3,4,5}NoRotation: the cube spawns face-down on one of the faces
+- ShapeSorter{2,3,4,5}NoRotation: the cube spawns face-down on one of the faces
   whose hole is *not* needed this variant (plus a random yaw), so no required
   hole ever starts against the table.
-- ShapeSorter{3,4,5}Full: the cube spawns face-down on any of its six faces
+- ShapeSorter{2,3,4,5}Full: the cube spawns face-down on any of its six faces
   (plus a random yaw) -- a required hole may start facing the table, so
   reorienting the cube may be necessary.
 
-Shapes tail-extend across the difficulty axis (3 = the first 3 of the 5-shape
+Shapes tail-extend across the difficulty axis (2 = the first 2 of the 5-shape
 list) so demos for easier tasks can be cut from the hardest task's
 recordings (see ``docs/task_categories.md`` "General"). Pieces are colored by
 which tier first needs them, so the operator sees the collection order and
@@ -46,9 +46,10 @@ assert len(COLOR_NAMES) >= HARDEST_COUNT, (
 HOLE_SLACK = 0.005
 """Radial slack (m) added to every hole's bounding radius (x margin)."""
 
-# Tier boundaries are the easier variants' piece counts (3 and 4).
-_FIRST_TIER = 3
-_SECOND_TIER = 4
+# Tier boundaries are the easier variants' piece counts (2, 3 and 4).
+_FIRST_TIER = 2
+_SECOND_TIER = 3
+_THIRD_TIER = 4
 
 # Resting face per orientation, matching mdp.commands flat quats. The cube has
 # six holes including a star, but no star piece exists: the star socket is a
@@ -63,13 +64,14 @@ FACE_DOWN_SHAPES: tuple[str, ...] = (
     "triangle",
 )
 
-# Shapes tail-extend: ShapeSorter3's shapes are shapes 0..2 of ShapeSorter5.
+# Shapes tail-extend: ShapeSorter2's shapes are shapes 0..1 of ShapeSorter5.
 # Ordered by difficulty, so the tail extensions are the hard shapes: the
-# circle/rect/square core, then hexagon, then triangle.
+# circle/square core, then rect, then hexagon, then triangle.
 _SHAPES_BY_COUNT: dict[int, tuple[Shape, ...]] = {
-    3: ("circle", "rect", "square"),
-    4: ("circle", "rect", "square", "hexagon"),
-    5: ("circle", "rect", "square", "hexagon", "triangle"),
+    2: ("circle", "square"),
+    3: ("circle", "square", "rect"),
+    4: ("circle", "square", "rect", "hexagon"),
+    5: ("circle", "square", "rect", "hexagon", "triangle"),
 }
 
 
@@ -95,7 +97,8 @@ class ShapeSorterVariantCfg:
     @property
     def colors(self) -> tuple[str, ...]:
         return tuple(
-            order_color(i, _FIRST_TIER, _SECOND_TIER) for i in range(self.num_pieces)
+            order_color(i, _FIRST_TIER, _SECOND_TIER, _THIRD_TIER)
+            for i in range(self.num_pieces)
         )
 
     def __post_init__(self):
@@ -110,7 +113,7 @@ class ShapeSorterVariantCfg:
 
 SHAPE_SORTER_VARIANTS: dict[str, ShapeSorterVariantCfg] = {
     v.name: v
-    for n in (3, 4, 5)
+    for n in (2, 3, 4, 5)
     for v in (
         ShapeSorterVariantCfg(
             name=f"ShapeSorter{n}FixedOrientation",

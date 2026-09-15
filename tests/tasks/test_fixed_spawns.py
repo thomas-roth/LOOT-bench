@@ -444,6 +444,7 @@ class TestSorterTable:
         assert not hasattr(sorter_assets, "SORTER_SPAWN_JITTER")
 
     def test_random_positions_variation_is_gone(self):
+        assert "ShapeSorter2RandomPositions" not in SHAPE_SORTER_VARIANTS
         assert "ShapeSorter3RandomPositions" not in SHAPE_SORTER_VARIANTS
         assert "ShapeSorter4RandomPositions" not in SHAPE_SORTER_VARIANTS
         assert "ShapeSorter5RandomPositions" not in SHAPE_SORTER_VARIANTS

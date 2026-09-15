@@ -568,11 +568,12 @@ class TestNoRotationFaces:
         return set(allowed_faces(SHAPE_SORTER_VARIANTS[name].shapes))
 
     def test_allowed_faces_shrink_and_nest_with_shape_count(self):
+        a2 = self._allowed("ShapeSorter2NoRotation")
         a3 = self._allowed("ShapeSorter3NoRotation")
         a4 = self._allowed("ShapeSorter4NoRotation")
         a5 = self._allowed("ShapeSorter5NoRotation")
-        assert a5 <= a4 <= a3
-        assert len(a5) < len(a4) < len(a3)
+        assert a5 <= a4 <= a3 <= a2
+        assert len(a5) < len(a4) < len(a3) < len(a2)
 
     def test_allowed_faces_never_empty(self):
         # The star socket is never a required shape, so its face index is
@@ -596,7 +597,7 @@ class TestSorterVariants:
 
     def test_shapes_tail_extend(self):
         shapes5 = SHAPE_SORTER_VARIANTS["ShapeSorter5Full"].shapes
-        for name in ("ShapeSorter3Full", "ShapeSorter4Full"):
+        for name in ("ShapeSorter2Full", "ShapeSorter3Full", "ShapeSorter4Full"):
             shapes = SHAPE_SORTER_VARIANTS[name].shapes
             assert shapes == shapes5[: len(shapes)]
 
