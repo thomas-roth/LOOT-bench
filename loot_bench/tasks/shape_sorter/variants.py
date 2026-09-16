@@ -1,16 +1,17 @@
 """Shape-sorter variants.
 
-Each fixes the shape set and cube spawn mode:
-- ShapeSorter{3,4,5}FixedOrientation: the cube always spawns at the same
+A variant fixes the shape count and one spawn mode:
+
+- ShapeSorter{2,3,4,5}FixedOrientation: the cube always spawns at the same
   deterministic pose (only its xy position is jittered).
-- ShapeSorter{3,4,5}NoRotation: the cube spawns face-down on one of the faces
+- ShapeSorter{2,3,4,5}NoRotation: the cube spawns face-down on one of the faces
   whose hole is *not* needed this variant (plus a random yaw), so no required
   hole ever starts against the table.
-- ShapeSorter{3,4,5}Full: the cube spawns face-down on any of its six faces
+- ShapeSorter{2,3,4,5}Full: the cube spawns face-down on any of its six faces
   (plus a random yaw) -- a required hole may start facing the table, so
   reorienting the cube may be necessary.
 
-Shapes tail-extend across the difficulty axis (3 = the first 3 of the 5-shape
+Shapes tail-extend across the difficulty axis (2 = the first 2 of the 5-shape
 list) so demos for easier tasks can be cut from the hardest task's
 recordings (see ``docs/task_categories.md`` "General"). Pieces are colored by
 which tier first needs them, so the operator sees the collection order and
@@ -22,12 +23,38 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from loot_bench.tasks.common.colors import order_color
+from loot_bench.tasks.common.colors import COLOR_NAMES, order_color
 
 Shape = Literal["circle", "square", "rect", "triangle", "hexagon"]
 SpawnMode = Literal["fixed", "no_rotation", "full"]
 
-# Resting face per orientation, matching mdp.commands flat quats.
+HARDEST_COUNT = 5
+"""The largest shape count: the spawn table, the seed-prefix draws and the
+tier boundaries all size for it, so a shorter variant's reset is the longer
+one's prefix. Keep this equal to the largest ``num_pieces`` in
+``SHAPE_SORTER_VARIANTS``, or a new hardest variant shifts every shorter
+variant's spawns."""
+
+# The shared color palette must hold at least ``HARDEST_COUNT`` many colors;
+# the assert below fails at import if it does not, rather than at env build on
+# an out-of-range index. Tier coloring itself needs only SPLIT_TIERS, but the
+# invariant mirrors the domino category so a per-piece color switch stays safe.
+assert len(COLOR_NAMES) >= HARDEST_COUNT, (
+    "the shared palette is too short to give every piece its own color"
+)
+
+HOLE_SLACK = 0.005
+"""Radial slack (m) added to every hole's bounding radius (x margin)."""
+
+# Tier boundaries are the easier variants' piece counts (2, 3 and 4).
+_FIRST_TIER = 2
+_SECOND_TIER = 3
+_THIRD_TIER = 4
+
+# Resting face per orientation, matching mdp.commands flat quats. The cube has
+# six holes including a star, but no star piece exists: the star socket is a
+# dead face, which is why fixed spawn can pin it down and why no_rotation
+# always has at least one allowed face.
 FACE_DOWN_SHAPES: tuple[str, ...] = (
     "circle",
     "star",
@@ -37,10 +64,11 @@ FACE_DOWN_SHAPES: tuple[str, ...] = (
     "triangle",
 )
 
-# Shapes tail-extend: ShapeSorter3's shapes are shapes 0..2 of ShapeSorter5.
+# Shapes tail-extend: ShapeSorter2's shapes are shapes 0..1 of ShapeSorter5.
 # Ordered by difficulty, so the tail extensions are the hard shapes: the
-# circle/rect/square core, then hexagon, then triangle.
+# circle/rect core, then square, then hexagon, then triangle.
 _SHAPES_BY_COUNT: dict[int, tuple[Shape, ...]] = {
+    2: ("circle", "rect"),
     3: ("circle", "rect", "square"),
     4: ("circle", "rect", "square", "hexagon"),
     5: ("circle", "rect", "square", "hexagon", "triangle"),
@@ -68,13 +96,24 @@ class ShapeSorterVariantCfg:
 
     @property
     def colors(self) -> tuple[str, ...]:
-        # Tier boundaries are the easier variants' piece counts (3 and 4).
-        return tuple(order_color(i, 3, 4) for i in range(self.num_pieces))
+        return tuple(
+            order_color(i, _FIRST_TIER, _SECOND_TIER, _THIRD_TIER)
+            for i in range(self.num_pieces)
+        )
+
+    def __post_init__(self):
+        assert self.shapes == _SHAPES_BY_COUNT[len(self.shapes)], (
+            "shapes must tail-extend: the first k of the hardest task's list"
+        )
+        assert self.spawn in ("fixed", "no_rotation", "full"), (
+            f"unknown spawn mode {self.spawn!r}"
+        )
+        assert self.margin > 0.0, "margin must be positive"
 
 
 SHAPE_SORTER_VARIANTS: dict[str, ShapeSorterVariantCfg] = {
     v.name: v
-    for n in (3, 4, 5)
+    for n in (2, 3, 4, 5)
     for v in (
         ShapeSorterVariantCfg(
             name=f"ShapeSorter{n}FixedOrientation",
@@ -93,3 +132,7 @@ SHAPE_SORTER_VARIANTS: dict[str, ShapeSorterVariantCfg] = {
         ),
     )
 }
+
+assert max(len(v.shapes) for v in SHAPE_SORTER_VARIANTS.values()) == HARDEST_COUNT, (
+    "HARDEST_COUNT must equal the largest variant's shape count"
+)

@@ -26,11 +26,18 @@ ordering up, but lightness leads.
 COLOR_NAMES = list(COLOR_VALUES)
 """Names of the colors in the shared palette."""
 
-SPLIT_TIERS: tuple[str, str, str] = (COLOR_NAMES[1], COLOR_NAMES[2], COLOR_NAMES[5])
+SPLIT_TIERS: tuple[str, str, str, str] = (
+    COLOR_NAMES[1],
+    COLOR_NAMES[2],
+    COLOR_NAMES[3],
+    COLOR_NAMES[5],
+)
 """Tier colors in split order; index into these to recolor a category."""
 
 
-def order_color(index: int, first_tier: int, second_tier: int) -> str:
+def order_color(
+    index: int, first_tier: int, second_tier: int, third_tier: int | None = None
+) -> str:
     """Color an object by which split tier first needs it.
 
     Objects tail-extend across a category's task axis, so the tier
@@ -38,10 +45,13 @@ def order_color(index: int, first_tier: int, second_tier: int) -> str:
     shows the teleoperator the collection order and marks where a recording
     can be cut (see ``scripts/split_demos.py``). E.g. 3Henges' 9 blocks with
     the 1Henge/2Henges counts (3, 6) read 3 navy, 3 teal, 3 white, one tier
-    per level.
+    per level. Pass ``third_tier`` for a four-task axis: the tiers then read
+    navy, teal, azure, white, one tier per easier task.
     """
     if index < first_tier:
         return SPLIT_TIERS[0]
     if index < second_tier:
         return SPLIT_TIERS[1]
-    return SPLIT_TIERS[2]
+    if third_tier is not None and index < third_tier:
+        return SPLIT_TIERS[2]
+    return SPLIT_TIERS[3]

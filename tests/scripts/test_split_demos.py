@@ -154,6 +154,9 @@ class TestTaskIds:
                 f"LOOT-Sorter-4Shapes-{variation}-Dk1",
                 f"LOOT-Sorter-3Shapes-{variation}-Dk1",
             ]
+            assert f"LOOT-Sorter-2Shapes-{variation}-Dk1" not in easier_target_task_ids(
+                f"LOOT-Sorter-5Shapes-{variation}-Dk1"
+            )
 
     def test_unsplittable_category_and_malformed_id(self):
         with pytest.raises(ValueError, match="not splittable"):
@@ -194,6 +197,15 @@ class TestPlanValidation:
             SplitPlan(adapter, knock, three).validate()
         with pytest.raises(AssertionError, match="same family"):
             SplitPlan(adapter, four, three_random).validate()
+
+    def test_sorter_2shapes_explicit_target_rejected(self):
+        plan = SplitPlan(
+            adapter_for("LOOT-Sorter-5Shapes-FixedOrientation-Dk1"),
+            variant_from_task_id("LOOT-Sorter-5Shapes-FixedOrientation-Dk1"),
+            variant_from_task_id("LOOT-Sorter-2Shapes-FixedOrientation-Dk1"),
+        )
+        with pytest.raises(AssertionError, match="not splittable"):
+            plan.validate()
 
 
 # --- Stack (henge) --------------------------------------------------------- #

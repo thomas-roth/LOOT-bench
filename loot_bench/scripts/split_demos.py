@@ -11,8 +11,8 @@ Supported: **Stack** (``1Henge``/``2Henges``/``3Henges``, one family: the
 colour tiers navy/teal/white are the cut boundaries), **Domino** (base,
 ``RandomRow``, ``DifferentDominoes``; ``KnockOver`` is not splittable, its
 topple being one chain over all pieces) and **Sorter** (every spawn
-variation). Splits never cross families: the base Domino row is fixed where
-``RandomRow``'s is sampled.
+variation; excluding 2Shapes, custom-recorded). Splits never cross families: the
+base Domino row is fixed where ``RandomRow``'s is sampled.
 
 Each source episode is relabeled without re-simulating:
 
@@ -246,8 +246,10 @@ def _sorter_progress_and_gate(
 
     A piece latches independently of the others, so the first-k flags of the
     persistent ``socket_inserted`` slice are exactly the target task's. The
-    env's gate has no at-rest term (``vel_threshold=inf``): the socket holds a
-    latched piece.
+    env's gate has no at-rest term (``vel_threshold=inf`` in
+    ``ShapeSorterCommand``): the socket holds a latched piece, so (unlike the
+    domino adapter above) no ``OBJECT_VEL_THRESHOLD`` check applies. Release
+    still gates, read off the recorded pad force like every category.
     """
     del variant  # every variant scores alike; only the piece count differs
     latched = state.sections[1][:, :, 0] > 0.5  # (T, k)
@@ -369,7 +371,7 @@ def _make_sorter_adapter() -> CategoryAdapter:
         family=lambda v: task_id_parts(v)[1],
         n_objects=lambda v: v.num_pieces,
         object_signatures=lambda v: v.shapes,
-        splittable=lambda v: True,
+        splittable=lambda v: v.num_pieces > 2,
         progress_and_gate=_sorter_progress_and_gate,
         skip_cause=_ORDER_CAUSE,
         qpos_fixed_bodies=1,  # the cube, before the pieces

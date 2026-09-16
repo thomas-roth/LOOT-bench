@@ -35,7 +35,19 @@ SORTER_LAYOUT_JSON = _XML_DIR / "sorter_layout.json"
 # Cube placement in the robot workspace (env-local): pinned x with the
 # shared +/-1 cm jitter (``tasks/common/fixed_spawns.SPAWN_JITTER``, the
 # same number as every other category).
-BOARD_POS = (0.325, 0.0, 0.0)
+BOARD_POS = (0.375, 0.0, 0.0)
+
+# Uniform shrink per piece shape, so each piece sits in its hole with ~3 mm
+# clearance per side at the best yaw. Solved with the generator's own
+# ``best_fit`` metric (``xmls/make_sorter_assets.py``).
+PIECE_SCALE: dict[str, float] = {
+    "circle": 0.9059,  # 3.00 mm clearance
+    "square": 0.9031,  # 2.94 mm clearance
+    "rect": 0.8124,  # 2.88 mm clearance
+    "triangle": 0.8183,  # 2.94 mm clearance
+    "hexagon": 0.8951,  # 2.96 mm clearance
+    "star": 0.9178,  # 2.94 mm clearance
+}
 
 
 @dataclass(frozen=True)
@@ -97,10 +109,17 @@ def get_sorter_spec() -> mujoco.MjSpec:
 
 
 def get_sorter_piece_spec(shape: Shape, color: str) -> mujoco.MjSpec:
-    """A free-body STL sorter piece, tinted with its socket colour."""
+    """A free-body STL sorter piece, tinted with its socket colour.
+
+    The piece is shrunk uniformly per ``PIECE_SCALE`` for ~3 mm per-side
+    clearance.
+    """
     spec = mujoco.MjSpec.from_file(str(_XML_DIR / f"piece_{shape}.xml"))
     rgba = COLOR_VALUES[color]
     for geom in spec.geoms:
         if geom.name in ("piece_geom", "piece_visual"):
             geom.rgba = rgba
+    scale = PIECE_SCALE[shape]
+    for mesh in spec.meshes:
+        mesh.scale = [scale, scale, scale]
     return spec

@@ -208,15 +208,12 @@ def _latch() -> SorterLatch:
         hole_radius=torch.tensor([0.05]),
         piece_half=torch.tensor([0.03]),
         s_cross=torch.tensor([-0.05]),
-        tilt_cos=math.cos(math.radians(30.0)),
     )
 
 
-def _step(
-    latch: SorterLatch, axial: float, lateral: float = 0.0, cos_tilt: float = 1.0
-):
+def _step(latch: SorterLatch, axial: float, lateral: float = 0.0):
     one = torch.ones(1, 1)
-    return latch.update(axial * one, lateral * one, cos_tilt * one)
+    return latch.update(axial * one, lateral * one)
 
 
 class TestSorterLatch:
@@ -225,7 +222,7 @@ class TestSorterLatch:
         assert not _step(latch, 0.02)[0, 0]  # in channel, above the plane
         assert _step(latch, -0.06)[0, 0]  # crossed the plane
         # Piece tumbles around inside the hollow cube, far from the channel.
-        assert _step(latch, -0.2, lateral=0.3, cos_tilt=0.1)[0, 0]
+        assert _step(latch, -0.2, lateral=0.3)[0, 0]
 
     def test_no_latch_without_prior_channel_step(self):
         # Appearing below the plane without an in-channel step above it (e.g.
@@ -233,10 +230,14 @@ class TestSorterLatch:
         latch = _latch()
         assert not _step(latch, -0.06)[0, 0]
 
-    def test_tilted_crossing_does_not_latch(self):
+    def test_tilted_crossing_latches(self):
+        # Orientation is intentionally unchecked: centered + fully deep +
+        # channel approach already proves hole passage (a centroid cannot get
+        # there without going through). A corner-first shove that ends up
+        # fully inside must count.
         latch = _latch()
         _step(latch, 0.02)
-        assert not _step(latch, -0.06, cos_tilt=0.5)[0, 0]
+        assert _step(latch, -0.06)[0, 0]
 
     def test_reset_clears_latch_and_history(self):
         latch = _latch()
@@ -245,6 +246,20 @@ class TestSorterLatch:
         latch.reset(torch.tensor([0]))
         assert not latch.latched[0, 0]
         # History cleared: the piece sitting below the plane cannot re-latch.
+        assert not _step(latch, -0.06)[0, 0]
+
+    def test_near_miss_outside_channel_does_not_latch(self):
+        # Just outside the hole radius on the approach step: the crossing
+        # step never counts, however deep it goes.
+        latch = _latch()
+        assert not _step(latch, 0.02, lateral=0.051)[0, 0]
+        assert not _step(latch, -0.06)[0, 0]
+
+    def test_near_miss_above_window_does_not_latch(self):
+        # Above the channel's top edge (piece_half + margin) on the approach
+        # step: not in-channel, so the crossing step cannot latch.
+        latch = _latch()
+        assert not _step(latch, 0.05)[0, 0]  # 0.03 + 0.01 = 0.04 edge
         assert not _step(latch, -0.06)[0, 0]
 
 
@@ -553,13 +568,53 @@ class TestNoRotationFaces:
         return set(allowed_faces(SHAPE_SORTER_VARIANTS[name].shapes))
 
     def test_allowed_faces_shrink_and_nest_with_shape_count(self):
+        a2 = self._allowed("ShapeSorter2NoRotation")
         a3 = self._allowed("ShapeSorter3NoRotation")
         a4 = self._allowed("ShapeSorter4NoRotation")
         a5 = self._allowed("ShapeSorter5NoRotation")
-        assert a5 <= a4 <= a3
-        assert len(a5) < len(a4) < len(a3)
+        assert a5 <= a4 <= a3 <= a2
+        assert len(a5) < len(a4) < len(a3) < len(a2)
 
     def test_allowed_faces_never_empty(self):
         # The star socket is never a required shape, so its face index is
         # always allowed, however many shapes the variant needs.
         assert self._allowed("ShapeSorter5NoRotation")
+
+
+# ---------------------------------------------------------------------------
+# shape_sorter variants: hardest count, tail-extension, single-source tolerances
+# ---------------------------------------------------------------------------
+
+
+class TestSorterVariants:
+    def test_hardest_count_matches_largest_variant(self):
+        from loot_bench.tasks.shape_sorter.variants import HARDEST_COUNT
+
+        assert HARDEST_COUNT == 5
+        assert (
+            max(v.num_pieces for v in SHAPE_SORTER_VARIANTS.values()) == HARDEST_COUNT
+        )
+
+    def test_shapes_tail_extend(self):
+        shapes5 = SHAPE_SORTER_VARIANTS["ShapeSorter5Full"].shapes
+        for name in ("ShapeSorter2Full", "ShapeSorter3Full", "ShapeSorter4Full"):
+            shapes = SHAPE_SORTER_VARIANTS[name].shapes
+            assert shapes == shapes5[: len(shapes)]
+
+    def test_rejects_non_prefix_shapes(self):
+        from loot_bench.tasks.shape_sorter.variants import ShapeSorterVariantCfg
+
+        with pytest.raises(AssertionError):
+            ShapeSorterVariantCfg(
+                name="Bad",
+                shapes=("triangle", "circle", "rect"),  # type: ignore[list-item]
+                spawn="full",
+            )
+
+    def test_tolerances_are_single_sourced(self):
+        """The command term reads the variants module's tolerances."""
+        from loot_bench.tasks.shape_sorter.mdp import commands as sorter_commands
+        from loot_bench.tasks.shape_sorter.variants import HOLE_SLACK
+
+        assert sorter_commands.ShapeSorterCommandCfg.hole_slack == HOLE_SLACK
+        assert pytest.approx(0.005) == HOLE_SLACK

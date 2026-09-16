@@ -1,0 +1,16 @@
+{
+    "start_pose_noise": 0.0,
+    "seed_device": "cuda",
+    "operator_id": 3,
+    "episode_seeds": {
+        "0": 431213979,
+        "1": 591932075,
+        "2": 638114483,
+        "3": 1415911514,
+        "4": 802150534,
+        "5": 1583051738,
+        "6": 1173124781,
+        "7": 880415278
+    },
+    "split_from": "Sorter-5Shapes-FixedOrientation"
+}
