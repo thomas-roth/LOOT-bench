@@ -66,12 +66,12 @@ FACE_DOWN_SHAPES: tuple[str, ...] = (
 
 # Shapes tail-extend: ShapeSorter2's shapes are shapes 0..1 of ShapeSorter5.
 # Ordered by difficulty, so the tail extensions are the hard shapes: the
-# circle/square core, then rect, then hexagon, then triangle.
+# circle/rect core, then square, then hexagon, then triangle.
 _SHAPES_BY_COUNT: dict[int, tuple[Shape, ...]] = {
-    2: ("circle", "square"),
-    3: ("circle", "square", "rect"),
-    4: ("circle", "square", "rect", "hexagon"),
-    5: ("circle", "square", "rect", "hexagon", "triangle"),
+    2: ("circle", "rect"),
+    3: ("circle", "rect", "square"),
+    4: ("circle", "rect", "square", "hexagon"),
+    5: ("circle", "rect", "square", "hexagon", "triangle"),
 }
 
 

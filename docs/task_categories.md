@@ -111,7 +111,7 @@ Insert every peg into its matching hole in a shape sorter. Each peg fits only it
 
 | **Task** | Description |
 | --- | --- |
-| 2Shapes | Insert two shapes into the sorter. |
+| 2Shapes | Insert two shapes into the sorter (custom-recorded instead of split). |
 | 3Shapes | Insert three shapes into the sorter. |
 | 4Shapes | Insert four shapes into the sorter. |
 | 5Shapes | Insert five shapes into the sorter. |
