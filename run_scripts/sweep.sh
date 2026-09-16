@@ -35,13 +35,18 @@
 # A failed run does not stop the others; the failures are named at the end and
 # the exit status is non-zero. Ctrl-C stops the whole sweep.
 #
-# The repository and the dataset are read over Kerberized NFS here, so the
-# sweep renews the Kerberos ticket for as long as it runs.
+# The repository, the venvs and the dataset are read over Kerberized NFS here,
+# so the sweep refuses to start without a renewable ticket (kinit -r 14d) and
+# renews it from a detached watcher logging to <group>/krb-renew.log. A run
+# dying with status 126/135 means the ticket died, not the experiment: one such
+# death costs a 60 s probe and a relaunch (a seconds-long NFS blip looks the
+# same), and only a second one stops the queue instead of launching the rest
+# into the same wall.
 #
 # Environment: RUN_DIR (default /var/tmp/$USER/qc-runs), LOOT_RUN_SCRIPT (the
 # script-<name> tag; a wrapper sets it), SWEEP_RENEW_INTERVAL (seconds between
-# ticket renewals, default 1800; 0 turns the renewal off), plus what
-# train_qc.sh reads.
+# ticket renewals, default 1800; 0 turns the renewal off against advice), plus
+# what train_qc.sh reads.
 
 set -euo pipefail
 
@@ -349,11 +354,16 @@ fi
 
 # $REPO, the venvs and the dataset are read over NFS mounted with sec=krb5p, and
 # a sweep outlives a login ticket. When the ticket expires the runs do not fail
-# gracefully: they die with SIGBUS (the .venv pages they mmap'd stop being
-# readable) or status 126 (train_qc.sh can no longer be executed). The renewer
-# is a child of the sweep, so it leaves nothing behind afterwards.
+# gracefully: they die with SIGBUS (status 135, the .venv pages they mmap'd
+# stop being readable) or status 126 (train_qc.sh can no longer be executed).
+# So the sweep refuses to start without a renewable ticket, renews it from a
+# detached watcher that outlives the sweep itself, and treats 126/135 as infra
+# failure: one costs a probe and a relaunch, a second stops the queue instead
+# of launching the rest into the same wall.
 RENEW_INTERVAL="${SWEEP_RENEW_INTERVAL:-1800}"
 RENEW_PID=""
+RENEW_LOG=""
+WATCH_PIDFILE=""
 PAM_CCACHE="/tmp/krb5cc_$(id -u)"
 
 # Read from a local disk there is nothing to renew.
@@ -366,37 +376,101 @@ repo_needs_ticket() {
   esac
 }
 
+# The watcher's body. Runs detached (setsid, stdio on local disk), so it
+# survives the supervisor: the sweep's own bash is read lazily off the same
+# NFS mount and dies with the ticket ("error reading input file") while
+# orphaned runs live on. Everything arrives by environment: SWEEP_PID,
+# WATCH_GROUP (the run_group to look for), RENEW_INTERVAL, RENEW_LOG,
+# WATCH_PIDFILE.
+_sweep_renew_loop() {
+  set +e +u
+  echo "$$" >"$WATCH_PIDFILE"
+  rlog() { printf '[renew %s] %s\n' "$(date '+%m-%d %H:%M:%S')" "$1" >>"$RENEW_LOG"; }
+  expiry() { klist 2>/dev/null | awk 'NR==5 {print $3, $4}'; }
+
+  rlog "watching sweep $SWEEP_PID, group $WATCH_GROUP, every ${RENEW_INTERVAL}s"
+  command -v pgrep >/dev/null 2>&1 ||
+    rlog "WARNING: no pgrep; orphaned runs cannot be detected"
+
+  dead_rounds=0
+  while :; do
+    sleep "$RENEW_INTERVAL"
+    if ! kill -0 "$SWEEP_PID" 2>/dev/null; then
+      # The sweep is gone but orphaned runs may live on: stay only while a
+      # run of this group is still alive.
+      if command -v pgrep >/dev/null 2>&1 && pgrep -f "run_group=$WATCH_GROUP" >/dev/null 2>&1; then
+        rlog "sweep gone but runs live on; keeping the ticket"
+      else
+        rlog "sweep gone and no runs left; exiting"
+        return 0
+      fi
+    fi
+    if kinit -R >>"$RENEW_LOG" 2>&1; then
+      dead_rounds=0
+      rlog "renewed, ticket expires $(expiry)"
+      continue
+    fi
+    # Renewal is proactive (every 30 min against a 10 h ticket), so one miss
+    # is a blip: two more tries a minute apart before calling it a round lost.
+    tries=1
+    while [ "$tries" -lt 3 ] && ! kinit -R >>"$RENEW_LOG" 2>&1; do
+      tries=$((tries + 1))
+      sleep 60
+    done
+    if [ "$tries" -lt 3 ]; then
+      dead_rounds=0
+      rlog "renewed after retry, ticket expires $(expiry)"
+      continue
+    fi
+    dead_rounds=$((dead_rounds + 1))
+    rlog "WARNING: kinit -R failed 3x (dead round $dead_rounds/3)"
+    if [ "$dead_rounds" -ge 3 ]; then
+      rlog "ticket unrecoverable; stopping sweep $SWEEP_PID"
+      kill -TERM "$SWEEP_PID" 2>/dev/null || true
+      return 1
+    fi
+  done
+}
+
 start_renewer() {
-  [ "$RENEW_INTERVAL" != 0 ] || return 0
+  [ "$RENEW_INTERVAL" != 0 ] || {
+    repo_needs_ticket &&
+      echo "[sweep] WARNING: renewal off (SWEEP_RENEW_INTERVAL=0) on a Kerberized mount; the runs die with the ticket." >&2
+    return 0
+  }
   repo_needs_ticket || return 0
   command -v kinit >/dev/null 2>&1 || die "$REPO needs a Kerberos ticket, but kinit is missing"
+  command -v setsid >/dev/null 2>&1 || die "setsid is missing; cannot detach the ticket watcher"
   # Refused here rather than hours in, when the first run touches the share.
   klist -s 2>/dev/null || die "no valid Kerberos ticket for $REPO; run kinit first"
   klist 2>/dev/null | grep -q 'renew until' ||
-    echo "[sweep] WARNING: the ticket cannot be renewed; kinit -r 14d before a long sweep." >&2
+    die "the ticket is not renewable; run 'kinit -r 14d' before a long sweep"
   # PAM deletes its own cache when any session of this user logs out, including
   # one that has nothing to do with the sweep; renewing does not bring it back.
   case "${KRB5CCNAME:-FILE:$PAM_CCACHE}" in
   *"$PAM_CCACHE")
-    echo "[sweep] WARNING: the ticket cache is PAM's $PAM_CCACHE, which is deleted" >&2
-    echo "[sweep] WARNING: when any session of yours logs out. Copy it to local disk and" >&2
-    echo "[sweep] WARNING: point KRB5CCNAME at the copy before a long sweep." >&2
+    die "KRB5CCNAME is PAM's $PAM_CCACHE, deleted on any logout; use a private ccache (see ~/.bashrc) and kinit again"
     ;;
   esac
-  (
-    # The trap takes the sleep along, so a stopped sweep leaves none behind.
-    trap 'kill $! 2>/dev/null; exit 0' TERM
-    while :; do
-      sleep "$RENEW_INTERVAL" &
-      wait $! 2>/dev/null || true
-      kinit -R 2>/dev/null || {
-        echo "[sweep] WARNING: kinit -R failed; the runs will die when the ticket expires" >&2
-        exit 1
-      }
-    done
-  ) &
-  RENEW_PID="$!"
-  echo "[sweep] ticket   renewed every ${RENEW_INTERVAL}s by pid $RENEW_PID"
+  mkdir -p "$GROUP_DIR"
+  RENEW_LOG="$GROUP_DIR/krb-renew.log"
+  WATCH_PIDFILE="$GROUP_DIR/.krb-renew.pid"
+  # Detached, stdio on local disk: it must not die with the supervisor. The
+  # pidfile carries the real pid across the setsid fork.
+  export -f _sweep_renew_loop
+  SWEEP_PID="$$" WATCH_GROUP="$RUN_GROUP" RENEW_INTERVAL="$RENEW_INTERVAL" \
+    RENEW_LOG="$RENEW_LOG" WATCH_PIDFILE="$WATCH_PIDFILE" \
+    setsid bash -c '_sweep_renew_loop' _sweep_renewer \
+    </dev/null >>"$RENEW_LOG" 2>&1 &
+  disown 2>/dev/null || true
+  i=0
+  while [ ! -s "$WATCH_PIDFILE" ] && [ "$i" -lt 50 ]; do
+    sleep 0.1
+    i=$((i + 1))
+  done
+  [ -s "$WATCH_PIDFILE" ] || die "ticket watcher failed to start; see $RENEW_LOG"
+  RENEW_PID="$(cat "$WATCH_PIDFILE")"
+  echo "[sweep] ticket   renewed every ${RENEW_INTERVAL}s by detached pid $RENEW_PID, log $RENEW_LOG"
 }
 
 # Both traps call this before stop_rest, whose bare `wait` would otherwise wait
@@ -406,6 +480,7 @@ stop_renewer() {
   kill "$RENEW_PID" 2>/dev/null || true
   wait "$RENEW_PID" 2>/dev/null || true
   RENEW_PID=""
+  if [ -n "${WATCH_PIDFILE:-}" ]; then rm -f "$WATCH_PIDFILE"; fi
 }
 
 # --- launch ------------------------------------------------------------------
@@ -471,6 +546,8 @@ pids=()
 declare -A cell_of=()
 running=()
 failed=()
+INFRA_DOWN=0 # a 126/135 means the ticket died: drain, then stop the queue
+declare -A retried=() # cells already relaunched once after a 126/135
 LAST_PID="" # set by start_run, read by its caller right after
 
 # Ctrl-C stops every run of the sweep.
@@ -480,7 +557,7 @@ stop_rest() {
   done
   wait 2>/dev/null || true
 }
-trap 'echo "[sweep] interrupted, stopping the runs" >&2; stop_renewer; stop_rest; exit 130' INT TERM
+trap 'echo "[sweep] stopping, killing the runs" >&2; stop_renewer; stop_rest; exit 130' INT TERM
 trap stop_renewer EXIT
 
 start_renewer
@@ -494,7 +571,33 @@ reap_one() {
   done
   running=(${rest[@]+"${rest[@]}"})
   if [ "$status" -ne 0 ]; then
-    echo "[sweep] $cell failed with status $status, see $GROUP_DIR/${cell// /_}/train.log" >&2
+    case "$status" in
+    126 | 135)
+      if [ -z "${retried[$cell]:-}" ]; then
+        # A seconds-long NFS blip looks exactly like a dead ticket, so one
+        # death buys a 60 s probe and a relaunch; the cell did no work (the
+        # exec itself failed), overwriting its train.log is safe.
+        retried[$cell]=1
+        echo "[sweep] $cell died with status $status; probing the mount for 60s before calling it infra failure" >&2
+        sleep 60 || true
+        if [ -x "$REPO/train_qc.sh" ]; then
+          echo "[sweep] $cell: mount readable again (a blip, not the ticket); relaunching" >&2
+          alpha="${cell%% *}"
+          alpha="${alpha#alpha-}"
+          seed="${cell##*seed-}"
+          start_run "$alpha" "$seed"
+          running+=("$LAST_PID")
+          echo "[sweep] ${#running[@]} run(s) going, $((${#queue[@]} - next)) waiting"
+          return 0
+        fi
+      fi
+      echo "[sweep] $cell died with status $status: NFS unreadable, the Kerberos ticket is dead -- not the experiment" >&2
+      INFRA_DOWN=1
+      ;;
+    *)
+      echo "[sweep] $cell failed with status $status, see $GROUP_DIR/${cell// /_}/train.log" >&2
+      ;;
+    esac
     failed+=("$cell")
   else
     echo "[sweep] $cell done"
@@ -504,7 +607,7 @@ reap_one() {
 
 next=0
 while [ "$next" -lt "${#queue[@]}" ] || [ "${#running[@]}" -gt 0 ]; do
-  while [ "$next" -lt "${#queue[@]}" ] && [ "${#running[@]}" -lt "$MAX_PARALLEL" ]; do
+  while [ "$next" -lt "${#queue[@]}" ] && [ "${#running[@]}" -lt "$MAX_PARALLEL" ] && [ "$INFRA_DOWN" -eq 0 ]; do
     # shellcheck disable=SC2086  # a queue entry is "<alpha> <seed>", split on purpose
     start_run ${queue[$next]}
     running+=("$LAST_PID")
@@ -513,6 +616,10 @@ while [ "$next" -lt "${#queue[@]}" ] || [ "${#running[@]}" -gt 0 ]; do
   reap_one
 done
 
+if [ "$INFRA_DOWN" -ne 0 ]; then
+  echo "[sweep] group $RUN_GROUP: stopped early: ticket dead (status 126/135). Run 'kinit -r 14d' and relaunch with --run-group NAME." >&2
+  exit 1
+fi
 if [ "${#failed[@]}" -gt 0 ]; then
   echo "[sweep] group $RUN_GROUP: failed: ${failed[*]}" >&2
   exit 1
