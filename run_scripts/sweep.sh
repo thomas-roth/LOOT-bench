@@ -52,19 +52,23 @@
 # The repository, the venvs and the dataset are read over Kerberized NFS here,
 # so the sweep refuses to start without a renewable ticket (kinit -r 14d) and
 # renews it from a detached watcher logging to <group>/krb-renew.log. A run
-# dying with status 126/135 means the ticket died, not the experiment: one such
-# death costs a 60 s probe and a relaunch (a seconds-long NFS blip looks the
-# same), and only a second one stops the queue instead of launching the rest
-# into the same wall.
+# dying with status 126/135 means the ticket died, not the experiment: every
+# such death waits out the outage together (the mount is probed every 60 s, up
+# to 60 min) and relaunches when it reads again; a cell that dies that way 3
+# times counts as failed without stopping the rest.
 #
 # Environment: RUN_DIR (default /var/tmp/$USER/qc-runs), LOOT_RUN_SCRIPT (the
 # script-<name> tag; a wrapper sets it), SWEEP_RENEW_INTERVAL (seconds between
-# ticket renewals, default 1800; 0 turns the renewal off against advice), plus
-# what train_qc.sh reads.
+# ticket renewals, default 1800; 0 turns the renewal off against advice),
+# SWEEP_OUTAGE_BUDGET (seconds one outage may last before giving up, default
+# 3600; 0 waits forever), SWEEP_PROBE_INTERVAL (seconds between mount probes
+# during an outage, default 60), plus what train_qc.sh reads.
 
 set -euo pipefail
 
-REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# SWEEP_REPO carries the real tree across the supervisor re-exec below (the
+# staged copy would otherwise mistake its staging dir for the repo).
+REPO="${SWEEP_REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 RUN_DIR="${RUN_DIR:-/var/tmp/${USER:-$(id -un)}/qc-runs}"
 export RUN_DIR
 
@@ -120,6 +124,29 @@ is_value() {
   *) return 0 ;;
   esac
 }
+
+# Whether the repo lives on a Kerberized mount. Defined with the other early
+# helpers (rather than with the ticket watcher) because the re-exec below
+# needs it before argument parsing.
+repo_needs_ticket() {
+  local opts
+  opts="$(findmnt -no OPTIONS --target "$REPO" 2>/dev/null)" || return 1
+  case "$opts" in
+  *sec=krb5*) return 0 ;;
+  *) return 1 ;;
+  esac
+}
+
+# The supervisor itself is read lazily off the same Kerberized mount that kills
+# the runs, so there it stages itself onto node-local disk and re-execs instead
+# of dying with "error reading input file" mid-sweep. "$@" is still untouched.
+if [ -z "${SWEEP_LOCAL:-}" ] && repo_needs_ticket; then
+  if mkdir -p "$RUN_DIR/.sweep-bin" 2>/dev/null &&
+    cp "${BASH_SOURCE[0]}" "$RUN_DIR/.sweep-bin/sweep.sh" 2>/dev/null; then
+    SWEEP_LOCAL=1 SWEEP_REPO="$REPO" exec bash "$RUN_DIR/.sweep-bin/sweep.sh" "$@"
+  fi
+  echo "[sweep] WARNING: cannot stage the supervisor on local disk; running off NFS." >&2
+fi
 
 # --- arguments ---------------------------------------------------------------
 
@@ -420,7 +447,7 @@ latest_ckpt_step() { # $1 = run dir; echoes the max params_<step>.pkl step
 
 cell_state() { # $1 = cell dir base (alpha-<a>_seed-<s>); done|resume:<step>|fresh
   local d step best=""
-  for d in "$GROUP_DIR/$1" "$GROUP_DIR/$1_slurm"*; do
+  for d in "$GROUP_DIR/$1"; do
     [ -d "$d" ] || continue
     if [ -f "$d/token.tk" ]; then
       printf 'done'
@@ -503,7 +530,6 @@ doc = {
     'seeds': [int(s) for s in os.environ['SEEDS'].split(',')],
     'argv_tokens': toks,
     'qc_sha': os.environ.get('QCSHA') or None,
-    'save_interval': 50000,
 }
 open(os.environ['OUTFILE'], 'w').write(json.dumps(doc, indent=2) + '\n')
 PY
@@ -533,10 +559,8 @@ if [ "$RESUME" -eq 1 ]; then
       is_subset_csv "$SEEDS" "$STORED_SEEDS" ||
         die "--seeds $SEEDS is not a subset of the stored grid $STORED_SEEDS"
       IFS=',' read -r -a seeds <<<"$SEEDS"
-      NUM_SEEDS="${#seeds[@]}"
     else
       IFS=',' read -r -a seeds <<<"$STORED_SEEDS"
-      NUM_SEEDS="${#seeds[@]}"
     fi
     [ "$DRY_RUN" -eq 1 ] || check_resume_compat
   else
@@ -575,29 +599,16 @@ echo "[sweep] runs     $GROUP_DIR"
 # gracefully: they die with SIGBUS (status 135, the .venv pages they mmap'd
 # stop being readable) or status 126 (train_qc.sh can no longer be executed).
 # So the sweep refuses to start without a renewable ticket, renews it from a
-# detached watcher that outlives the sweep itself, and treats 126/135 as infra
-# failure: one costs a probe and a relaunch, a second stops the queue instead
-# of launching the rest into the same wall.
+# detached watcher, and treats 126/135 as infra failure: the dead cells wait
+# out the outage together and relaunch when the mount reads again.
 RENEW_INTERVAL="${SWEEP_RENEW_INTERVAL:-1800}"
 RENEW_PID=""
 RENEW_LOG=""
 WATCH_PIDFILE=""
 PAM_CCACHE="/tmp/krb5cc_$(id -u)"
 
-# Read from a local disk there is nothing to renew.
-repo_needs_ticket() {
-  local opts
-  opts="$(findmnt -no OPTIONS --target "$REPO" 2>/dev/null)" || return 1
-  case "$opts" in
-  *sec=krb5*) return 0 ;;
-  *) return 1 ;;
-  esac
-}
-
 # The watcher's body. Runs detached (setsid, stdio on local disk), so it
-# survives the supervisor: the sweep's own bash is read lazily off the same
-# NFS mount and dies with the ticket ("error reading input file") while
-# orphaned runs live on. Everything arrives by environment: SWEEP_PID,
+# survives the supervisor. Everything arrives by environment: SWEEP_PID,
 # WATCH_GROUP (the run_group to look for), RENEW_INTERVAL, RENEW_LOG,
 # WATCH_PIDFILE.
 _sweep_renew_loop() {
@@ -696,20 +707,32 @@ start_renewer() {
 stop_renewer() {
   [ -n "$RENEW_PID" ] || return 0
   kill "$RENEW_PID" 2>/dev/null || true
-  wait "$RENEW_PID" 2>/dev/null || true
   RENEW_PID=""
   if [ -n "${WATCH_PIDFILE:-}" ]; then rm -f "$WATCH_PIDFILE"; fi
 }
 
 # --- launch ------------------------------------------------------------------
 
+cell_base() { # $1 = alpha, $2 = seed: the run's directory name, built in exactly one place
+  printf 'alpha-%s_seed-%s' "$1" "$2"
+}
+
 start_run() {
-  local alpha="$1" seed="$2" log_dir tags
-  log_dir="$GROUP_DIR/alpha-${alpha}_seed-$seed"
+  local alpha="$1" seed="$2" log_dir tags resume_flag base
+  base="$(cell_base "$alpha" "$seed")"
+  log_dir="$GROUP_DIR/$base"
   tags="$(
     IFS=,
     echo "${SWEEP_TAGS[*]},alpha-$alpha,seed-$seed"
   )"
+
+  # A cell that already logged keeps its history and continues its
+  # checkpoints: a resumed cell, or a cell relaunched after a 126/135 outage
+  # in a fresh sweep (same flags, same group: exactly what --resume continues).
+  resume_flag=(${RESUME_TAIL[@]+"${RESUME_TAIL[@]}"})
+  if [ "$RESUME" -eq 0 ] && [ -f "$log_dir/train.log" ]; then
+    resume_flag=(--resume)
+  fi
 
   # The defaults come first, then the wrapper's flags, then the flags typed on
   # top of it, so each stage can override the one before it (absl takes the
@@ -724,11 +747,11 @@ start_run() {
     --agent.alpha="$alpha" \
     --run_group="$RUN_GROUP" \
     --wandb_tags="$tags" \
-    ${RESUME_TAIL[@]+"${RESUME_TAIL[@]}"}
+    ${resume_flag[@]+"${resume_flag[@]}"}
 
   if [ "$DRY_RUN" -eq 1 ]; then
     if [ "$RESUME" -eq 1 ]; then
-      echo "[dry-run] alpha $alpha seed $seed -> $(cell_state "alpha-${alpha}_seed-${seed}"), log $log_dir/train.log"
+      echo "[dry-run] alpha $alpha seed $seed -> $(cell_state "$base"), log $log_dir/train.log"
     else
       echo "[dry-run] alpha $alpha seed $seed -> $log_dir/train.log"
     fi
@@ -739,17 +762,17 @@ start_run() {
   fi
 
   mkdir -p "$log_dir"
-  if [ "$RESUME" -eq 1 ] && [ -f "$log_dir/train.log" ]; then
-    # A resumed cell keeps its history: truncating would destroy the log of
-    # the run these checkpoints continue. Fresh cells (or fresh sweeps) start
-    # clean. This also covers the 126/135 relaunch below, which re-enters here.
+  if [ -f "$log_dir/train.log" ]; then
+    # A cell that already logged keeps its history: truncating would destroy
+    # the log of the run these checkpoints continue.
     "$REPO/train_qc.sh" "$@" >>"$log_dir/train.log" 2>&1 &
   else
     "$REPO/train_qc.sh" "$@" >"$log_dir/train.log" 2>&1 &
   fi
   LAST_PID="$!" # the caller's handle on the run just started
-  pids+=("$LAST_PID")
-  cell_of["$LAST_PID"]="alpha-$alpha seed-$seed"
+  cell_of["$LAST_PID"]="$base"
+  cell_alpha["$LAST_PID"]="$alpha"
+  cell_seed["$LAST_PID"]="$seed"
   echo "[sweep] alpha $alpha seed $seed started, pid $LAST_PID, log $log_dir/train.log"
 }
 
@@ -766,7 +789,7 @@ if [ "$RESUME" -eq 1 ]; then
   for cell in "${queue[@]}"; do
     alpha="${cell%% *}"
     seed="${cell##* }"
-    base="alpha-${alpha}_seed-${seed}"
+    base="$(cell_base "$alpha" "$seed")"
     state="$(cell_state "$base")"
     case "$state" in
     done)
@@ -801,13 +824,26 @@ if [ "$DRY_RUN" -eq 1 ]; then
   exit 0
 fi
 
-pids=()
-declare -A cell_of=()
+declare -A cell_of=()    # pid -> directory base (alpha-<a>_seed-<s>)
+declare -A cell_alpha=()  # pid -> alpha, for relaunching outage deaths
+declare -A cell_seed=()   # pid -> seed, for relaunching outage deaths
+declare -A relaunches=() # 126/135 relaunches per cell; MAX_RELAUNCHES strikes and the cell fails
 running=()
 failed=()
-INFRA_DOWN=0 # a 126/135 means the ticket died: drain, then stop the queue
-declare -A retried=() # cells already relaunched once after a 126/135
-LAST_PID="" # set by start_run, read by its caller right after
+OUT_CELLS=() # cells dead with 126/135, awaiting relaunch once the mount recovers
+LAST_PID=""  # set by start_run, read by its caller right after
+
+OUTAGE_BUDGET="${SWEEP_OUTAGE_BUDGET:-3600}" # one outage may wait this long before the sweep gives up; 0 waits forever
+PROBE_EVERY="${SWEEP_PROBE_INTERVAL:-60}"    # seconds between mount probes during an outage
+MAX_RELAUNCHES=3
+case "$OUTAGE_BUDGET" in '' | *[!0-9]*) die "SWEEP_OUTAGE_BUDGET wants seconds, got '$OUTAGE_BUDGET'" ;; esac
+case "$PROBE_EVERY" in '' | *[!0-9]*) die "SWEEP_PROBE_INTERVAL wants seconds, got '$PROBE_EVERY'" ;; esac
+[ "$PROBE_EVERY" -gt 0 ] || die "SWEEP_PROBE_INTERVAL must be above 0"
+
+# What the outage probe checks the readability of: the stock train_qc.sh
+# interpreter (its pages are what SIGBUS when the ticket dies), if present.
+QC_DIR="${QC_DIR:-$REPO/../qc}"
+QC_PYTHON="${QC_PYTHON:-$QC_DIR/.venv/bin/python}"
 
 # Ctrl-C stops every run of the sweep.
 stop_rest() {
@@ -838,52 +874,141 @@ if [ "$RESUME" -eq 0 ]; then
   write_sweep_json
 fi
 
-reap_one() {
-  local status=0 done_pid="" rest=()
-  wait -n -p done_pid ${running[@]+"${running[@]}"} || status=$?
-  local cell="${cell_of[${done_pid:-}]:-?}"
-  for pid in ${running[@]+"${running[@]}"}; do
-    [ "$pid" = "${done_pid:-}" ] || rest+=("$pid")
+# A zombie still passes `kill -0`, so liveness needs /proc (Linux-only, like
+# the rest of this script): a missing entry or state Z means dead.
+pid_dead() {
+  local st
+  st="$(awk '{print $3}' "/proc/$1/stat" 2>/dev/null)" || return 0
+  [ "$st" = Z ]
+}
+
+# File one run's outcome: drop it from the schedule, then sort it into done,
+# failed, or awaiting relaunch after an outage. Unknown pids (already filed)
+# are ignored, so reaping the same pid twice is harmless.
+record_outcome() { # $1 = pid, $2 = exit status
+  local pid="$1" status="$2" rest=() p cell alpha seed
+  for p in ${running[@]+"${running[@]}"}; do
+    [ "$p" = "$pid" ] || rest+=("$p")
   done
   running=(${rest[@]+"${rest[@]}"})
-  if [ "$status" -ne 0 ]; then
-    case "$status" in
-    126 | 135)
-      if [ -z "${retried[$cell]:-}" ]; then
-        # A seconds-long NFS blip looks exactly like a dead ticket, so one
-        # death buys a 60 s probe and a relaunch; the cell did no work (the
-        # exec itself failed), overwriting its train.log is safe.
-        retried[$cell]=1
-        echo "[sweep] $cell died with status $status; probing the mount for 60s before calling it infra failure" >&2
-        sleep 60 || true
-        if [ -x "$REPO/train_qc.sh" ]; then
-          echo "[sweep] $cell: mount readable again (a blip, not the ticket); relaunching" >&2
-          alpha="${cell%% *}"
-          alpha="${alpha#alpha-}"
-          seed="${cell##*seed-}"
-          start_run "$alpha" "$seed"
-          running+=("$LAST_PID")
-          echo "[sweep] ${#running[@]} run(s) going, $((${#queue[@]} - next)) waiting"
-          return 0
-        fi
-      fi
-      echo "[sweep] $cell died with status $status: NFS unreadable, the Kerberos ticket is dead -- not the experiment" >&2
-      INFRA_DOWN=1
-      ;;
-    *)
-      echo "[sweep] $cell failed with status $status, see $GROUP_DIR/${cell// /_}/train.log" >&2
-      ;;
-    esac
-    failed+=("$cell")
-  else
+  cell="${cell_of[$pid]:-}"
+  [ -n "$cell" ] || return 0
+  alpha="${cell_alpha[$pid]:-}"
+  seed="${cell_seed[$pid]:-}"
+  unset "cell_of[$pid]" "cell_alpha[$pid]" "cell_seed[$pid]"
+  if [ "$status" -eq 0 ]; then
     echo "[sweep] $cell done"
+  elif [ "$status" -eq 126 ] || [ "$status" -eq 135 ]; then
+    OUT_CELLS+=("$alpha $seed")
+  else
+    echo "[sweep] $cell failed with status $status, see $GROUP_DIR/$cell/train.log" >&2
+    failed+=("$cell")
   fi
   echo "[sweep] ${#running[@]} run(s) going, $((${#queue[@]} - next)) waiting"
 }
 
+# Reap every dead run without blocking: wait -n cannot do this (it blocks while
+# anything is still going), and kill -0 cannot see zombies.
+drain_dead() {
+  local pid status
+  for pid in ${running[@]+"${running[@]}"}; do
+    pid_dead "$pid" || continue
+    status=0
+    wait "$pid" 2>/dev/null || status=$?
+    record_outcome "$pid" "$status"
+  done
+}
+
+# One shared probe: is the repo, the venv and the dataset readable again? The
+# kinit -R is opportunistic (the watcher owns the schedule) and may recover
+# faster than its 30 min cadence.
+probe_ok() {
+  if repo_needs_ticket; then
+    kinit -R >/dev/null 2>&1 || true
+  fi
+  [ -x "$REPO/train_qc.sh" ] && [ -r "$DATASET" ] &&
+    { [ ! -e "$QC_PYTHON" ] || [ -x "$QC_PYTHON" ]; }
+}
+
+# How to continue this exact group (found by the script-<name> tag).
+resume_hint() {
+  local w
+  w="$(find "$REPO/run_scripts" -name "${LOOT_RUN_SCRIPT}.sh" -print -quit 2>/dev/null)"
+  if [ -n "$w" ]; then
+    echo "[sweep] to continue on this host with identical flags: bash ${w#"$REPO"/} --resume" >&2
+  else
+    echo "[sweep] to continue on this host with identical flags: re-run the same command with --resume" >&2
+  fi
+}
+
+# The outage outlasted the budget: stop the wedged runs (a --resume restarts
+# them from their checkpoints) and say how to continue.
+give_up() {
+  echo "[sweep] group $RUN_GROUP: mount still unreadable after ${OUTAGE_BUDGET}s; giving up." >&2
+  echo "[sweep] Not the experiment (status 126/135 is infra). Before resuming, check 'klist -s' and 'df -h /dev/shm': a full shm dies with the same SIGBUS." >&2
+  if [ -n "${RENEW_LOG:-}" ]; then
+    echo "[sweep] See also the tail of $RENEW_LOG." >&2
+  fi
+  resume_hint
+  echo "[sweep] wedged runs stopped; completed checkpoints remain for --resume." >&2
+  stop_rest
+  exit 1
+}
+
+# Every 126/135 death waits out the outage together: probe until the mount
+# recovers (bounded by the budget), then relaunch the dead cells as one batch.
+# A cell that dies this way MAX_RELAUNCHES times counts as failed; the rest go on.
+ride_outage() {
+  local start now n cell alpha seed base
+  start="$(date +%s)"
+  echo "[sweep] infra outage (status 126/135); probing every ${PROBE_EVERY}s for up to ${OUTAGE_BUDGET}s" >&2
+  while :; do
+    drain_dead # runs that died alongside, including during the sleep below
+    if probe_ok; then
+      break
+    fi
+    now="$(date +%s)"
+    if [ "$OUTAGE_BUDGET" -ne 0 ] && [ "$((now - start))" -ge "$OUTAGE_BUDGET" ]; then
+      give_up
+    fi
+    echo "[sweep] mount still unreadable; retrying in ${PROBE_EVERY}s" >&2
+    sleep "$PROBE_EVERY" || true
+  done
+  echo "[sweep] mount readable again; relaunching ${#OUT_CELLS[@]} run(s)" >&2
+  for cell in ${OUT_CELLS[@]+"${OUT_CELLS[@]}"}; do
+    # An outage entry is "<alpha> <seed>"; the base is rebuilt, never reparsed.
+    alpha="${cell%% *}"
+    seed="${cell##* }"
+    base="$(cell_base "$alpha" "$seed")"
+    n="${relaunches[$base]:-0}"
+    if [ "$n" -ge "$MAX_RELAUNCHES" ]; then
+      echo "[sweep] $base died with 126/135 $((n + 1)) times; marking failed, the rest continue" >&2
+      failed+=("$base")
+      continue
+    fi
+    relaunches[$base]=$((n + 1))
+    start_run "$alpha" "$seed"
+    running+=("$LAST_PID")
+  done
+  OUT_CELLS=()
+}
+
+reap_one() {
+  local status=0 done_pid=""
+  wait -n -p done_pid ${running[@]+"${running[@]}"} || status=$?
+  if [ -n "${done_pid:-}" ]; then
+    record_outcome "$done_pid" "$status"
+  else
+    drain_dead # wait errored without reaping (stale list); reconcile without blocking
+  fi
+  if [ "${#OUT_CELLS[@]}" -gt 0 ]; then
+    ride_outage
+  fi
+}
+
 next=0
 while [ "$next" -lt "${#queue[@]}" ] || [ "${#running[@]}" -gt 0 ]; do
-  while [ "$next" -lt "${#queue[@]}" ] && [ "${#running[@]}" -lt "$MAX_PARALLEL" ] && [ "$INFRA_DOWN" -eq 0 ]; do
+  while [ "$next" -lt "${#queue[@]}" ] && [ "${#running[@]}" -lt "$MAX_PARALLEL" ]; do
     # shellcheck disable=SC2086  # a queue entry is "<alpha> <seed>", split on purpose
     start_run ${queue[$next]}
     running+=("$LAST_PID")
@@ -892,12 +1017,9 @@ while [ "$next" -lt "${#queue[@]}" ] || [ "${#running[@]}" -gt 0 ]; do
   reap_one
 done
 
-if [ "$INFRA_DOWN" -ne 0 ]; then
-  echo "[sweep] group $RUN_GROUP: stopped early: ticket dead (status 126/135). Run 'kinit -r 14d' and relaunch with --run-group NAME." >&2
-  exit 1
-fi
 if [ "${#failed[@]}" -gt 0 ]; then
   echo "[sweep] group $RUN_GROUP: failed: ${failed[*]}" >&2
+  resume_hint
   exit 1
 fi
 echo "[sweep] group $RUN_GROUP: all runs done"
