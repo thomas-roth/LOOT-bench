@@ -84,6 +84,30 @@ build the name themselves, so `sweep.sh` normalizes the alpha to the spelling
 `main.py` uses (`--alphas 1000.0` → `alpha-1000`) and refuses anything that is
 not a decimal number.
 
+## Resuming a sweep
+
+Every run saves an agent-only checkpoint (`params_<step>.pkl`, ~54 MB, ~1 s)
+every 50k steps. After a dead sweep, relaunch with `--resume`:
+
+```bash
+./run_scripts/LOOT-Stack/1Pi-AlphaSweep-Discount0_995.sh --resume
+./run_scripts/LOOT-Stack/1Pi-AlphaSweep-Discount0_995.sh --resume --dry-run  # plan first
+```
+
+Finished cells (with `token.tk`) are skipped; the rest continue from their
+newest checkpoint via `main.py --resume`, which refuses to run when the config
+no longer matches the stored `flags.json`. The grid and flags are pinned in
+`<group>/sweep.json` at launch: `--seeds`/`--alphas` must be a subset of the
+stored grid, and a changed wrapper or dataset aborts instead of silently
+mixing runs. Relaunching an existing group without `--resume` (or
+`--overwrite`, which deletes it) aborts.
+
+Resume is approximate in the online phase: weights and optimizer continue,
+but the replay buffer is rebuilt from the offline dataset and RNGs reseeded —
+the same default as SB3/CleanRL/TorchRL (buffer save is opt-in everywhere).
+It is also same-host only: runs live on node-local `/var/tmp`, so another
+host sees no checkpoints.
+
 There is no timestamp in the name, so re-running the same wrapper with the same
 flags **joins the previous group** (it warns first). That is how you add seeds
 to an existing question; pass `--run-group NAME` when you want a separate one.

@@ -17,7 +17,21 @@
 #   --alphas A,B,C     the alphas to sweep         (default: 1,10,100)
 #   --max-parallel N   runs going at once          (default: 3)
 #   --tag TAG          an extra wandb tag; repeatable
+#   --resume           continue this group: skip cells with token.tk, restart
+#                      the rest from their newest params_<step>.pkl (cells with
+#                      no checkpoint start fresh). Grid and flags are checked
+#                      against GROUP_DIR/sweep.json; --num-seeds is refused and
+#                      --seeds/--alphas must be a subset of the stored grid.
+#   --overwrite        delete GROUP_DIR and start over (refused together with
+#                      --resume). Without either flag, an existing GROUP_DIR
+#                      aborts the launch instead of overwriting it.
 #   --dry-run          print the runs that would start, start none
+#
+# Resuming is a same-host operation: RUN_DIR defaults to node-local /var/tmp
+# (and train_qc.sh refuses shared filesystems), so another host sees no
+# checkpoints. From a scheduler without tmux, export LOOT_ALLOW_NO_TMUX=1.
+# Adding seeds to a finished question is a new --run-group, not a relaunch:
+# --resume never expands the stored grid.
 #
 # Any other flag before `--` is passed to main.py, tagged, and appended to the
 # group name; everything after `--` is passed to main.py only, which is where a
@@ -121,9 +135,14 @@ shift 3
 
 NUM_SEEDS="$DEFAULT_NUM_SEEDS"
 SEEDS=""
+SEEDS_GIVEN=0
 ALPHAS="$DEFAULT_ALPHAS"
+ALPHAS_GIVEN=0
 MAX_PARALLEL="$DEFAULT_MAX_PARALLEL"
 DRY_RUN=0
+RESUME=0
+OVERWRITE=0
+NUM_SEEDS_GIVEN=0
 EXTRA_TAGS=()
 USER_FLAGS=() # typed on top of the wrapper: tagged and named
 BASE_FLAGS=() # the wrapper's own configuration: neither
@@ -153,6 +172,14 @@ while [ $# -gt 0 ]; do
     DRY_RUN=1
     shift
     ;;
+  --resume)
+    RESUME=1
+    shift
+    ;;
+  --overwrite)
+    OVERWRITE=1
+    shift
+    ;;
   --run-group)
     is_value "${2-}" || die "--run-group needs a name"
     RUN_GROUP="$2"
@@ -165,28 +192,34 @@ while [ $# -gt 0 ]; do
   --num-seeds)
     is_value "${2-}" || die "--num-seeds needs a number"
     NUM_SEEDS="$2"
+    NUM_SEEDS_GIVEN=1
     shift 2
     ;;
   --num-seeds=*)
     NUM_SEEDS="${1#*=}"
+    NUM_SEEDS_GIVEN=1
     shift
     ;;
   --seeds)
     is_value "${2-}" || die "--seeds needs a comma-separated list"
     SEEDS="$2"
+    SEEDS_GIVEN=1
     shift 2
     ;;
   --seeds=*)
     SEEDS="${1#*=}"
+    SEEDS_GIVEN=1
     shift
     ;;
   --alphas)
     is_value "${2-}" || die "--alphas needs a comma-separated list"
     ALPHAS="$2"
+    ALPHAS_GIVEN=1
     shift 2
     ;;
   --alphas=*)
     ALPHAS="${1#*=}"
+    ALPHAS_GIVEN=1
     shift
     ;;
   --max-parallel)
@@ -327,6 +360,201 @@ SWEEP_TAGS+=(${FLAG_TAGS[@]+"${FLAG_TAGS[@]}"})
 SWEEP_TAGS+=(${EXTRA_TAGS[@]+"${EXTRA_TAGS[@]}"})
 
 GROUP_DIR="$RUN_DIR/$TASK_ID/$RUN_GROUP"
+SWEEP_JSON="$GROUP_DIR/sweep.json"
+
+# main.py flags this sweep owns: defaults first, then the wrapper's flags,
+# then the flags typed on top, so each stage overrides the one before (absl
+# takes the last occurrence). --save_interval lives here, not in main.py, so
+# direct train_qc.sh runs keep main.py's default (-1, off). 50k is ~1 s and
+# 54 MB per save against hours of training, and divides the 100k/300k/400k
+# step counts the wrappers use (not every eval_interval out there: 20k/30k
+# evals simply fall between checkpoints).
+DEFAULT_MAIN_FLAGS=(
+  --agent=agents/acfql.py
+  --agent.normalize_q_loss=True
+  --eval_episodes 50
+  --video_episodes 6
+  --save_interval 50000
+)
+EFF_ARGV=(
+  "${DEFAULT_MAIN_FLAGS[@]}"
+  ${BASE_FLAGS[@]+"${BASE_FLAGS[@]}"}
+  ${USER_FLAGS[@]+"${USER_FLAGS[@]}"}
+)
+
+DS_MTIME="$(stat -c %Y "$DATASET")"
+DS_SIZE="$(stat -c %s "$DATASET")"
+QC_SHA=""
+if [ -f "$REPO/../qc/main.py" ]; then
+  QC_SHA="$(git -C "$REPO/../qc" rev-parse HEAD 2>/dev/null || true)"
+fi
+
+# --- resume / overwrite ------------------------------------------------------
+#
+# A relaunch cannot tell "continue my dead sweep" from "new experiment, same
+# name", so continuing is an explicit --resume and replacing an explicit
+# --overwrite; anything else aborts instead of silently overwriting partial
+# progress (checkpoints, CSVs, train.log). The grid and effective flags are
+# pinned in sweep.json at launch and checked on resume.
+
+group_has_cells() {
+  local d
+  [ -d "$GROUP_DIR" ] || return 1
+  for d in "$GROUP_DIR"/*/; do
+    [ -d "$d" ] && return 0
+  done
+  return 1
+}
+
+latest_ckpt_step() { # $1 = run dir; echoes the max params_<step>.pkl step
+  local f s best=""
+  for f in "$1"/params_*.pkl; do
+    [ -e "$f" ] || continue
+    f="${f##*/params_}"
+    s="${f%.pkl}"
+    case "$s" in '' | *[!0-9]*) continue ;; esac
+    if [ -z "$best" ] || [ "$s" -gt "$best" ]; then best="$s"; fi
+  done
+  printf '%s' "$best"
+}
+
+cell_state() { # $1 = cell dir base (alpha-<a>_seed-<s>); done|resume:<step>|fresh
+  local d step best=""
+  for d in "$GROUP_DIR/$1" "$GROUP_DIR/$1_slurm"*; do
+    [ -d "$d" ] || continue
+    if [ -f "$d/token.tk" ]; then
+      printf 'done'
+      return 0
+    fi
+    step="$(latest_ckpt_step "$d")"
+    if [ -n "$step" ] && { [ -z "$best" ] || [ "$step" -gt "$best" ]; }; then
+      best="$step"
+    fi
+  done
+  if [ -n "$best" ]; then printf 'resume:%s' "$best"; else printf 'fresh'; fi
+}
+
+jget() { # $1 = sweep.json key; scalar raw, list comma-joined
+  python3 -c '
+import json, sys
+v = json.load(open(sys.argv[1])).get(sys.argv[2])
+if isinstance(v, list):
+    print(",".join(map(str, v)))
+elif v is None:
+    print("")
+else:
+    print(v)
+' "$SWEEP_JSON" "$1"
+}
+
+jget_lines() { # $1 = sweep.json key; one list item per line
+  python3 -c '
+import json, sys
+for v in json.load(open(sys.argv[1])).get(sys.argv[2], []):
+    print(v)
+' "$SWEEP_JSON" "$1"
+}
+
+is_subset_csv() { # $1 needles, $2 haystack (comma-separated)
+  local IFS=, needle
+  for needle in $1; do
+    case ",$2," in *,"$needle",*) ;; *) return 1 ;; esac
+  done
+}
+
+check_resume_compat() {
+  local want
+  want="$(jget task)"
+  [ "$want" = "$TASK_ID" ] || die "--resume: task $TASK_ID is not the stored $want"
+  want="$(jget run_group)"
+  [ "$want" = "$RUN_GROUP" ] || die "--resume: group $RUN_GROUP is not the stored $want"
+  want="$(jget dataset)"
+  [ "$want" = "$DATASET" ] || die "--resume: dataset $DATASET is not the stored $want"
+  want="$(jget dataset_mtime)"
+  [ "$want" = "$DS_MTIME" ] || die "--resume: dataset changed since this sweep started; start a new group instead"
+  want="$(jget dataset_size)"
+  [ "$want" = "$DS_SIZE" ] || die "--resume: dataset changed since this sweep started; start a new group instead"
+  if ! diff <(jget_lines argv_tokens | sort | uniq -c) \
+    <(printf '%s\n' "${EFF_ARGV[@]}" | sort | uniq -c) >/dev/null; then
+    die "--resume: effective main.py flags differ from $SWEEP_JSON (wrapper edited?). Compare and start a new group, or restore the flags."
+  fi
+  local sha
+  sha="$(jget qc_sha)"
+  if [ -n "$sha" ] && [ -n "$QC_SHA" ] && [ "$sha" != "$QC_SHA" ]; then
+    echo "[sweep] WARNING: qc checkout $QC_SHA differs from stored $sha; resuming across code changes." >&2
+  fi
+}
+
+write_sweep_json() {
+  local tmp="$GROUP_DIR/.sweep.json.tmp.$$" tok="$GROUP_DIR/.sweep.tokens.tmp.$$"
+  printf '%s\n' "${EFF_ARGV[@]}" >"$tok"
+  TASK="$TASK_ID" DATASET="$DATASET" MTIME="$DS_MTIME" SIZE="$DS_SIZE" \
+    ALPHAS="$ALPHAS" SEEDS="$(IFS=,; echo "${seeds[*]}")" GROUP="$RUN_GROUP" \
+    TOKFILE="$tok" QCSHA="$QC_SHA" OUTFILE="$tmp" python3 - <<'PY'
+import json, os
+toks = open(os.environ['TOKFILE']).read().splitlines()
+doc = {
+    'run_group': os.environ['GROUP'],
+    'task': os.environ['TASK'],
+    'dataset': os.environ['DATASET'],
+    'dataset_mtime': os.environ['MTIME'],
+    'dataset_size': os.environ['SIZE'],
+    'alphas': os.environ['ALPHAS'].split(','),
+    'seeds': [int(s) for s in os.environ['SEEDS'].split(',')],
+    'argv_tokens': toks,
+    'qc_sha': os.environ.get('QCSHA') or None,
+    'save_interval': 50000,
+}
+open(os.environ['OUTFILE'], 'w').write(json.dumps(doc, indent=2) + '\n')
+PY
+  rm -f "$tok"
+  mv "$tmp" "$SWEEP_JSON"
+}
+
+if [ "$RESUME" -eq 1 ] && [ "$OVERWRITE" -eq 1 ]; then
+  die "--resume and --overwrite contradict each other"
+fi
+
+if [ "$RESUME" -eq 1 ]; then
+  [ "$NUM_SEEDS_GIVEN" -eq 0 ] || die "--resume draws no fresh seeds; drop --num-seeds (the grid comes from $SWEEP_JSON)"
+  if [ -f "$SWEEP_JSON" ]; then
+    STORED_ALPHAS="$(jget alphas)"
+    STORED_SEEDS="$(jget seeds)"
+    [ -n "$STORED_ALPHAS" ] && [ -n "$STORED_SEEDS" ] ||
+      die "$SWEEP_JSON has no grid; cannot --resume"
+    if [ "$ALPHAS_GIVEN" -eq 1 ]; then
+      is_subset_csv "$ALPHAS" "$STORED_ALPHAS" ||
+        die "--alphas $ALPHAS is not a subset of the stored grid $STORED_ALPHAS"
+    else
+      ALPHAS="$STORED_ALPHAS"
+      IFS=',' read -r -a alphas <<<"$ALPHAS"
+    fi
+    if [ "$SEEDS_GIVEN" -eq 1 ]; then
+      is_subset_csv "$SEEDS" "$STORED_SEEDS" ||
+        die "--seeds $SEEDS is not a subset of the stored grid $STORED_SEEDS"
+      IFS=',' read -r -a seeds <<<"$SEEDS"
+      NUM_SEEDS="${#seeds[@]}"
+    else
+      IFS=',' read -r -a seeds <<<"$STORED_SEEDS"
+      NUM_SEEDS="${#seeds[@]}"
+    fi
+    [ "$DRY_RUN" -eq 1 ] || check_resume_compat
+  else
+    group_has_cells || die "nothing to --resume in $GROUP_DIR (no sweep.json, no cells)"
+    echo "[sweep] WARNING: no sweep.json; resuming grandfather group without grid/flag checks." >&2
+    [ "$SEEDS_GIVEN" -eq 1 ] || die "grandfather --resume needs explicit --seeds (stored seeds are unknown)"
+    [ "$ALPHAS_GIVEN" -eq 1 ] || die "grandfather --resume needs explicit --alphas"
+  fi
+  RESUME_TAIL=(--resume)
+else
+  RESUME_TAIL=()
+  if [ "$OVERWRITE" -eq 0 ] && [ "$DRY_RUN" -eq 0 ] && group_has_cells; then
+    die "$GROUP_DIR already holds runs; relaunching would overwrite them. Pass --resume to continue, --overwrite to start over, or --run-group NAME for a separate group."
+  fi
+  if [ "$OVERWRITE" -eq 1 ] && [ "$DRY_RUN" -eq 0 ] && [ -d "$GROUP_DIR" ]; then
+    rm -rf "$GROUP_DIR"
+  fi
+fi
 
 echo "[sweep] group    $RUN_GROUP"
 echo "[sweep] task     $TASK_ID"
@@ -339,16 +567,6 @@ echo "[sweep] tags     $(
   echo "${SWEEP_TAGS[*]}"
 )"
 echo "[sweep] runs     $GROUP_DIR"
-
-# The group name has no timestamp in it, so the same sweep launched twice keeps
-# the same name and the runs accumulate in one wandb group. That is sometimes
-# what is wanted (three more seeds on the same question) and sometimes two
-# sessions that will be hard to tell apart, so it warns and continues.
-if [ -d "$GROUP_DIR" ] && [ "$DRY_RUN" -eq 0 ]; then
-  echo "[sweep] WARNING: $GROUP_DIR exists; these runs join that wandb group." >&2
-  echo "[sweep] WARNING: pass --run-group NAME for a separate one. Continuing in 3s." >&2
-  sleep 3
-fi
 
 # --- the kerberos ticket -----------------------------------------------------
 
@@ -495,22 +713,25 @@ start_run() {
 
   # The defaults come first, then the wrapper's flags, then the flags typed on
   # top of it, so each stage can override the one before it (absl takes the
-  # last occurrence). The sweep's own flags come last: --seed, the alpha
-  # and the group are what the sweep *is*, and are not overridable from either.
+  # last occurrence). The sweep's own flags come last: --seed, the alpha,
+  # the group and --resume are what the sweep *is*, and are not overridable
+  # from either.
   set -- "$TASK_ID" "$DATASET" \
-    --agent=agents/acfql.py \
-    --agent.normalize_q_loss=True \
-    --eval_episodes 50 \
-    --video_episodes 6 \
+    "${DEFAULT_MAIN_FLAGS[@]}" \
     ${BASE_FLAGS[@]+"${BASE_FLAGS[@]}"} \
     ${USER_FLAGS[@]+"${USER_FLAGS[@]}"} \
     --seed="$seed" \
     --agent.alpha="$alpha" \
     --run_group="$RUN_GROUP" \
-    --wandb_tags="$tags"
+    --wandb_tags="$tags" \
+    ${RESUME_TAIL[@]+"${RESUME_TAIL[@]}"}
 
   if [ "$DRY_RUN" -eq 1 ]; then
-    echo "[dry-run] alpha $alpha seed $seed -> $log_dir/train.log"
+    if [ "$RESUME" -eq 1 ]; then
+      echo "[dry-run] alpha $alpha seed $seed -> $(cell_state "alpha-${alpha}_seed-${seed}"), log $log_dir/train.log"
+    else
+      echo "[dry-run] alpha $alpha seed $seed -> $log_dir/train.log"
+    fi
     printf '[dry-run]   %s/train_qc.sh' "$REPO"
     printf ' %q' "$@"
     printf '\n'
@@ -518,7 +739,14 @@ start_run() {
   fi
 
   mkdir -p "$log_dir"
-  "$REPO/train_qc.sh" "$@" >"$log_dir/train.log" 2>&1 &
+  if [ "$RESUME" -eq 1 ] && [ -f "$log_dir/train.log" ]; then
+    # A resumed cell keeps its history: truncating would destroy the log of
+    # the run these checkpoints continue. Fresh cells (or fresh sweeps) start
+    # clean. This also covers the 126/135 relaunch below, which re-enters here.
+    "$REPO/train_qc.sh" "$@" >>"$log_dir/train.log" 2>&1 &
+  else
+    "$REPO/train_qc.sh" "$@" >"$log_dir/train.log" 2>&1 &
+  fi
   LAST_PID="$!" # the caller's handle on the run just started
   pids+=("$LAST_PID")
   cell_of["$LAST_PID"]="alpha-$alpha seed-$seed"
@@ -533,7 +761,38 @@ for seed in "${seeds[@]}"; do
   done
 done
 
+if [ "$RESUME" -eq 1 ]; then
+  kept=()
+  for cell in "${queue[@]}"; do
+    alpha="${cell%% *}"
+    seed="${cell##* }"
+    base="alpha-${alpha}_seed-${seed}"
+    state="$(cell_state "$base")"
+    case "$state" in
+    done)
+      echo "[sweep] alpha-$alpha seed-$seed done, skipping"
+      ;;
+    resume:*)
+      echo "[sweep] alpha-$alpha seed-$seed resumes at step ${state#resume:}"
+      kept+=("$cell")
+      ;;
+    fresh)
+      echo "[sweep] alpha-$alpha seed-$seed no checkpoint, fresh start"
+      kept+=("$cell")
+      ;;
+    esac
+  done
+  queue=(${kept[@]+"${kept[@]}"})
+  if [ "${#queue[@]}" -eq 0 ]; then
+    echo "[sweep] group $RUN_GROUP: all runs done"
+    exit 0
+  fi
+fi
+
 if [ "$DRY_RUN" -eq 1 ]; then
+  if [ "$RESUME" -eq 0 ] && [ "$OVERWRITE" -eq 0 ] && group_has_cells; then
+    echo "[dry-run] NOTE: $GROUP_DIR exists; a real launch would abort without --resume/--overwrite." >&2
+  fi
   for cell in "${queue[@]}"; do
     # shellcheck disable=SC2086  # a queue entry is "<alpha> <seed>", split on purpose
     start_run $cell
@@ -561,6 +820,23 @@ trap 'echo "[sweep] stopping, killing the runs" >&2; stop_renewer; stop_rest; ex
 trap stop_renewer EXIT
 
 start_renewer
+
+# One sweeper per group: two concurrent sweeps would launch the same cells
+# twice, interleaving CSVs and clobbering checkpoints.
+mkdir -p "$GROUP_DIR"
+if command -v flock >/dev/null 2>&1; then
+  exec 9>"$GROUP_DIR/.sweep.lock" || die "cannot lock $GROUP_DIR"
+  flock -n 9 || die "$GROUP_DIR is locked by another sweep; refusing to run concurrently"
+else
+  echo "[sweep] WARNING: flock is missing; concurrent sweeps on one group are unsafe." >&2
+fi
+
+# Pin the grid and flags for a later --resume. Resume mode keeps the stored
+# file: it describes the group, not the invocation (a subset resume must not
+# narrow it).
+if [ "$RESUME" -eq 0 ]; then
+  write_sweep_json
+fi
 
 reap_one() {
   local status=0 done_pid="" rest=()
