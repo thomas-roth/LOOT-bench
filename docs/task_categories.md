@@ -38,8 +38,10 @@ supports (`docs/adr/020-a-pi-level-is-a-horizontal-block-at-a-fixed-height.md`).
 | 2Pis | 2 | 6 | 0.075, 0.160 | 150 s |
 | 3Pis | 3 | 9 | 0.075, 0.160, 0.245 | 225 s |
 
-There is no variation axis; the task ids are `LOOT-Stack-1Pi-Dk1`,
-`LOOT-Stack-2Pis-Dk1` and `LOOT-Stack-3Pis-Dk1`.
+| **Variation** | Description |
+| --- | --- |
+| *(none)* | Ghost trilithon in the build-zone middle as the build guide: `LOOT-Stack-1Pi-Dk1`. |
+| `FreePos` | Ghost out of the build zone, operator builds anywhere: `LOOT-Stack-1Pi-FreePos-Dk1`. Success is position-free both ways. |
 
 Two builds complete a level and the criterion prefers neither:
 

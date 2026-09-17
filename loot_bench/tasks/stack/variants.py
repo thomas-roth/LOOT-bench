@@ -15,7 +15,9 @@ flat, contributing ``BLOCK_WIDTH``). Every variant gets exactly
 (1Pi's blocks are blocks 0..2 of 2Pis, which are blocks 0..5 of
 3Pis), so ``loot-split-demos`` can cut the easier tasks out of a 3Pis
 recording. ``order_color`` paints those cut boundaries onto the blocks, one
-colour tier per level.
+colour tier per level. The ``free_pos`` modifier only moves the ghost:
+base builds at the ghost in the scatter middle, ``FreePos`` builds anywhere
+(success is position-free either way, so same-level demos are interchangeable).
 
 **The four geometry/tolerance constants are one coupled system.** A lintel
 spanning two piles of unequal height rests at their mean, so unintended
@@ -183,6 +185,12 @@ class PiVariantCfg:
     """How many levels to stack; the ``{n}Pi(s)`` half of the task id."""
     block_colors: tuple[str, ...]
     """One palette colour per block, in tail-extending index order."""
+    free_pos: bool = False
+    """Ghost out of the build zone, operator builds anywhere.
+
+    ``False`` (base) parks the ghost in the middle of the spawn scatter
+    as the build guide; ``True`` keeps it out of the way so the build
+    spot is free. Visual only: success is position-free in both."""
     margin: float = 1.0
     """Scale on the height tolerance (default = tight, for data collection)."""
 
@@ -224,14 +232,17 @@ _TIER_BOUNDS = (BLOCKS_PER_LEVEL, 2 * BLOCKS_PER_LEVEL)
 def _build_variants() -> dict[str, PiVariantCfg]:
     out: dict[str, PiVariantCfg] = {}
     for levels in LEVELS:
-        v = PiVariantCfg(
-            name=f"Pi{levels}",
-            levels=levels,
-            block_colors=tuple(
-                order_color(i, *_TIER_BOUNDS) for i in range(BLOCKS_PER_LEVEL * levels)
-            ),
+        colors = tuple(
+            order_color(i, *_TIER_BOUNDS) for i in range(BLOCKS_PER_LEVEL * levels)
         )
-        out[v.name] = v
+        for free_pos in (False, True):
+            v = PiVariantCfg(
+                name=f"Pi{levels}{'FreePos' if free_pos else ''}",
+                levels=levels,
+                block_colors=colors,
+                free_pos=free_pos,
+            )
+            out[v.name] = v
     return out
 
 

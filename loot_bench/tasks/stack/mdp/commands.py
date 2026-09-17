@@ -106,6 +106,12 @@ BUILD_ZONE_HALF_WIDTH = 0.07
 BUILD_HALO_MARGIN = 0.02
 """Extra margin (m) around the build zone, on top of object radius + jitter."""
 
+GOAL_PI_CENTRE_XY = ((BUILD_ZONE_X[0] + BUILD_ZONE_X[1]) / 2, 0.0)
+"""Base ghost position: build-zone middle, i.e. the middle of the spawn scatter."""
+
+GOAL_PI_FREE_POS_XY = (0.0, -0.20)
+"""FreePos ghost position: directly right of the robot, out of the build zone."""
+
 
 def pi_spawn_is_clear(x: float, y: float, object_radius: float) -> bool:
     """Whether a jittered ``(x, y)`` spawn pose is clear of the build zone."""
@@ -114,16 +120,21 @@ def pi_spawn_is_clear(x: float, y: float, object_radius: float) -> bool:
     return not (x0 - halo <= x <= x1 + halo and abs(y) <= BUILD_ZONE_HALF_WIDTH + halo)
 
 
-def goal_pi_parts(levels: int) -> list[tuple[int, str, np.ndarray, np.ndarray]]:
+def goal_pi_parts(
+    levels: int, free_pos: bool = False
+) -> list[tuple[int, str, np.ndarray, np.ndarray]]:
     """Ghost-trilithon parts for a ``levels``-level reference pi.
 
-    Table-relative env-local poses, directly right of the robot. Lintel
-    centres are the level targets, uprights ``GUIDE_UPRIGHT_SPACING``
-    apart: a legal build, copyable outright. Reach-probed for the L3
-    grasp band. Returns ``(level, part, center, mat)`` (``level`` 0-based).
+    Table-relative env-local poses. Base parks the ghost in the build-zone
+    middle (the middle of the spawn scatter) as the build guide; ``free_pos``
+    keeps it directly right of the robot, out of the way, so the operator
+    builds anywhere. Lintel centres are the level targets, uprights
+    ``GUIDE_UPRIGHT_SPACING`` apart: a legal build, copyable outright.
+    Reach-probed for the L3 grasp band. Returns ``(level, part, center,
+    mat)`` (``level`` 0-based).
     """
     half = np.array(BLOCK_HALF_EXTENTS) + MARKER_INFLATE
-    cx, gy = 0.0, -0.20
+    cx, gy = GOAL_PI_FREE_POS_XY if free_pos else GOAL_PI_CENTRE_XY
     parts: list[tuple[int, str, np.ndarray, np.ndarray]] = []
     for level in range(levels):
         base = level * LEVEL_HEIGHT
@@ -312,7 +323,8 @@ class PiCommand(CommandTerm):
     def _draw_goal_pi(
         self, visualizer: DebugVisualizer, batch: int, origin: np.ndarray
     ) -> None:
-        """Ghost trilithon per level, directly right of the robot.
+        """Ghost trilithon per level: base in the build-zone middle, FreePos
+        directly right of the robot.
 
         Position-free success, so the ghost is one possible solution, not
         the required spot. Trilithon form (the T stays legal by criterion,
@@ -322,7 +334,9 @@ class PiCommand(CommandTerm):
         half = np.array(BLOCK_HALF_EXTENTS) + MARKER_INFLATE
         success = bool(self.success[batch] > 0.5)
         reached = self.levels_complete[batch].tolist()
-        for level, part, center, mat in goal_pi_parts(self.variant.levels):
+        for level, part, center, mat in goal_pi_parts(
+            self.variant.levels, self.variant.free_pos
+        ):
             color = marker_color(_GOAL_PI_RGBA, bool(reached[level]), success)
             center = origin + center
             label = f"goal_pi_{batch}_{level}_{part}"

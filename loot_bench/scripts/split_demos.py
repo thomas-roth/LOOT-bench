@@ -7,8 +7,10 @@ easier task's rollout is already embedded in the harder task's recording. This
 script cuts it out, turning one hard session into a dataset per easier task at
 no extra teleop time.
 
-Supported: **Stack** (``1Pi``/``2Pis``/``3Pis``, one family: the
-colour tiers navy/teal/white are the cut boundaries), **Domino** (base,
+Supported: **Stack** (``1Pi``/``2Pis``/``3Pis`` x base/``FreePos``,
+one family per ghost: the colour tiers navy/teal/white are the cut
+boundaries; the ghost is visual-only so same-level base/FreePos demos are
+interchangeable), **Domino** (base,
 ``RandomRow``, ``DifferentDominoes``; ``KnockOver`` is not splittable, its
 topple being one chain over all pieces) and **Sorter** (every spawn
 variation; excluding 2Shapes, custom-recorded). Splits never cross families: the

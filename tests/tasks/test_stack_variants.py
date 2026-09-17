@@ -14,6 +14,8 @@ from loot_bench.tasks.common.fixed_spawns import (
 )
 from loot_bench.tasks.common.success import bore_axis_cos_tilt
 from loot_bench.tasks.stack.mdp.commands import (
+    GOAL_PI_CENTRE_XY,
+    GOAL_PI_FREE_POS_XY,
     GUIDE_UPRIGHT_SPACING,
     PI_SPAWN_CELLS,
     goal_pi_parts,
@@ -37,8 +39,11 @@ _VARIANTS = list(PI_VARIANTS.values())
 _HARDEST = max(_VARIANTS, key=lambda v: v.levels)
 
 
-def test_catalog_has_one_variant_per_level_count():
-    assert sorted(v.levels for v in _VARIANTS) == list(LEVELS)
+def test_catalog_has_base_and_free_pos_per_level_count():
+    assert sorted(v.levels for v in _VARIANTS) == [1, 1, 2, 2, 3, 3]
+    for levels in LEVELS:
+        pair = sorted((v.name, v.free_pos) for v in _VARIANTS if v.levels == levels)
+        assert pair == [(f"Pi{levels}", False), (f"Pi{levels}FreePos", True)]
 
 
 def test_block_is_a_square_prism_standing_on_its_long_axis():
@@ -212,7 +217,7 @@ def test_easier_reset_is_prefix_of_harder():
 def test_goal_pi_is_a_legal_build(variant):
     # The shadow is dimension-exact and scores: buildable directly, and a
     # level's ghost greens exactly when that level is accepted anywhere.
-    parts = goal_pi_parts(variant.levels)
+    parts = goal_pi_parts(variant.levels, variant.free_pos)
     assert len(parts) == 3 * variant.levels
     for k in range(variant.levels):
         level_parts = [p for p in parts if p[0] == k]
@@ -230,12 +235,13 @@ def test_goal_pi_is_a_legal_build(variant):
             <= spacing
             <= BLOCK_LENGTH - BLOCK_WIDTH + 1e-9
         )
-        # Uprights symmetric about the lintel; shadow directly right of
-        # the robot base.
+        # Uprights symmetric about the lintel; base shadow in the
+        # build-zone middle, FreePos directly right of the robot base.
         assert (uprights[0][1] + uprights[1][1]) / 2 == pytest.approx(lintel[1])
         assert uprights[0][0] == pytest.approx(lintel[0])
         assert uprights[1][0] == pytest.approx(lintel[0])
-        assert (lintel[0], lintel[1]) == pytest.approx((0.0, -0.20))
+        expected_xy = GOAL_PI_FREE_POS_XY if variant.free_pos else GOAL_PI_CENTRE_XY
+        assert (lintel[0], lintel[1]) == pytest.approx(expected_xy)
     # Ghost lintels satisfy the kernel exactly.
     centre_z = torch.tensor([[c[2] for _, part, c, _ in parts if part == "lintel"]])
     quats = _quat_about_y(math.pi / 2).repeat(variant.levels, 1).unsqueeze(0)

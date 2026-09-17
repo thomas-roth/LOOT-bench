@@ -23,7 +23,7 @@ known answer.
 
 | Group | What it pins |
 | --- | --- |
-| `TestTaskIds` | Which tasks a recording can be split into. Stack is one family (`3Pis` -> `2Pis`, `1Pi`), Domino one per row mode, Sorter one per spawn mode; `KnockOver` is not splittable at all. |
+| `TestTaskIds` | Which tasks a recording can be split into. Stack one family per ghost (`3Pis` -> `2Pis`, `1Pi`, same for `FreePos`), Domino one per row mode, Sorter one per spawn mode; `KnockOver` is not splittable at all. |
 | `TestPlanValidation` | The plan refuses a harder target, a different family, and an unsplittable source. |
 | `TestPiRecompute` | Progress is the fraction of levels with a horizontal, unheld lintel at that level's height (through the env's own kernels, so the tilt gate is never copied), a lintel in the closed gripper earns no level, a tier-order build cuts one frame past each target's first success, a white-first build relabels to nothing, and the truncation keeps the proprioceptive head plus the first-k blocks of obs/qpos/qvel. |
 | `TestSkipsAreFatal` | A source episode that never pays a target's success fails the run *after* the good episodes are written, names the episode and the blocks that formed its level 1, exits non-zero from `main`, and `--allow-skips` demotes it to a warning. Proven for Domino too. |

@@ -101,21 +101,39 @@ def _write_session(root: Path, episodes: list[pd.DataFrame], fps: int = 20) -> s
 
 
 class TestTaskIds:
-    def test_stack_is_one_family_across_the_level_count(self):
+    def test_stack_splits_within_each_ghost_family(self):
         assert parse_task_id("LOOT-Stack-3Pis-Dk1") == (
             "Stack",
             "3Pis",
             "",
             "Dk1",
         )
+        assert parse_task_id("LOOT-Stack-3Pis-FreePos-Dk1") == (
+            "Stack",
+            "3Pis",
+            "FreePos",
+            "Dk1",
+        )
         # The level count is the task segment and every variant shares the
-        # tail-extending block tiers, so one recording feeds both easier tasks.
+        # tail-extending block tiers, so one recording feeds both easier tasks
+        # of its own ghost family. The ghost is visual-only, so same-level
+        # base/FreePos demos are interchangeable; splits still never cross.
         assert easier_target_task_ids("LOOT-Stack-3Pis-Dk1") == [
             "LOOT-Stack-2Pis-Dk1",
             "LOOT-Stack-1Pi-Dk1",
         ]
+        assert easier_target_task_ids("LOOT-Stack-3Pis-FreePos-Dk1") == [
+            "LOOT-Stack-2Pis-FreePos-Dk1",
+            "LOOT-Stack-1Pi-FreePos-Dk1",
+        ]
         assert easier_target_task_ids("LOOT-Stack-2Pis-Dk1") == ["LOOT-Stack-1Pi-Dk1"]
         assert easier_target_task_ids("LOOT-Stack-1Pi-Dk1") == []
+        assert "LOOT-Stack-2Pis-FreePos-Dk1" not in easier_target_task_ids(
+            "LOOT-Stack-3Pis-Dk1"
+        )
+        assert "LOOT-Stack-2Pis-Dk1" not in easier_target_task_ids(
+            "LOOT-Stack-3Pis-FreePos-Dk1"
+        )
 
     def test_domino_variations_are_separate_families(self):
         assert parse_task_id("LOOT-Domino-4Pieces-Dk1") == (

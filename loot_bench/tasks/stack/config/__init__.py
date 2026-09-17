@@ -1,7 +1,9 @@
 """Task registration for all pi variants on all supported robots.
 
 The category segment stays ``Stack`` and the level count is the task
-segment, so the ids read ``LOOT-Stack-{1Pi,2Pis,3Pis}-<robot>``.
+segment, so the ids read ``LOOT-Stack-{1Pi,2Pis,3Pis}[-FreePos]-<robot>``.
+Base parks the ghost in the build-zone middle; ``FreePos`` keeps it out of
+the way so the operator builds anywhere (success is position-free both ways).
 """
 
 from loot_bench.robots.trlc_dk1 import get_unimanual_dk1_interface
@@ -18,7 +20,8 @@ def task_id_parts(variant: PiVariantCfg) -> tuple[str, str]:
     nowhere else, so the splitter cannot re-derive it differently.
     """
     n = variant.levels
-    return (f"{n}Pi" if n == 1 else f"{n}Pis"), ""
+    task = f"{n}Pi" if n == 1 else f"{n}Pis"
+    return task, "FreePos" if variant.free_pos else ""
 
 
 register_category(

@@ -22,9 +22,9 @@ the decision and the arithmetic behind the two tolerances.
 
 ## Tasks
 
-A *variant* (`variants.py`, `PiVariantCfg`) fixes the level count. There
-is no difficulty axis. The category segment stays `Stack`; the level count is
-the task segment.
+A *variant* (`variants.py`, `PiVariantCfg`) fixes the level count and the
+`free_pos` modifier. There is no difficulty axis. The category segment stays
+`Stack`; the level count is the task segment, `FreePos` the variation.
 
 | Task id (`-Dk1`)          | Levels | Blocks | Lintel centre heights (m) | Episode           |
 | ------------------------- | ------ | ------ | ------------------------- | ----------------- |
@@ -137,9 +137,11 @@ uv run loot-play LOOT-Stack-2Pis-Dk1
 ```
 
 `loot-play` and `loot-record-demos` draw a ghost trilithon per level
-directly right of the robot as a build guide (uprights at 36 mm spacing).
-Success is position-free: each level's ghost greens when that level is
-accepted anywhere, and the ghost itself is a legal build to copy. Markers
-are viewer-only; they never enter observations or the dataset. The recorder
-adds a gripper laser with a footprint preview under the held block and a
-wrist-camera PiP: operator aids, viewer-only like the ghost.
+(uprights at 36 mm spacing): base in the build-zone middle as the build
+guide, `FreePos` directly right of the robot, out of the way, so the
+operator builds anywhere. Success is position-free: each level's ghost
+greens when that level is accepted anywhere, and the ghost itself is a
+legal build to copy. Markers are viewer-only; they never enter observations
+or the dataset. The recorder adds a gripper laser with a footprint preview
+under the held block and a wrist-camera PiP: operator aids, viewer-only
+like the ghost.
