@@ -1,4 +1,4 @@
-"""Invariants of the henge variant catalog: block budgets, colour tiers, level
+"""Invariants of the pi variant catalog: block budgets, colour tiers, level
 heights, the geometry/tolerance assertion, and the spawn table."""
 
 import math
@@ -15,25 +15,25 @@ from loot_bench.tasks.common.fixed_spawns import (
 from loot_bench.tasks.common.success import bore_axis_cos_tilt
 from loot_bench.tasks.stack.mdp.commands import (
     GUIDE_UPRIGHT_SPACING,
-    HENGE_SPAWN_CELLS,
-    goal_henge_parts,
-    henge_spawn_is_clear,
+    PI_SPAWN_CELLS,
+    goal_pi_parts,
+    pi_spawn_is_clear,
 )
-from loot_bench.tasks.stack.mdp.success import henge_levels_complete
+from loot_bench.tasks.stack.mdp.success import pi_levels_complete
 from loot_bench.tasks.stack.variants import (
     BLOCK_HALF_EXTENTS,
     BLOCK_LENGTH,
     BLOCK_WIDTH,
     BLOCKS_PER_LEVEL,
     HEIGHT_TOL,
-    HENGE_VARIANTS,
     LEVEL_HEIGHT,
     LEVELS,
+    PI_VARIANTS,
     TILT_COS_MAX,
     alternative_builds,
 )
 
-_VARIANTS = list(HENGE_VARIANTS.values())
+_VARIANTS = list(PI_VARIANTS.values())
 _HARDEST = max(_VARIANTS, key=lambda v: v.levels)
 
 
@@ -87,7 +87,7 @@ def test_shipped_constants_admit_no_alternative_build(levels):
     [
         # 0.26 is the gate the other categories use, and it is wrong here:
         # two piles of unequal height carry a lintel 2.5 mm under level 1
-        # at 6.34 deg, inside the budget from 2Henges up.
+        # at 6.34 deg, inside the budget from 2Pis up.
         (0.065, 0.020, 0.003, 0.26, 2, [(1, (0, 3), (1, 0), 5)]),
         (
             0.065,
@@ -158,7 +158,7 @@ def test_intended_builds_pass_the_criterion(variant, uprights):
             quats.append(torch.tensor([1.0, 0.0, 0.0, 0.0]))
         centre_z.append(base + BLOCK_LENGTH + hx)
         quats.append(_quat_about_y(math.pi / 2))
-    complete = henge_levels_complete(
+    complete = pi_levels_complete(
         torch.tensor([centre_z]),
         torch.stack(quats).unsqueeze(0),
         0.0,
@@ -176,25 +176,25 @@ _RADIUS = math.hypot(*BLOCK_HALF_EXTENTS[:2])
 
 
 def test_spawn_table_holds_the_hardest_block_set():
-    assert len(HENGE_SPAWN_CELLS) >= _HARDEST.num_blocks
+    assert len(PI_SPAWN_CELLS) >= _HARDEST.num_blocks
 
 
 def test_spawn_separation_clears_the_gripper_pitch_with_margin():
     pitch = spawn_pitch(_RADIUS, _RADIUS)
     assert pitch == pytest.approx(0.088, abs=1e-3)
-    assert min_pairwise_separation(torch.tensor(HENGE_SPAWN_CELLS)) >= 0.12 - 1e-6
+    assert min_pairwise_separation(torch.tensor(PI_SPAWN_CELLS)) >= 0.12 - 1e-6
 
 
-@pytest.mark.parametrize("cell", HENGE_SPAWN_CELLS, ids=str)
+@pytest.mark.parametrize("cell", PI_SPAWN_CELLS, ids=str)
 def test_every_cell_inside_the_envelope_and_clear_of_the_build_zone(cell):
     assert spawn_cell_in_envelope(cell[0], cell[1], _RADIUS)
-    assert henge_spawn_is_clear(cell[0], cell[1], _RADIUS)
+    assert pi_spawn_is_clear(cell[0], cell[1], _RADIUS)
 
 
 def test_easier_reset_is_prefix_of_harder():
-    # Object i takes cell i, so 1Henge's reset is a prefix of 2Henges' and
-    # 2Henges' a prefix of 3Henges'.
-    cells = torch.tensor(HENGE_SPAWN_CELLS)
+    # Object i takes cell i, so 1Pi's reset is a prefix of 2Pis' and
+    # 2Pis' a prefix of 3Pis'.
+    cells = torch.tensor(PI_SPAWN_CELLS)
     counts = [v.num_blocks for v in sorted(_VARIANTS, key=lambda v: v.levels)]
     for easier, harder in zip(counts, counts[1:], strict=False):
         torch.manual_seed(11)
@@ -205,14 +205,14 @@ def test_easier_reset_is_prefix_of_harder():
         assert torch.equal(yaw_easy, yaw_hard[:, :easier])
 
 
-# --- shadow (goal) henge --------------------------------------------------- #
+# --- shadow (goal) pi --------------------------------------------------- #
 
 
 @pytest.mark.parametrize("variant", _VARIANTS, ids=lambda v: v.name)
-def test_goal_henge_is_a_legal_build(variant):
+def test_goal_pi_is_a_legal_build(variant):
     # The shadow is dimension-exact and scores: buildable directly, and a
     # level's ghost greens exactly when that level is accepted anywhere.
-    parts = goal_henge_parts(variant.levels)
+    parts = goal_pi_parts(variant.levels)
     assert len(parts) == 3 * variant.levels
     for k in range(variant.levels):
         level_parts = [p for p in parts if p[0] == k]
@@ -239,7 +239,7 @@ def test_goal_henge_is_a_legal_build(variant):
     # Ghost lintels satisfy the kernel exactly.
     centre_z = torch.tensor([[c[2] for _, part, c, _ in parts if part == "lintel"]])
     quats = _quat_about_y(math.pi / 2).repeat(variant.levels, 1).unsqueeze(0)
-    complete = henge_levels_complete(
+    complete = pi_levels_complete(
         centre_z,
         quats,
         0.0,

@@ -15,9 +15,9 @@ only the seam to it, in `loot_bench/qc/`.
 
 Five task categories, 43 tasks total, currently registered for one robot
 (`-Dk1`) → task ids look like `LOOT-<Category>-<Task>[-<Variation>]-<Robot>`:
-`tasks/stack` (henge building; a level is one horizontal block, a lintel,
+`tasks/stack` (pi building; a level is one horizontal block, a lintel,
 carried by one or two blocks standing on end; registered as `Stack` x
-`1Henge`/`2Henges`/`3Henges`, no difficulty axis; both the T and the
+`1Pi`/`2Pis`/`3Pis`, no difficulty axis; both the T and the
 trilithon are legal, see ADR-020),
 `tasks/domino` (place and optionally knock over a row of dominoes; the row is
 at a **fixed** pose every reset, because a teleoperator needs a layout that
@@ -59,7 +59,7 @@ uv run pyright             # type check (config in pyrightconfig.json, basic mod
 uv run pre-commit run --all-files
 
 # Play a task (wraps mjlab's player after importing loot_bench to register tasks)
-uv run loot-play LOOT-Stack-2Henges-Dk1
+uv run loot-play LOOT-Stack-2Pis-Dk1
 
 # List all registered task IDs (mjlab's built-ins included; --filter/--count narrow it)
 uv run loot-list-tasks
@@ -72,7 +72,7 @@ uv run loot-convert-demos --success-dir dataset/demos/<task>/<stamp> \
 
 # One hard recording -> a demo set per easier same-family task, no re-simulation
 uv run loot-split-demos --source-dir dataset/demos/<task>/<stamp> \
-    --source-task LOOT-Stack-3Henges-Dk1 --output-dir dataset/demos_split
+    --source-task LOOT-Stack-3Pis-Dk1 --output-dir dataset/demos_split
 
 # Several LeRobot sessions -> one LeRobot root (plus merged sidecar), for the
 # consumers that take one root (split_demos, replay readers, inspection)

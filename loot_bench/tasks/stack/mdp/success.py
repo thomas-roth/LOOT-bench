@@ -1,4 +1,4 @@
-"""Pure success criteria for the henge (stack) category.
+"""Pure success criteria for the pi (stack) category.
 
 Plain tensor math, no mjlab or environment imports: the command term
 (``commands.py``) is the adapter that gathers sim buffers and calls these,
@@ -61,7 +61,7 @@ def block_is_horizontal(
     return bore_axis_cos_tilt(quat_wxyz, up) <= max_cos
 
 
-def henge_levels_complete(
+def pi_levels_complete(
     centre_z: torch.Tensor,
     quat_wxyz: torch.Tensor,
     table_z: torch.Tensor | float,
@@ -103,7 +103,7 @@ def henge_levels_complete(
     return (at_level & lintel.unsqueeze(-1)).any(dim=1)
 
 
-def henge_progress(levels_complete: torch.Tensor) -> torch.Tensor:
+def pi_progress(levels_complete: torch.Tensor) -> torch.Tensor:
     """Fraction of levels standing right now, (E,) in [0, 1].
 
     Instantaneous, not latched: a collapse drops it back, because the work

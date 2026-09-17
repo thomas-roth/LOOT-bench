@@ -26,16 +26,16 @@ from loot_bench.tasks.shape_sorter.mdp.success import SorterLatch
 from loot_bench.tasks.shape_sorter.variants import SHAPE_SORTER_VARIANTS, allowed_faces
 from loot_bench.tasks.stack.mdp.success import (
     block_is_horizontal,
-    henge_levels_complete,
-    henge_progress,
+    pi_levels_complete,
+    pi_progress,
 )
 from loot_bench.tasks.stack.variants import (
     BLOCK_HALF_EXTENTS,
     BLOCK_LENGTH,
     BLOCK_WIDTH,
     HEIGHT_TOL,
-    HENGE_VARIANTS,
     LEVEL_HEIGHT,
+    PI_VARIANTS,
 )
 
 
@@ -350,12 +350,12 @@ class TestContactReleaseGate:
 
 
 # ---------------------------------------------------------------------------
-# henge kernels (the stack category)
+# pi kernels (the stack category)
 # ---------------------------------------------------------------------------
 
 _UP = torch.tensor([1.0, 0.0, 0.0, 0.0])
-_L1 = HENGE_VARIANTS["Henge1"].level_centre_height(1)  # 0.075
-_LEVELS3 = torch.tensor(HENGE_VARIANTS["Henge3"].level_centre_heights)
+_L1 = PI_VARIANTS["Pi1"].level_centre_height(1)  # 0.075
+_LEVELS3 = torch.tensor(PI_VARIANTS["Pi3"].level_centre_heights)
 
 
 def _lintel(tilt_deg: float = 0.0) -> torch.Tensor:
@@ -371,7 +371,7 @@ def _levels(
     heights: list[float], quats: list[torch.Tensor], exclude=None
 ) -> torch.Tensor:
     """(K,) bool for one env, K = 3 levels, at the shipped tolerance."""
-    return henge_levels_complete(
+    return pi_levels_complete(
         torch.tensor([heights]),
         torch.stack(quats).unsqueeze(0),
         0.0,
@@ -395,7 +395,7 @@ class TestBlockIsHorizontal:
         )
 
 
-class TestHengeLevelsComplete:
+class TestPiLevelsComplete:
     def test_trilithon_scores(self):
         hz = BLOCK_HALF_EXTENTS[2]
         levels = _levels([hz, hz, _L1], [_UP, _UP, _lintel()])
@@ -441,12 +441,12 @@ class TestHengeLevelsComplete:
         standing = _levels(
             [hz, _L1, LEVEL_HEIGHT + hz, l2], [_UP, _lintel(), _UP, _lintel()]
         )
-        assert henge_progress(standing.unsqueeze(0))[0].item() == pytest.approx(2 / 3)
+        assert pi_progress(standing.unsqueeze(0))[0].item() == pytest.approx(2 / 3)
         # Level 1's lintel is knocked off; level 2's happens to still stand.
         collapsed = _levels(
             [hz, hz, LEVEL_HEIGHT + hz, l2], [_UP, _lintel(), _UP, _lintel()]
         )
-        assert henge_progress(collapsed.unsqueeze(0))[0].item() == pytest.approx(1 / 3)
+        assert pi_progress(collapsed.unsqueeze(0))[0].item() == pytest.approx(1 / 3)
 
     def test_success_needs_all_levels_not_just_the_top(self):
         l3 = float(_LEVELS3[2])
@@ -460,7 +460,7 @@ class TestHengeLevelsComplete:
         table_z = torch.tensor([0.0, 1.0])
         centre_z = torch.tensor([[_L1], [1.0 + _L1]])
         quat = _lintel().view(1, 1, 4).expand(2, 1, 4)
-        levels = henge_levels_complete(centre_z, quat, table_z, _LEVELS3, HEIGHT_TOL)
+        levels = pi_levels_complete(centre_z, quat, table_z, _LEVELS3, HEIGHT_TOL)
         assert levels[:, 0].tolist() == [True, True]
 
 

@@ -13,7 +13,7 @@ from loot_bench.scripts.live_bridge.dataset_extra_info import (
 
 OBS_DIM = 5
 ACTION_DIM = 7
-TASK_ID = "LOOT-Stack-1Henge-Dk1"
+TASK_ID = "LOOT-Stack-1Pi-Dk1"
 
 
 def _info(noise: float = 0.0, seeds: dict[int, int] | None = None, **extra: Any):

@@ -102,22 +102,20 @@ def _write_session(root: Path, episodes: list[pd.DataFrame], fps: int = 20) -> s
 
 class TestTaskIds:
     def test_stack_is_one_family_across_the_level_count(self):
-        assert parse_task_id("LOOT-Stack-3Henges-Dk1") == (
+        assert parse_task_id("LOOT-Stack-3Pis-Dk1") == (
             "Stack",
-            "3Henges",
+            "3Pis",
             "",
             "Dk1",
         )
         # The level count is the task segment and every variant shares the
         # tail-extending block tiers, so one recording feeds both easier tasks.
-        assert easier_target_task_ids("LOOT-Stack-3Henges-Dk1") == [
-            "LOOT-Stack-2Henges-Dk1",
-            "LOOT-Stack-1Henge-Dk1",
+        assert easier_target_task_ids("LOOT-Stack-3Pis-Dk1") == [
+            "LOOT-Stack-2Pis-Dk1",
+            "LOOT-Stack-1Pi-Dk1",
         ]
-        assert easier_target_task_ids("LOOT-Stack-2Henges-Dk1") == [
-            "LOOT-Stack-1Henge-Dk1"
-        ]
-        assert easier_target_task_ids("LOOT-Stack-1Henge-Dk1") == []
+        assert easier_target_task_ids("LOOT-Stack-2Pis-Dk1") == ["LOOT-Stack-1Pi-Dk1"]
+        assert easier_target_task_ids("LOOT-Stack-1Pi-Dk1") == []
 
     def test_domino_variations_are_separate_families(self):
         assert parse_task_id("LOOT-Domino-4Pieces-Dk1") == (
@@ -162,10 +160,10 @@ class TestTaskIds:
         with pytest.raises(ValueError, match="not splittable"):
             adapter_for("LOOT-Place-FixedS-FixedT-Dk1")
         with pytest.raises(ValueError, match="not a LOOT task id"):
-            parse_task_id("Stack-3Henges")
+            parse_task_id("Stack-3Pis")
 
     def test_obs_section_widths(self):
-        assert adapter_for("LOOT-Stack-1Henge-Dk1").obs_section_widths == (7,)
+        assert adapter_for("LOOT-Stack-1Pi-Dk1").obs_section_widths == (7,)
         assert adapter_for("LOOT-Domino-3Pieces-Dk1").obs_section_widths == (
             7,
             1,
@@ -179,9 +177,9 @@ class TestTaskIds:
 
 class TestPlanValidation:
     def test_rejects_a_harder_target(self):
-        adapter = adapter_for("LOOT-Stack-3Henges-Dk1")
-        three = variant_from_task_id("LOOT-Stack-3Henges-Dk1")
-        one = variant_from_task_id("LOOT-Stack-1Henge-Dk1")
+        adapter = adapter_for("LOOT-Stack-3Pis-Dk1")
+        three = variant_from_task_id("LOOT-Stack-3Pis-Dk1")
+        one = variant_from_task_id("LOOT-Stack-1Pi-Dk1")
         SplitPlan(adapter, three, one).validate()
         with pytest.raises(AssertionError, match="not easier"):
             SplitPlan(adapter, one, three).validate()
@@ -208,10 +206,10 @@ class TestPlanValidation:
             plan.validate()
 
 
-# --- Stack (henge) --------------------------------------------------------- #
+# --- Stack (pi) --------------------------------------------------------- #
 
 N_BLOCKS = 9
-"""3Henges' block count: three tiers of three, navy 0-2, teal 3-5, white 6-8."""
+"""3Pis' block count: three tiers of three, navy 0-2, teal 3-5, white 6-8."""
 
 UPRIGHT_Z = 0.0325
 """A standing block's centre: half its length above whatever it stands on."""
@@ -242,7 +240,7 @@ def _lintel(level: int) -> list[float]:
     return [x, y, level * LEVEL_HEIGHT - BLOCK_WIDTH / 2, *LINTEL_QUAT]
 
 
-def _henge_poses(built: dict[int, tuple[int, int, int]]) -> np.ndarray:
+def _pi_poses(built: dict[int, tuple[int, int, int]]) -> np.ndarray:
     """(9, 7) block poses with the given levels standing.
 
     ``built`` maps a level to the three block indices forming it, two
@@ -256,12 +254,12 @@ def _henge_poses(built: dict[int, tuple[int, int, int]]) -> np.ndarray:
     return poses
 
 
-def _henge_episode(
+def _pi_episode(
     frames: list[np.ndarray],
     grasp_pos_per_frame=None,
     pad_force: float | list[float] = 0.0,
 ):
-    """Synthetic 3Henges episode from per-frame (9, 7) block poses.
+    """Synthetic 3Pis episode from per-frame (9, 7) block poses.
 
     ``pad_force`` is the recorded finger-pad force, a scalar or one value per
     frame; the env reads release straight off it.
@@ -298,11 +296,11 @@ def _tier_order_frames() -> list[np.ndarray]:
     """The protocol build: one level per frame, each from its own colour tier,
     then one frame of rest so the source's success has a frame to be paid on."""
     return [
-        _henge_poses({}),
-        _henge_poses(LEVEL_1),
-        _henge_poses({**LEVEL_1, **LEVEL_2}),
-        _henge_poses({**LEVEL_1, **LEVEL_2, **LEVEL_3}),
-        _henge_poses({**LEVEL_1, **LEVEL_2, **LEVEL_3}),
+        _pi_poses({}),
+        _pi_poses(LEVEL_1),
+        _pi_poses({**LEVEL_1, **LEVEL_2}),
+        _pi_poses({**LEVEL_1, **LEVEL_2, **LEVEL_3}),
+        _pi_poses({**LEVEL_1, **LEVEL_2, **LEVEL_3}),
     ]
 
 
@@ -315,16 +313,16 @@ def _white_first_frames() -> list[np.ndarray]:
     white_low = {1: (6, 7, 8)}
     navy_high = {3: (0, 1, 2)}
     return [
-        _henge_poses({}),
-        _henge_poses(white_low),
-        _henge_poses({**white_low, **LEVEL_2}),
-        _henge_poses({**white_low, **LEVEL_2, **navy_high}),
-        _henge_poses({**white_low, **LEVEL_2, **navy_high}),
+        _pi_poses({}),
+        _pi_poses(white_low),
+        _pi_poses({**white_low, **LEVEL_2}),
+        _pi_poses({**white_low, **LEVEL_2, **navy_high}),
+        _pi_poses({**white_low, **LEVEL_2, **navy_high}),
     ]
 
 
-def _henge_state(obs, qvel, take):
-    adapter = adapter_for("LOOT-Stack-3Henges-Dk1")
+def _pi_state(obs, qvel, take):
+    adapter = adapter_for("LOOT-Stack-3Pis-Dk1")
     return frame_state(
         torch.from_numpy(obs.astype(np.float64)),
         torch.from_numpy(qvel.astype(np.float64)),
@@ -335,18 +333,18 @@ def _henge_state(obs, qvel, take):
     )
 
 
-def _henge_plan(target: str) -> SplitPlan:
+def _pi_plan(target: str) -> SplitPlan:
     return SplitPlan(
-        adapter_for("LOOT-Stack-3Henges-Dk1"),
-        variant_from_task_id("LOOT-Stack-3Henges-Dk1"),
+        adapter_for("LOOT-Stack-3Pis-Dk1"),
+        variant_from_task_id("LOOT-Stack-3Pis-Dk1"),
         variant_from_task_id(target),
     )
 
 
-def _henge_source_rewards(obs, qvel) -> np.ndarray:
-    plan = _henge_plan("LOOT-Stack-1Henge-Dk1")
+def _pi_source_rewards(obs, qvel) -> np.ndarray:
+    plan = _pi_plan("LOOT-Stack-1Pi-Dk1")
     progress, gate = plan.adapter.progress_and_gate(
-        plan.source, _henge_state(obs, qvel, take=N_BLOCKS)
+        plan.source, _pi_state(obs, qvel, take=N_BLOCKS)
     )
     return _source_rewards(progress, gate)
 
@@ -359,27 +357,27 @@ def _relabel(obs, qpos, qvel, target: str, reward=None):
         qvel=qvel,
         action=np.zeros((frames, 7), np.float32),
         robot_state=np.zeros((frames, 7), np.float32),
-        reward=_henge_source_rewards(obs, qvel) if reward is None else reward,
-        plan=_henge_plan(target),
+        reward=_pi_source_rewards(obs, qvel) if reward is None else reward,
+        plan=_pi_plan(target),
     )
 
 
-class TestHengeRecompute:
+class TestPiRecompute:
     def test_progress_counts_standing_levels(self):
-        obs, _qpos, qvel = _henge_episode(_tier_order_frames())
-        plan = _henge_plan("LOOT-Stack-1Henge-Dk1")
+        obs, _qpos, qvel = _pi_episode(_tier_order_frames())
+        plan = _pi_plan("LOOT-Stack-1Pi-Dk1")
         progress, gate = plan.adapter.progress_and_gate(
-            plan.source, _henge_state(obs, qvel, take=N_BLOCKS)
+            plan.source, _pi_state(obs, qvel, take=N_BLOCKS)
         )
         assert progress.tolist() == pytest.approx([0.0, 1 / 3, 2 / 3, 1.0, 1.0])
         assert gate.tolist() == [False, False, False, True, True]
 
     @pytest.mark.parametrize(
         ("target", "cut_frame", "k"),
-        [("LOOT-Stack-1Henge-Dk1", 1, 3), ("LOOT-Stack-2Henges-Dk1", 2, 6)],
+        [("LOOT-Stack-1Pi-Dk1", 1, 3), ("LOOT-Stack-2Pis-Dk1", 2, 6)],
     )
     def test_tier_order_build_cuts_at_each_target_success(self, target, cut_frame, k):
-        obs, qpos, qvel = _henge_episode(_tier_order_frames())
+        obs, qpos, qvel = _pi_episode(_tier_order_frames())
         rel = _relabel(obs, qpos, qvel, target)
         assert rel is not None
         assert rel.cut_frame == cut_frame
@@ -403,28 +401,28 @@ class TestHengeRecompute:
     def test_a_held_lintel_earns_no_level(self):
         # The same standing level in both frames; only the grasp site moves
         # onto the lintel with the pads loaded, so the drop is the exclusion.
-        frames = [_henge_poses(LEVEL_1)] * 2
+        frames = [_pi_poses(LEVEL_1)] * 2
         lintel_pos = np.asarray(_lintel(1)[:3], np.float32)
-        obs, _qpos, qvel = _henge_episode(
+        obs, _qpos, qvel = _pi_episode(
             frames, [FAR_AWAY, lintel_pos], pad_force=[0.0, 5.0]
         )
-        plan = _henge_plan("LOOT-Stack-1Henge-Dk1")
+        plan = _pi_plan("LOOT-Stack-1Pi-Dk1")
         progress, gate = plan.adapter.progress_and_gate(
-            plan.target, _henge_state(obs, qvel, take=3)
+            plan.target, _pi_state(obs, qvel, take=3)
         )
         assert progress.tolist() == pytest.approx([1.0, 0.0])
         assert gate.tolist() == [True, False]
 
     def test_white_first_build_relabels_to_nothing(self):
-        obs, qpos, qvel = _henge_episode(_white_first_frames())
-        assert _relabel(obs, qpos, qvel, "LOOT-Stack-1Henge-Dk1") is None
-        assert _relabel(obs, qpos, qvel, "LOOT-Stack-2Henges-Dk1") is None
+        obs, qpos, qvel = _pi_episode(_white_first_frames())
+        assert _relabel(obs, qpos, qvel, "LOOT-Stack-1Pi-Dk1") is None
+        assert _relabel(obs, qpos, qvel, "LOOT-Stack-2Pis-Dk1") is None
 
     def test_self_check_rejects_a_mismatched_reward_column(self):
-        obs, qpos, qvel = _henge_episode(_tier_order_frames()[:2])
+        obs, qpos, qvel = _pi_episode(_tier_order_frames()[:2])
         with pytest.raises(AssertionError, match="self-check failed"):
             _relabel(
-                obs, qpos, qvel, "LOOT-Stack-1Henge-Dk1", reward=np.zeros(2, np.float32)
+                obs, qpos, qvel, "LOOT-Stack-1Pi-Dk1", reward=np.zeros(2, np.float32)
             )
 
 
@@ -621,14 +619,14 @@ def test_sorter_recompute_and_truncation():
 # --- fail loudly on a never-successful relabel ----------------------------- #
 
 
-def _mixed_henge_session(root: Path) -> str:
+def _mixed_pi_session(root: Path) -> str:
     """Episode 0 follows the tier protocol, episode 1 builds level 1 from the
     white blocks."""
     episodes = []
     for index, frames in enumerate((_tier_order_frames(), _white_first_frames())):
-        obs, qpos, qvel = _henge_episode(frames)
+        obs, qpos, qvel = _pi_episode(frames)
         episodes.append(
-            _session_frame(index, obs, qpos, qvel, _henge_source_rewards(obs, qvel))
+            _session_frame(index, obs, qpos, qvel, _pi_source_rewards(obs, qvel))
         )
     return _write_session(root, episodes)
 
@@ -642,37 +640,35 @@ def _written_episodes(out_root: Path) -> int:
 
 class TestSkipsAreFatal:
     def test_good_episodes_are_written_before_the_raise(self, tmp_path):
-        source = _mixed_henge_session(tmp_path / "source")
+        source = _mixed_pi_session(tmp_path / "source")
         with pytest.raises(ValueError) as error:
             split_dataset(
                 source,
-                "LOOT-Stack-3Henges-Dk1",
+                "LOOT-Stack-3Pis-Dk1",
                 str(tmp_path / "out"),
-                target_tasks=["LOOT-Stack-1Henge-Dk1"],
+                target_tasks=["LOOT-Stack-1Pi-Dk1"],
                 stamp="run",
             )
         message = str(error.value)
-        assert "LOOT-Stack-1Henge-Dk1: source episodes [1]" in message
+        assert "LOOT-Stack-1Pi-Dk1: source episodes [1]" in message
         assert "lintel block [8] on standing blocks [6, 7]" in message
         assert "navy blocks (0-2), level 2 from teal (3-5)" in message
         assert "white (6-8), bottom-up" in message
         # The protocol-following episode is on disk regardless.
-        assert (
-            _written_episodes(tmp_path / "out" / "LOOT-Stack-1Henge-Dk1" / "run") == 1
-        )
+        assert _written_episodes(tmp_path / "out" / "LOOT-Stack-1Pi-Dk1" / "run") == 1
 
     def test_allow_skips_demotes_the_raise_to_a_summary_warning(self, tmp_path):
-        source = _mixed_henge_session(tmp_path / "source")
+        source = _mixed_pi_session(tmp_path / "source")
         summaries = split_dataset(
             source,
-            "LOOT-Stack-3Henges-Dk1",
+            "LOOT-Stack-3Pis-Dk1",
             str(tmp_path / "out"),
             stamp="run",
             allow_skips=True,
         )
         assert [s["target_task"] for s in summaries] == [
-            "LOOT-Stack-2Henges-Dk1",
-            "LOOT-Stack-1Henge-Dk1",
+            "LOOT-Stack-2Pis-Dk1",
+            "LOOT-Stack-1Pi-Dk1",
         ]
         for summary in summaries:
             assert summary["written"] == 1
@@ -680,15 +676,15 @@ class TestSkipsAreFatal:
             assert "lintel block [8]" in summary["skip_diagnostics"][1]
 
     def test_main_exits_non_zero_unless_skips_are_allowed(self, tmp_path, monkeypatch):
-        source = _mixed_henge_session(tmp_path / "source")
+        source = _mixed_pi_session(tmp_path / "source")
         argv = [
             "loot-split-demos",
             "--source-dir",
             source,
             "--source-task",
-            "LOOT-Stack-3Henges-Dk1",
+            "LOOT-Stack-3Pis-Dk1",
             "--target-task",
-            "LOOT-Stack-1Henge-Dk1",
+            "LOOT-Stack-1Pi-Dk1",
             "--output-dir",
         ]
         monkeypatch.setattr(sys, "argv", [*argv, str(tmp_path / "strict")])
@@ -705,17 +701,17 @@ class TestSkipsAreFatal:
     def test_source_that_never_stands_level_1_says_so(self, tmp_path):
         # Three levels' worth of frames with nothing ever leaving its cell:
         # the source never succeeds either, so there is no lintel to name.
-        obs, qpos, qvel = _henge_episode([_henge_poses({})] * 3)
+        obs, qpos, qvel = _pi_episode([_pi_poses({})] * 3)
         source = _write_session(
             tmp_path / "source",
-            [_session_frame(0, obs, qpos, qvel, _henge_source_rewards(obs, qvel))],
+            [_session_frame(0, obs, qpos, qvel, _pi_source_rewards(obs, qvel))],
         )
         with pytest.raises(ValueError, match="never completed level 1 either"):
             split_dataset(
                 source,
-                "LOOT-Stack-3Henges-Dk1",
+                "LOOT-Stack-3Pis-Dk1",
                 str(tmp_path / "out"),
-                target_tasks=["LOOT-Stack-1Henge-Dk1"],
+                target_tasks=["LOOT-Stack-1Pi-Dk1"],
             )
 
     def test_domino_never_placed_raises_too(self, tmp_path):
@@ -755,11 +751,11 @@ def test_episode_rewards_pay_success_the_frame_it_first_holds():
 
 
 def test_write_roundtrip(tmp_path):
-    obs, qpos, qvel = _henge_episode(_tier_order_frames())
-    plan = _henge_plan("LOOT-Stack-1Henge-Dk1")
-    source = _session_frame(0, obs, qpos, qvel, _henge_source_rewards(obs, qvel))
+    obs, qpos, qvel = _pi_episode(_tier_order_frames())
+    plan = _pi_plan("LOOT-Stack-1Pi-Dk1")
+    source = _session_frame(0, obs, qpos, qvel, _pi_source_rewards(obs, qvel))
 
-    target = "LOOT-Stack-1Henge-Dk1"
+    target = "LOOT-Stack-1Pi-Dk1"
     out_root = str(tmp_path / target / "run")
     summary = split_to_task(
         [(0, source)],
@@ -784,4 +780,4 @@ def test_write_roundtrip(tmp_path):
     assert extra["start_pose_noise"] == 0.0
     assert extra["operator_id"] == 3
     assert extra["episode_seeds"] == {"0": 17}
-    assert extra["split_from"] == "Stack-3Henges"
+    assert extra["split_from"] == "Stack-3Pis"

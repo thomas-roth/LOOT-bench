@@ -31,15 +31,15 @@ from loot_bench.tasks.domino.mdp.commands import DOMINO_SPAWN_CELLS
 from loot_bench.tasks.place.mdp.commands import FIXED_SPAWN_XY, FIXED_TARGET_XY
 from loot_bench.tasks.shape_sorter.assets import BOARD_POS
 from loot_bench.tasks.shape_sorter.mdp.commands import SORTER_SPAWN_CELLS
-from loot_bench.tasks.stack.mdp.commands import HENGE_SPAWN_CELLS
+from loot_bench.tasks.stack.mdp.commands import PI_SPAWN_CELLS
 
-_BUILD_TASK = "LOOT-Stack-3Henges-Dk1"
+_BUILD_TASK = "LOOT-Stack-3Pis-Dk1"
 """Task the check builds (robot and table are shared by every category)."""
 
 _HOVER = 0.10
 """[m] grasp-site height above the table surface.
 
-Above the tallest spawn: a henge block stands 0.065 m on its cell, and the
+Above the tallest spawn: a pi block stands 0.065 m on its cell, and the
 fingers reach ~0.035 m below the site, so anything lower would drive the
 gripper into the very block sitting on the cell being probed. Still well
 below the reach dome's ceiling (0.20 m even at the far cells), so a solve
@@ -64,7 +64,7 @@ def _targets() -> list[tuple[str, float, float]]:
     out: list[tuple[str, float, float]] = []
     cube_pin: tuple[float, float] = (float(BOARD_POS[0]), float(BOARD_POS[1]))
     tables: list[tuple[str, tuple[tuple[float, float], ...]]] = [
-        ("stack", HENGE_SPAWN_CELLS),
+        ("stack", PI_SPAWN_CELLS),
         ("domino", DOMINO_SPAWN_CELLS),
         ("sorter", SORTER_SPAWN_CELLS),
         ("sorter-cube", (cube_pin,)),

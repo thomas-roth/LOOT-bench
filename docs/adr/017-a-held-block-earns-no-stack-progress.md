@@ -1,17 +1,17 @@
 # A held block earns no stack progress
 
-> **Amended 2026-09-11.** Stack became the henge family (ADR-020): progress
+> **Amended 2026-09-11.** Stack became the pi family (ADR-020): progress
 > is the fraction of levels complete, and a level is a horizontal block at a
 > fixed height. The mechanism here is unchanged; "no stack progress" now
 > means "no level credit". The symbol names, the success sentence and the
 > splitter bullet were updated in place. The file keeps its name because
 > other records cite it as ADR-017.
 
-Stack's progress is the fraction of henge levels complete, and a level is
+Stack's progress is the fraction of pi levels complete, and a level is
 credited to any block lying horizontal at its target height (ADR-020), which
 the gripper can carry a block to without placing it. Progress ignores the
-block currently in the gripper (`henge_levels_complete(..., exclude=)`, fed
-by `HengeCommand._held_block_mask`), so a lift pays nothing until the block
+block currently in the gripper (`pi_levels_complete(..., exclude=)`, fed
+by `PiCommand._held_block_mask`), so a lift pays nothing until the block
 is released.
 
 Without the exclusion the shaped reward peaks while the arm merely holds a

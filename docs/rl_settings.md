@@ -23,7 +23,7 @@ If this file and a record disagree, the record is correct.
   (`docs/adr/007-ee-pose-publishes-a-6d-rotation.md`).
 - Task observations: category-specific, see below.
 - Command: the current goal (for example Place's target point), where the
-  category publishes one. Stack publishes none: a henge's level state is a
+  category publishes one. Stack publishes none: a pi's level state is a
   function of the block poses the policy already sees.
 - No last-action term. It made "repeat the last action" a trivially strong
   regressor, so a policy could score on the demos without reading the scene
@@ -85,7 +85,7 @@ time:
 
 - `time_out`: the episode length is exceeded. It scales with the task's
    object count, at 25 s per object where one is carried and placed (Place is
-   15 s; Stack's henges are 75 / 150 / 225 s for 3 / 6 / 9 blocks).
+   15 s; Stack's pis are 75 / 150 / 225 s for 3 / 6 / 9 blocks).
 - `success`: the gate above is fully satisfied.
 - A category can add more failure or end conditions, see below.
 
@@ -118,18 +118,18 @@ time:
 
 ### Stack
 
-- **Progress**: the fraction of henge levels complete, `levels / N`,
+- **Progress**: the fraction of pi levels complete, `levels / N`,
   instantaneous, so a collapse takes the credit back. A level is complete
   when some *resting* block lies horizontal (`|cos| <= TILT_COS_MAX`, 0.10)
   with its centre within `HEIGHT_TOL` (3 mm) of the level's target height
   (0.075 / 0.160 / 0.245 m). A block held in the gripper is excluded, so
   lifting one to the target height earns nothing until it is released
-  (ADR-017). Under `--sparse` a 1Henge run is literally sparse; 3Henges
+  (ADR-017). Under `--sparse` a 1Pi run is literally sparse; 3Pis
   keeps three coarse rungs that the flag flattens.
 - **Observations**: the pose of every block. No command term.
 - **Success**: every level complete, at rest and released. The criterion
   tests the lintel only, never the supports; a T and a trilithon both count
-  (`docs/adr/020-a-henge-level-is-a-horizontal-block-at-a-fixed-height.md`).
+  (`docs/adr/020-a-pi-level-is-a-horizontal-block-at-a-fixed-height.md`).
   The two constants are coupled to the block geometry and checked at import,
   so neither can be tuned alone.
 - **Randomization**: the blocks stage standing from the fixed table once at

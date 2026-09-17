@@ -1,4 +1,4 @@
-"""Henge variants.
+"""Pi variants.
 
 A *level* is one block lying flat (the **lintel**) carried at a fixed height
 by whatever stands under it; a variant asks for 1, 2 or 3 levels stacked on
@@ -12,8 +12,8 @@ There is one block type, a square prism used both standing (an upright,
 contributing ``BLOCK_LENGTH`` to a pile's height) and lying (a lintel or a
 flat, contributing ``BLOCK_WIDTH``). Every variant gets exactly
 ``BLOCKS_PER_LEVEL`` blocks per level, tail-extending across the level axis
-(1Henge's blocks are blocks 0..2 of 2Henges, which are blocks 0..5 of
-3Henges), so ``loot-split-demos`` can cut the easier tasks out of a 3Henges
+(1Pi's blocks are blocks 0..2 of 2Pis, which are blocks 0..5 of
+3Pis), so ``loot-split-demos`` can cut the easier tasks out of a 3Pis
 recording. ``order_color`` paints those cut boundaries onto the blocks, one
 colour tier per level.
 
@@ -33,7 +33,7 @@ from dataclasses import dataclass
 from loot_bench.tasks.common.colors import order_color
 
 LEVELS: tuple[int, ...] = (1, 2, 3)
-"""Levels per task; the ``{n}Henge(s)`` half of the task id."""
+"""Levels per task; the ``{n}Pi(s)`` half of the task id."""
 
 BLOCKS_PER_LEVEL = 3
 """Two uprights and one lintel: the trilithon budget.
@@ -70,7 +70,7 @@ HEIGHT_TOL = 0.003
 """Max |lintel centre height - level target| (m), times the variant margin.
 
 Provisional, taken from the ~3 mm settle in ``docs/sim_settings.md`` and to
-be replaced by the henge settle measurement. It is coupled to
+be replaced by the pi settle measurement. It is coupled to
 ``TILT_COS_MAX``: the achievable heights of upright/flat piles form a
 lattice of pitch ``w/4`` = 5 mm on one pile and ``w/8`` = 2.5 mm across a
 pile *pair*, so raising this means tightening the tilt gate to match, and
@@ -160,7 +160,7 @@ def assert_no_alternative_build(levels: int, height_tol: float) -> None:
     test, because the constants it guards are the kind that get "tuned" in
     place: a looser ``HEIGHT_TOL`` after a settle measurement, a wider
     ``TILT_COS_MAX`` copied from another category, a block resized for
-    reach. Any of those can open a build that scores without a henge under
+    reach. Any of those can open a build that scores without a pi under
     it, and a unit test that nobody runs would not stop the task from
     registering.
     """
@@ -168,7 +168,7 @@ def assert_no_alternative_build(levels: int, height_tol: float) -> None:
         BLOCK_LENGTH, BLOCK_WIDTH, height_tol, TILT_COS_MAX, levels
     )
     assert not builds, (
-        f"a {levels}-level henge is also reachable by an upright/flat build "
+        f"a {levels}-level pi is also reachable by an upright/flat build "
         f"other than the intended one: {builds} (level, pile A (uprights, "
         "flats), pile B, blocks). BLOCK_LENGTH, BLOCK_WIDTH, HEIGHT_TOL and "
         "TILT_COS_MAX are one coupled system; see ADR-020"
@@ -176,11 +176,11 @@ def assert_no_alternative_build(levels: int, height_tol: float) -> None:
 
 
 @dataclass(frozen=True)
-class HengeVariantCfg:
+class PiVariantCfg:
     name: str
     """Variant identifier, used only for the experiment-name string."""
     levels: int
-    """How many levels to stack; the ``{n}Henge(s)`` half of the task id."""
+    """How many levels to stack; the ``{n}Pi(s)`` half of the task id."""
     block_colors: tuple[str, ...]
     """One palette colour per block, in tail-extending index order."""
     margin: float = 1.0
@@ -202,7 +202,7 @@ class HengeVariantCfg:
         while its box-AABB top at the gate's 5.7 deg limit reads 3.2 mm high,
         comparable to ``HEIGHT_TOL`` itself (ADR-020).
         """
-        assert 1 <= k <= self.levels, f"level {k} of a {self.levels}-level henge"
+        assert 1 <= k <= self.levels, f"level {k} of a {self.levels}-level pi"
         return k * LEVEL_HEIGHT - BLOCK_WIDTH / 2
 
     @property
@@ -210,7 +210,7 @@ class HengeVariantCfg:
         return tuple(self.level_centre_height(k) for k in range(1, self.levels + 1))
 
     def __post_init__(self):
-        assert self.levels >= 1, "a henge has at least one level"
+        assert self.levels >= 1, "a pi has at least one level"
         assert len(self.block_colors) == BLOCKS_PER_LEVEL * self.levels, (
             f"{self.name}: {len(self.block_colors)} blocks for {self.levels} levels"
         )
@@ -221,11 +221,11 @@ _TIER_BOUNDS = (BLOCKS_PER_LEVEL, 2 * BLOCKS_PER_LEVEL)
 """The easier variants' block counts, which is where a recording is cut."""
 
 
-def _build_variants() -> dict[str, HengeVariantCfg]:
-    out: dict[str, HengeVariantCfg] = {}
+def _build_variants() -> dict[str, PiVariantCfg]:
+    out: dict[str, PiVariantCfg] = {}
     for levels in LEVELS:
-        v = HengeVariantCfg(
-            name=f"Henge{levels}",
+        v = PiVariantCfg(
+            name=f"Pi{levels}",
             levels=levels,
             block_colors=tuple(
                 order_color(i, *_TIER_BOUNDS) for i in range(BLOCKS_PER_LEVEL * levels)
@@ -235,4 +235,4 @@ def _build_variants() -> dict[str, HengeVariantCfg]:
     return out
 
 
-HENGE_VARIANTS: dict[str, HengeVariantCfg] = _build_variants()
+PI_VARIANTS: dict[str, PiVariantCfg] = _build_variants()

@@ -32,7 +32,7 @@ uv run loot-list-tasks --filter LOOT --count
 ### Playing a Task
 The `loot-play` command starts mjlab's player on one task ID, so you can look at the scene and the robot. Give a checkpoint to see a policy, or `--agent zero` to hold the robot still.
 ```shell
-uv run loot-play LOOT-Stack-2Henges-Dk1 --agent zero --viewer native --num-envs 1
+uv run loot-play LOOT-Stack-2Pis-Dk1 --agent zero --viewer native --num-envs 1
 ```
 
 ## Data Collection
@@ -64,7 +64,7 @@ The `loot-split-demos` command turns one recording of a hard task into a demo se
 ```shell
 uv run loot-split-demos \
     --source-dir dataset/demos/<task>/<timestamp> \
-    --source-task LOOT-Stack-3Henges-Dk1 \
+    --source-task LOOT-Stack-3Pis-Dk1 \
     --output-dir dataset/demos_split
 ```
 

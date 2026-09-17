@@ -18,7 +18,7 @@ from dataclasses import dataclass
 
 CUBE_HALF_EXTENTS = (0.02, 0.02, 0.02)
 """The standard 0.04 m cube (the block the old Stack ``Easy`` variant used,
-before the category became henge building). Kept as the established box
+before the category became pi building). Kept as the established box
 geometry rather than inventing new physics constants."""
 
 CUBE_MASS = 0.10

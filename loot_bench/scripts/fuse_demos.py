@@ -21,9 +21,9 @@ Sidecar rules mirror :func:`loot_bench.qc.convert.convert`:
 
 Usage:
     uv run loot-fuse-demos \\
-        --src out/demos/success/LOOT-Stack-1Henge-Dk1/2026-09-13_18-16-20 \\
-        --src out/demos/success/LOOT-Stack-1Henge-Dk1/2026-09-13_19-53-22 \\
-        --out out/demos/fused/LOOT-Stack-1Henge-Dk1/<stamp>
+        --src out/demos/success/LOOT-Stack-1Pi-Dk1/2026-09-13_18-16-20 \\
+        --src out/demos/success/LOOT-Stack-1Pi-Dk1/2026-09-13_19-53-22 \\
+        --out out/demos/fused/LOOT-Stack-1Pi-Dk1/<stamp>
     uv run loot-convert-demos --success-dir <out> --output dataset/foo.npz
 """
 

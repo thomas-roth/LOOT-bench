@@ -42,10 +42,10 @@ cube pinned into the closing gripper, then lifted and shaken 5.5 s):
   than train. train_acc is identical to train. Same numbers on both
   machines.
 - sweep (free-space): same ordering, everything sub-mm over 6 s.
-- stack (6-cube tower at rest, the pre-henge block): all profiles incl.
+- stack (6-cube tower at rest, the pre-pi block): all profiles incl.
   reference settle ~3 mm, nothing collapses. The per-profile numbers vary
   between machines (chaotic settling), so only the gross outcome counts.
-- henge (3-level trilithon of 0.065 x 0.020 x 0.020 m blocks teleported in
+- pi (3-level trilithon of 0.065 x 0.020 x 0.020 m blocks teleported in
   and settled 2 s under the decided settings, 8 envs, GPU; measured
   2026-09-11 by `tests/tasks/check_success_reward.py`, which prints these):
 

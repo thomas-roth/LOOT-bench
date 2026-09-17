@@ -1,4 +1,4 @@
-"""Task command for the henge (stack) category.
+"""Task command for the pi (stack) category.
 
 There is no goal pose to sample: the level heights are per-task constants,
 so at every resample the command only resets the success gate and spawns the
@@ -36,12 +36,12 @@ from loot_bench.tasks.common.debug_markers import (
 from loot_bench.tasks.common.fixed_spawns import SPAWN_JITTER, sample_fixed_spawns
 from loot_bench.tasks.common.scatter import write_upright_spawn
 from loot_bench.tasks.common.success import OBJECT_VEL_THRESHOLD, SuccessGate
-from loot_bench.tasks.stack.mdp.success import henge_levels_complete, henge_progress
+from loot_bench.tasks.stack.mdp.success import pi_levels_complete, pi_progress
 from loot_bench.tasks.stack.variants import (
     BLOCK_HALF_EXTENTS,
     BLOCK_WIDTH,
     LEVEL_HEIGHT,
-    HengeVariantCfg,
+    PiVariantCfg,
 )
 
 if TYPE_CHECKING:
@@ -65,12 +65,12 @@ half-width, at most ``L - w`` = 45 mm before the lintel stops overhanging
 both, and 36 mm leaves ~4 mm of clearance on both that placement and the
 end-to-end lintel grip (ADR-020)."""
 
-_GOAL_HENGE_RGBA = (0.55, 0.75, 1.0, 1.0)  # base (pending) color, alpha unused
+_GOAL_PI_RGBA = (0.55, 0.75, 1.0, 1.0)  # base (pending) color, alpha unused
 
 # Local-to-world rotation laying a block's long axis (local z) along world y.
 _LINTEL_MAT = np.array([[1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, -1.0, 0.0]])
 
-HENGE_SPAWN_CELLS: tuple[tuple[float, float], ...] = (
+PI_SPAWN_CELLS: tuple[tuple[float, float], ...] = (
     (0.22, 0.15),
     (0.22, -0.15),
     (0.22, 0.27),
@@ -81,11 +81,11 @@ HENGE_SPAWN_CELLS: tuple[tuple[float, float], ...] = (
     (0.35, -0.30),
     (0.45, 0.00),
 )
-"""Fixed spawn cells, object ``i`` takes cell ``i`` (3Henges uses all nine).
+"""Fixed spawn cells, object ``i`` takes cell ``i`` (3Pis uses all nine).
 
 Clustered near the robot with the build zone left free, so a recording
-session starts with the work area empty. 1Henge's reset is a prefix of
-2Henges' and 2Henges' a prefix of 3Henges'. Minimum pairwise separation
+session starts with the work area empty. 1Pi's reset is a prefix of
+2Pis' and 2Pis' a prefix of 3Pis'. Minimum pairwise separation
 0.12 m against the 0.088 m pitch an upright 20 mm-square prism needs
 (``2 * 0.01 jitter + 2 * 0.01414 radius + 0.04 clearance``), so the table
 carries real margin rather than sitting on the bound.
@@ -95,8 +95,8 @@ BUILD_ZONE_X = (0.24, 0.32)
 """Build-zone x span (m), kept free of spawns.
 
 Near the robot rather than far, which inverts the intuitive "work far, stage
-near" arrangement: the reach dome tops out a three-level henge only near the
-base (see ADR-019), so the henge stands where the arm can still place its
+near" arrangement: the reach dome tops out a three-level pi only near the
+base (see ADR-019), so the pi stands where the arm can still place its
 top lintel.
 """
 
@@ -107,15 +107,15 @@ BUILD_HALO_MARGIN = 0.02
 """Extra margin (m) around the build zone, on top of object radius + jitter."""
 
 
-def henge_spawn_is_clear(x: float, y: float, object_radius: float) -> bool:
+def pi_spawn_is_clear(x: float, y: float, object_radius: float) -> bool:
     """Whether a jittered ``(x, y)`` spawn pose is clear of the build zone."""
     halo = object_radius + SPAWN_JITTER + BUILD_HALO_MARGIN
     x0, x1 = BUILD_ZONE_X
     return not (x0 - halo <= x <= x1 + halo and abs(y) <= BUILD_ZONE_HALF_WIDTH + halo)
 
 
-def goal_henge_parts(levels: int) -> list[tuple[int, str, np.ndarray, np.ndarray]]:
-    """Ghost-trilithon parts for a ``levels``-level reference henge.
+def goal_pi_parts(levels: int) -> list[tuple[int, str, np.ndarray, np.ndarray]]:
+    """Ghost-trilithon parts for a ``levels``-level reference pi.
 
     Table-relative env-local poses, directly right of the robot. Lintel
     centres are the level targets, uprights ``GUIDE_UPRIGHT_SPACING``
@@ -149,29 +149,29 @@ def goal_henge_parts(levels: int) -> list[tuple[int, str, np.ndarray, np.ndarray
     return parts
 
 
-def get_command(env: ManagerBasedRlEnv, name: str) -> HengeCommand:
-    return cast(HengeCommand, env.command_manager.get_term(name))
+def get_command(env: ManagerBasedRlEnv, name: str) -> PiCommand:
+    return cast(PiCommand, env.command_manager.get_term(name))
 
 
 @dataclass(kw_only=True)
-class HengeCommandCfg(CommandTermCfg):
+class PiCommandCfg(CommandTermCfg):
     block_names: tuple[str, ...]
     """All block entities, in the variant's (tail-extending) index order."""
-    variant: HengeVariantCfg
+    variant: PiVariantCfg
     grasp_cfg: SceneEntityCfg
     """Robot grasp site, used to find the held block; site set by wiring."""
     block_vel_threshold: float = OBJECT_VEL_THRESHOLD
     """Max linear speed (m/s) of any block to count success."""
     grip_reach: float = GRIP_REACH
 
-    def build(self, env: ManagerBasedRlEnv) -> HengeCommand:
-        return HengeCommand(self, env)
+    def build(self, env: ManagerBasedRlEnv) -> PiCommand:
+        return PiCommand(self, env)
 
 
-class HengeCommand(CommandTerm):
-    cfg: HengeCommandCfg
+class PiCommand(CommandTerm):
+    cfg: PiCommandCfg
 
-    def __init__(self, cfg: HengeCommandCfg, env: ManagerBasedRlEnv):
+    def __init__(self, cfg: PiCommandCfg, env: ManagerBasedRlEnv):
         super().__init__(cfg, env)
         variant = cfg.variant
         self.variant = variant
@@ -188,7 +188,7 @@ class HengeCommand(CommandTerm):
 
         self._half_h = torch.full((N,), BLOCK_HALF_EXTENTS[2], device=dev)
         self._level_heights = torch.tensor(variant.level_centre_heights, device=dev)
-        self._spawn_cells = torch.tensor(HENGE_SPAWN_CELLS, device=dev)
+        self._spawn_cells = torch.tensor(PI_SPAWN_CELLS, device=dev)
         assert self._spawn_cells.shape[0] >= N, (
             f"spawn table holds {self._spawn_cells.shape[0]} cells, variant needs {N}"
         )
@@ -242,7 +242,7 @@ class HengeCommand(CommandTerm):
         robot = self._env.scene["robot"]
         pads_free = self._contact_gate(self._grip_sensor)  # pads exert no force
         held = self._held_block_mask(robot, gripping=~pads_free)
-        self.levels_complete = henge_levels_complete(
+        self.levels_complete = pi_levels_complete(
             self.block_pos_w[:, :, 2],
             self.block_quat_w,
             table_z,
@@ -250,7 +250,7 @@ class HengeCommand(CommandTerm):
             self.variant.height_tol,
             exclude=held,
         )
-        self.progress = henge_progress(self.levels_complete)
+        self.progress = pi_progress(self.levels_complete)
         # One predicate for reward and termination: the exact level count,
         # not a float comparison on progress.
         task_done = self.levels_complete.all(dim=-1)
@@ -291,7 +291,7 @@ class HengeCommand(CommandTerm):
 
         # Object i takes cell i with +/-1 cm jitter (one rand draw per block,
         # in index order), so an easier task's reset is a prefix of a harder
-        # task's (1Henge -> 2Henges -> 3Henges). Blocks spawn standing, so
+        # task's (1Pi -> 2Pis -> 3Pis). Blocks spawn standing, so
         # the uprights come for free and each lintel costs one knock-over.
         xy, spawn_yaw = sample_fixed_spawns(self._spawn_cells, n, self.num_blocks)
         write_upright_spawn(self.blocks, xy, spawn_yaw, self._half_h, origins, env_ids)
@@ -307,9 +307,9 @@ class HengeCommand(CommandTerm):
             return
         for batch in env_indices:
             origin = self._env.scene.env_origins[batch].cpu().numpy()
-            self._draw_goal_henge(visualizer, batch, origin)
+            self._draw_goal_pi(visualizer, batch, origin)
 
-    def _draw_goal_henge(
+    def _draw_goal_pi(
         self, visualizer: DebugVisualizer, batch: int, origin: np.ndarray
     ) -> None:
         """Ghost trilithon per level, directly right of the robot.
@@ -317,15 +317,15 @@ class HengeCommand(CommandTerm):
         Position-free success, so the ghost is one possible solution, not
         the required spot. Trilithon form (the T stays legal by criterion,
         not shown); tinted off ``levels_complete``, so a level greens when
-        accepted anywhere. Buildable directly (see :func:`goal_henge_parts`).
+        accepted anywhere. Buildable directly (see :func:`goal_pi_parts`).
         """
         half = np.array(BLOCK_HALF_EXTENTS) + MARKER_INFLATE
         success = bool(self.success[batch] > 0.5)
         reached = self.levels_complete[batch].tolist()
-        for level, part, center, mat in goal_henge_parts(self.variant.levels):
-            color = marker_color(_GOAL_HENGE_RGBA, bool(reached[level]), success)
+        for level, part, center, mat in goal_pi_parts(self.variant.levels):
+            color = marker_color(_GOAL_PI_RGBA, bool(reached[level]), success)
             center = origin + center
-            label = f"goal_henge_{batch}_{level}_{part}"
+            label = f"goal_pi_{batch}_{level}_{part}"
             visualizer.add_box(
                 center=center, size=half, mat=mat, color=color, label=label
             )

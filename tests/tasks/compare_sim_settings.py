@@ -65,7 +65,7 @@ Measurements per profile:
              the max cube distance from the grasp site after release; a
              dropped cube shows up as ~0.2 m instead of a few mm.
 
-   ``stack`` and ``grasp`` reach into ``HengeCommand`` for the block
+   ``stack`` and ``grasp`` reach into ``PiCommand`` for the block
    entities, so they need a LOOT-Stack-* task; on other tasks they are
    skipped with a note. Contact-rich trajectories diverge chaotically, so
    the absolute deviation grows with sim time for *every* profile. Read
@@ -104,10 +104,10 @@ from mjlab.envs import ManagerBasedRlEnv
 from mjlab.tasks.registry import load_env_cfg
 
 import loot_bench  # noqa: F401  (registers tasks)
-from loot_bench.tasks.stack.mdp.commands import HengeCommand
+from loot_bench.tasks.stack.mdp.commands import PiCommand
 from loot_bench.tasks.stack.variants import BLOCK_HALF_EXTENTS
 
-DEFAULT_TASK = "LOOT-Stack-2Henges-Dk1"
+DEFAULT_TASK = "LOOT-Stack-2Pis-Dk1"
 SAMPLE_DT = 0.02  # sim-time spacing of accuracy samples; every profile's
 # step_dt must divide this so all profiles are compared at identical times.
 OBJECT_DRIFT_THRESHOLD = 1e-3  # 1 mm / 1 mrad: "first divergence" marker
@@ -245,9 +245,9 @@ class Scenario:
         return {}
 
 
-def _stack_command(env: ManagerBasedRlEnv, scenario: str) -> HengeCommand:
+def _stack_command(env: ManagerBasedRlEnv, scenario: str) -> PiCommand:
     cmd = env.command_manager.get_term("task")
-    if not isinstance(cmd, HengeCommand):
+    if not isinstance(cmd, PiCommand):
         raise ScenarioUnavailable(
             f"scenario '{scenario}' needs a LOOT-Stack-* task (command term is "
             f"{type(cmd).__name__})"

@@ -50,10 +50,10 @@ from loot_bench.tasks.stack.mdp.commands import (
     BUILD_HALO_MARGIN,
     BUILD_ZONE_HALF_WIDTH,
     BUILD_ZONE_X,
-    HENGE_SPAWN_CELLS,
-    henge_spawn_is_clear,
+    PI_SPAWN_CELLS,
+    pi_spawn_is_clear,
 )
-from loot_bench.tasks.stack.variants import BLOCK_HALF_EXTENTS, HENGE_VARIANTS
+from loot_bench.tasks.stack.variants import BLOCK_HALF_EXTENTS, PI_VARIANTS
 
 
 def _example_tables() -> dict[str, dict]:
@@ -280,11 +280,11 @@ def _category_tables() -> dict[str, dict]:
     )
     return {
         "stack": {
-            "cells": torch.tensor(HENGE_SPAWN_CELLS),
+            "cells": torch.tensor(PI_SPAWN_CELLS),
             "object_radius": stack_radius,
             "pitch": spawn_pitch(stack_radius, stack_radius),
-            "max_objects": max(v.num_blocks for v in HENGE_VARIANTS.values()),
-            "is_clear": lambda x, y: henge_spawn_is_clear(x, y, stack_radius),
+            "max_objects": max(v.num_blocks for v in PI_VARIANTS.values()),
+            "is_clear": lambda x, y: pi_spawn_is_clear(x, y, stack_radius),
         },
         "domino": {
             "cells": torch.tensor(DOMINO_SPAWN_CELLS),
@@ -335,17 +335,15 @@ class TestCategoryTables:
         halo = radius + SPAWN_JITTER + BUILD_HALO_MARGIN
         assert BUILD_ZONE_X == (0.24, 0.32)
         assert BUILD_ZONE_HALF_WIDTH == 0.07
-        assert not henge_spawn_is_clear(0.28, 0.0, radius)
+        assert not pi_spawn_is_clear(0.28, 0.0, radius)
         for cell in spec["cells"].tolist():
-            assert henge_spawn_is_clear(cell[0], cell[1], radius)
+            assert pi_spawn_is_clear(cell[0], cell[1], radius)
         x0, x1 = BUILD_ZONE_X
-        assert not henge_spawn_is_clear(x1 + halo - 1e-3, 0.0, radius)
-        assert henge_spawn_is_clear(x1 + halo + 1e-3, 0.0, radius)
-        assert not henge_spawn_is_clear(x0 - halo + 1e-3, 0.0, radius)
-        assert not henge_spawn_is_clear(
-            0.28, BUILD_ZONE_HALF_WIDTH + halo - 1e-3, radius
-        )
-        assert henge_spawn_is_clear(0.28, BUILD_ZONE_HALF_WIDTH + halo + 1e-3, radius)
+        assert not pi_spawn_is_clear(x1 + halo - 1e-3, 0.0, radius)
+        assert pi_spawn_is_clear(x1 + halo + 1e-3, 0.0, radius)
+        assert not pi_spawn_is_clear(x0 - halo + 1e-3, 0.0, radius)
+        assert not pi_spawn_is_clear(0.28, BUILD_ZONE_HALF_WIDTH + halo - 1e-3, radius)
+        assert pi_spawn_is_clear(0.28, BUILD_ZONE_HALF_WIDTH + halo + 1e-3, radius)
 
 
 class TestDominoRowLane:

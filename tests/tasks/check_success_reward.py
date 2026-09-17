@@ -34,7 +34,7 @@ from loot_bench.tasks.domino.mdp.commands import DominoCommand
 from loot_bench.tasks.place.mdp.commands import PlaceCommand
 from loot_bench.tasks.shape_sorter.assets import BOARD_POS, load_sorter_layout
 from loot_bench.tasks.shape_sorter.mdp.commands import ShapeSorterCommand
-from loot_bench.tasks.stack.mdp.commands import GUIDE_UPRIGHT_SPACING, HengeCommand
+from loot_bench.tasks.stack.mdp.commands import GUIDE_UPRIGHT_SPACING, PiCommand
 from loot_bench.tasks.stack.variants import (
     BLOCK_HALF_EXTENTS,
     BLOCK_LENGTH,
@@ -133,14 +133,14 @@ def _render_goal(env: ManagerBasedRlEnv, task_id: str, render: bool) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Henge (the Stack category)
+# Pi (the Stack category)
 # ---------------------------------------------------------------------------
 
-_HENGE_XY = (0.28, 0.12)
-"""Where the checks teleport the henge (success is position-free).
+_PI_XY = (0.28, 0.12)
+"""Where the checks teleport the pi (success is position-free).
 
 Beside the build zone, not in it: the robot's home gripper hangs over the
-zone's centre at ~(0.30, 0, 0.20), and a three-level henge is 0.255 m tall,
+zone's centre at ~(0.30, 0, 0.20), and a three-level pi is 0.255 m tall,
 so teleporting it there puts lintel 3 inside the wrist and the solver
 returns NaN for the whole env, robot included."""
 
@@ -167,7 +167,7 @@ def _write_block(block, pos: torch.Tensor, quat: torch.Tensor, device: str) -> N
 
 
 def _teleport_trilithons(
-    cmd: HengeCommand,
+    cmd: PiCommand,
     env: ManagerBasedRlEnv,
     device: str,
     *,
@@ -196,7 +196,7 @@ def _teleport_trilithons(
         _write_block(blocks[2], pos, lintel, device)
 
 
-def _report_settle(cmd: HengeCommand, env: ManagerBasedRlEnv) -> None:
+def _report_settle(cmd: PiCommand, env: ManagerBasedRlEnv) -> None:
     """Print the acceptance-gate numbers per lintel after settling.
 
     ``HEIGHT_TOL`` and ``TILT_COS_MAX`` are provisional until measured
@@ -219,14 +219,14 @@ def _report_settle(cmd: HengeCommand, env: ManagerBasedRlEnv) -> None:
         )
 
 
-def _check_henge_3levels(device: str, *, render: bool = False) -> str | None:
+def _check_pi_3levels(device: str, *, render: bool = False) -> str | None:
     """Three teleported trilithons must score after settling."""
-    task_id = "LOOT-Stack-3Henges-Dk1"
+    task_id = "LOOT-Stack-3Pis-Dk1"
     env = _make_env(task_id, device)
-    cmd = cast(HengeCommand, env.command_manager.get_term("task"))
+    cmd = cast(PiCommand, env.command_manager.get_term("task"))
     zeros = _zeros(env, device)
     env.step(zeros)
-    _teleport_trilithons(cmd, env, device, xy=_HENGE_XY)
+    _teleport_trilithons(cmd, env, device, xy=_PI_XY)
     for _ in range(_SETTLE_STEPS):
         env.step(zeros)
     _report_settle(cmd, env)
@@ -242,13 +242,11 @@ _GRIP_OPEN = 2.0
 _GRIP_STEPS = 60  # sim steps for the fingers to close on the pinned block
 
 
-def _check_henge_held_lintel_excluded(
-    device: str, *, render: bool = False
-) -> str | None:
+def _check_pi_held_lintel_excluded(device: str, *, render: bool = False) -> str | None:
     """A lintel gripped at level height must NOT earn level credit.
 
-    Exercises the held-block exclusion (``HengeCommand._held_block_mask`` +
-    ``henge_levels_complete(exclude=...)``) against the real grip-contact
+    Exercises the held-block exclusion (``PiCommand._held_block_mask`` +
+    ``pi_levels_complete(exclude=...)``) against the real grip-contact
     sensor, in the recording protocol's own geometry: the grasp site is
     driven down to the level-1 lintel height, blocks 1 and 2 are stood up
     as trilithon uprights under it, and block 0 is pinned between the
@@ -259,9 +257,9 @@ def _check_henge_held_lintel_excluded(
     it has to have something under it: a released block written into free
     air falls 12 mm inside one control step and reads under tolerance.
     """
-    task_id = "LOOT-Stack-1Henge-Dk1"
+    task_id = "LOOT-Stack-1Pi-Dk1"
     env = _make_env(task_id, device)
-    cmd = cast(HengeCommand, env.command_manager.get_term("task"))
+    cmd = cast(PiCommand, env.command_manager.get_term("task"))
     robot = env.scene["robot"]
     ne, dim = _NUM_ENVS, env.action_manager.action.shape[1]
     origins = env.scene.env_origins
@@ -286,7 +284,7 @@ def _check_henge_held_lintel_excluded(
     lintel_z = origins[:, 2] + cmd.variant.level_centre_height(1)
     target = torch.cat(
         [
-            origins[:, :2] + torch.tensor(_HENGE_XY, device=device),
+            origins[:, :2] + torch.tensor(_PI_XY, device=device),
             lintel_z.unsqueeze(-1),
         ],
         dim=-1,
@@ -354,9 +352,7 @@ def _check_henge_held_lintel_excluded(
     return None
 
 
-def _check_henge_empty_gripper_no_grip(
-    device: str, *, render: bool = False
-) -> str | None:
+def _check_pi_empty_gripper_no_grip(device: str, *, render: bool = False) -> str | None:
     """An empty, fully-closed gripper must not register grip force.
 
     Guards the finger<->finger contact exclusion in the DK1 model: without it
@@ -365,8 +361,8 @@ def _check_henge_empty_gripper_no_grip(
     ``grip_reach`` (e.g. a freshly placed lintel). Every block is sunk out
     of reach here, so any force can only be finger self-contact.
     """
-    env = _make_env("LOOT-Stack-1Henge-Dk1", device)
-    cmd = cast(HengeCommand, env.command_manager.get_term("task"))
+    env = _make_env("LOOT-Stack-1Pi-Dk1", device)
+    cmd = cast(PiCommand, env.command_manager.get_term("task"))
     ne, dim = _NUM_ENVS, env.action_manager.action.shape[1]
     quat = _upright_quat(ne, device)
     for block in cmd.blocks:
@@ -729,9 +725,9 @@ _CHECKS: list[tuple[str, str]] = [
     ("Place     RandS-FixedT ", "place_rands_fixedt"),
     ("Place     FixedS-RandT ", "place_fixeds_randt"),
     ("Place     FixedS-FixedT", "place_fixeds_fixedt"),
-    ("Stack     3Henges      ", "henge_3levels"),
-    ("Stack     1Henge-HeldLintel", "henge_held_lintel"),
-    ("Stack     1Henge-EmptyGrip", "henge_empty_gripper"),
+    ("Stack     3Pis      ", "pi_3levels"),
+    ("Stack     1Pi-HeldLintel", "pi_held_lintel"),
+    ("Stack     1Pi-EmptyGrip", "pi_empty_gripper"),
     ("Domino    3Pieces       ", "domino_3pieces"),
     ("Domino    3Pieces-KnockOver", "domino_knockover"),
     ("Sorter    3Shapes-Full ", "shape_sorter_full"),
@@ -744,12 +740,12 @@ _CHECKS: list[tuple[str, str]] = [
 def _dispatch(key: str, device: str, *, render: bool = False) -> str | None:
     if key.startswith("place_"):
         return _check_place(_PLACE_TASK_IDS[key], device, render=render)
-    if key == "henge_3levels":
-        return _check_henge_3levels(device, render=render)
-    if key == "henge_held_lintel":
-        return _check_henge_held_lintel_excluded(device, render=render)
-    if key == "henge_empty_gripper":
-        return _check_henge_empty_gripper_no_grip(device, render=render)
+    if key == "pi_3levels":
+        return _check_pi_3levels(device, render=render)
+    if key == "pi_held_lintel":
+        return _check_pi_held_lintel_excluded(device, render=render)
+    if key == "pi_empty_gripper":
+        return _check_pi_empty_gripper_no_grip(device, render=render)
     if key == "domino_3pieces":
         return _check_domino_3pieces(device, render=render)
     if key == "domino_knockover":

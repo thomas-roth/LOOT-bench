@@ -1,6 +1,6 @@
 # LOOT Benchmark
 
-Long-horizon robot-manipulation benchmark tasks (henge building, domino
+Long-horizon robot-manipulation benchmark tasks (pi building, domino
 placement, shape insertion, ball-to-target, cube placing) registered into
 mjlab. Training is QC-FQL (offline-to-online RL), which runs from a separate
 upstream `qc` checkout; this repo holds only the seam to it, in
@@ -147,11 +147,11 @@ The region in front of and through a bore/hole in which a peg or sorter
 piece is considered "in transit": laterally within the hole outline, axially
 between just outside the mouth and just below the crossing plane.
 
-### Henge
+### Pi
 
-**Henge**:
+**Pi**:
 What the `Stack` category builds: one to three levels stacked on top of each
-other, `LOOT-Stack-{1Henge,2Henges,3Henges}`. The task counts levels and
+other, `LOOT-Stack-{1Pi,2Pis,3Pis}`. The task counts levels and
 encodes nothing about the structure under a lintel. See ADR-020.
 _Avoid_: tower, stack height (the superseded height-only criterion)
 

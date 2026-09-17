@@ -43,8 +43,8 @@ def order_color(
     Objects tail-extend across a category's task axis, so the tier
     boundaries are the object counts of the easier tasks. Coloring on them
     shows the teleoperator the collection order and marks where a recording
-    can be cut (see ``scripts/split_demos.py``). E.g. 3Henges' 9 blocks with
-    the 1Henge/2Henges counts (3, 6) read 3 navy, 3 teal, 3 white, one tier
+    can be cut (see ``scripts/split_demos.py``). E.g. 3Pis' 9 blocks with
+    the 1Pi/2Pis counts (3, 6) read 3 navy, 3 teal, 3 white, one tier
     per level. Pass ``third_tier`` for a four-task axis: the tiers then read
     navy, teal, azure, white, one tier per easier task.
     """

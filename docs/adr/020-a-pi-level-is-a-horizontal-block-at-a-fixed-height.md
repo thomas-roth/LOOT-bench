@@ -1,8 +1,8 @@
-# A henge level is a horizontal block at a fixed height
+# A pi level is a horizontal block at a fixed height
 
 Stack scored a tower by height alone, nine tasks over `Stack{3,4,5}` x
-`{Easy,Medium,Hard}`. It is replaced by three henge tasks
-(`LOOT-Stack-1Henge-Dk1`, `-2Henges-`, `-3Henges-`): level `k` is complete
+`{Easy,Medium,Hard}`. It is replaced by three pi tasks
+(`LOOT-Stack-1Pi-Dk1`, `-2Pis-`, `-3Pis-`): level `k` is complete
 when some block lies horizontal with its centre at `k(L+w) - w/2` above the
 table, and the task encodes nothing about what holds it there. The criterion
 tests the lintel and never the supports, because any structural test either
@@ -24,9 +24,9 @@ termination so the two cannot drift.
 
 | Task | Levels | Blocks | Lintel centres (m) | Episode |
 | --- | --- | --- | --- | --- |
-| `1Henge` | 1 | 3 | 0.075 | 75 s |
-| `2Henges` | 2 | 6 | 0.075, 0.160 | 150 s |
-| `3Henges` | 3 | 9 | 0.075, 0.160, 0.245 | 225 s |
+| `1Pi` | 1 | 3 | 0.075 | 75 s |
+| `2Pis` | 2 | 6 | 0.075, 0.160 | 150 s |
+| `3Pis` | 3 | 9 | 0.075, 0.160, 0.245 | 225 s |
 
 The block is one square prism, `0.065 x 0.020 x 0.020 m` (40.6 g), serving
 as upright and as lintel. The cross-section is square because a block spawns
@@ -45,7 +45,7 @@ at a random yaw and must grasp the same standing and lying. `L = 0.065`,
 
 The trilithon costs a third block and stands. The T is one block cheaper and
 tips. Neither is rewarded or forbidden by rule. The instability is emergent,
-and it only bites at `2Henges` and `3Henges`, where a level has to survive
+and it only bites at `2Pis` and `3Pis`, where a level has to survive
 the next one being built on top of it. That trade is the reason the
 multi-level tasks exist.
 
@@ -57,7 +57,7 @@ control step, so it cannot latch a success on the way down.
 ## Why `(L, w, HEIGHT_TOL, TILT_COS_MAX)` are one coupled system
 
 The worry is a pile of upright and flat blocks that puts *some* block
-horizontal at a target height with no henge under it.
+horizontal at a target height with no pi under it.
 
 **One pile.** `a` uprights and `b` flats carry a lintel's centre to
 `aL + bw + w/2`. Level `k` wants `kL + (k-1)w + w/2`. With `L = 13w/4` this
@@ -109,7 +109,7 @@ would relabel a failed take a success offline.
 
 The trade has a ceiling: `HEIGHT_TOL < w/4 = 5 mm`. At 5 mm a zero-tilt
 build opens: one pile of 3 flats (top 60 mm) puts a lintel's centre at 70 mm
-against level 1's 75 mm, exactly level, 4 blocks, in budget from `2Henges`
+against level 1's 75 mm, exactly level, 4 blocks, in budget from `2Pis`
 up. No gate value excludes a level lintel. At or above 5 mm the geometry has
 to change, not the constants.
 
@@ -201,8 +201,8 @@ Carry height equals placement height, so there is no extra carry penalty.
 - `3N` blocks per task is a choice, not a minimum. A single pile
   `U, F, U, F, U, F` completes all three levels in six blocks (upright tops
   65 / 150 / 235 mm). `3N` is the trilithon budget, it lands the colour tiers
-  (navy, teal, white) on level boundaries, and it keeps `1Henge` a prefix of
-  `2Henges` a prefix of `3Henges` for the demo splitter.
+  (navy, teal, white) on level boundaries, and it keeps `1Pi` a prefix of
+  `2Pis` a prefix of `3Pis` for the demo splitter.
 - Supersedes Stack's height-only criterion and all nine
   `LOOT-Stack{3,4,5}-{Easy,Medium,Hard}-Dk1` ids. No demonstrations existed
   for them, so nothing recorded is lost.

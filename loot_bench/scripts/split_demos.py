@@ -7,7 +7,7 @@ easier task's rollout is already embedded in the harder task's recording. This
 script cuts it out, turning one hard session into a dataset per easier task at
 no extra teleop time.
 
-Supported: **Stack** (``1Henge``/``2Henges``/``3Henges``, one family: the
+Supported: **Stack** (``1Pi``/``2Pis``/``3Pis``, one family: the
 colour tiers navy/teal/white are the cut boundaries), **Domino** (base,
 ``RandomRow``, ``DifferentDominoes``; ``KnockOver`` is not splittable, its
 topple being one chain over all pieces) and **Sorter** (every spawn
@@ -37,7 +37,7 @@ layout, pad-force column, success kernel, or frame alignment fails loudly on
 the first real run.
 
 A source episode in which the target's success is never paid is not a demo
-of the target and is dropped. That is a protocol break (a henge level built
+of the target and is dropped. That is a protocol break (a pi level built
 from the wrong colour tier, a domino placed out of order), so the run
 **fails**: every relabelable episode of every target is written first, then
 one error lists the dropped episodes per target with a per-episode
@@ -46,8 +46,8 @@ to a warning for a session whose loss is understood.
 
 Usage:
     uv run loot-split-demos \\
-        --source-dir dataset/demos/LOOT-Stack-3Henges-Dk1/<stamp> \\
-        --source-task LOOT-Stack-3Henges-Dk1 \\
+        --source-dir dataset/demos/LOOT-Stack-3Pis-Dk1/<stamp> \\
+        --source-task LOOT-Stack-3Pis-Dk1 \\
         --output-dir dataset/demos_split          # all easier same-family tasks
     # or an explicit subset:
         --target-task LOOT-Domino-2Pieces-Dk1
@@ -79,8 +79,8 @@ from loot_bench.tasks.domino.mdp.success import domino_upright_aligned
 from loot_bench.tasks.stack.mdp.commands import GRIP_REACH
 from loot_bench.tasks.stack.mdp.success import (
     block_is_horizontal,
-    henge_levels_complete,
-    henge_progress,
+    pi_levels_complete,
+    pi_progress,
 )
 from loot_bench.tasks.stack.variants import BLOCK_LENGTH, BLOCKS_PER_LEVEL
 
@@ -133,7 +133,7 @@ class FrameState:
 # --------------------------------------------------------------------------- #
 
 
-def _henge_levels(
+def _pi_levels(
     variant: Any, blocks: torch.Tensor, state: FrameState, levels: int
 ) -> torch.Tensor:
     """(T, levels) per-level lintel test over the first ``levels`` levels.
@@ -144,7 +144,7 @@ def _henge_levels(
     level_heights = torch.tensor(
         variant.level_centre_heights[:levels], dtype=blocks.dtype
     )
-    return henge_levels_complete(
+    return pi_levels_complete(
         blocks[:, :, 2],
         blocks[:, :, 3:7],
         0.0,
@@ -154,28 +154,28 @@ def _henge_levels(
     )
 
 
-def _henge_progress_and_gate(
+def _pi_progress_and_gate(
     variant: Any, state: FrameState
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Stack (henge): a horizontal, unheld lintel at every level's height."""
+    """Stack (pi): a horizontal, unheld lintel at every level's height."""
     blocks = state.sections[0]  # (T, k, 7) env-local pos+quat
-    complete = _henge_levels(variant, blocks, state, variant.levels)
+    complete = _pi_levels(variant, blocks, state, variant.levels)
     task_done = complete.all(dim=-1)
     at_rest = state.speed.amax(dim=-1) <= OBJECT_VEL_THRESHOLD
-    return henge_progress(complete), task_done & at_rest & state.released
+    return pi_progress(complete), task_done & at_rest & state.released
 
 
-def _henge_skip_diagnostic(variant: Any, state: FrameState) -> str:
+def _pi_skip_diagnostic(variant: Any, state: FrameState) -> str:
     """Which blocks formed the source's first level 1, if it ever stood.
 
-    A henge relabel fails when level 1 was built from a later colour tier:
+    A pi relabel fails when level 1 was built from a later colour tier:
     the target keeps only the first-``k`` blocks, so a white lintel is cut
     out of the observation and the level it made never counts. Naming the
     blocks that actually formed level 1 turns the failure into "block 8 was
     the lintel", which the operator can act on.
     """
     blocks = state.sections[0]  # (T, n_src, 7)
-    level_1 = _henge_levels(variant, blocks, state, levels=1)[:, 0]  # (T,)
+    level_1 = _pi_levels(variant, blocks, state, levels=1)[:, 0]  # (T,)
     if not bool(level_1.any()):
         return "the source never completed level 1 either"
     frame = int(torch.argmax(level_1.int()).item())
@@ -203,7 +203,7 @@ def _generic_skip_diagnostic(variant: Any, state: FrameState) -> str:
 
 
 def _held_block_mask(blocks: torch.Tensor, state: FrameState) -> torch.Tensor:
-    """(T, k) bool marking the block in the gripper, as ``HengeCommand`` does.
+    """(T, k) bool marking the block in the gripper, as ``PiCommand`` does.
 
     A held block earns no progress, so the offline reward has to find the same
     one: the nearest block within ``GRIP_REACH`` while the pads report grip
@@ -302,7 +302,7 @@ _ORDER_CAUSE = (
 )
 
 
-def _henge_skip_cause(variants: dict[str, Any]) -> str:
+def _pi_skip_cause(variants: dict[str, Any]) -> str:
     """The tier protocol, spelled from the hardest variant's block colours so
     the message cannot drift from ``order_color``."""
     hardest = max(variants.values(), key=lambda v: v.levels)
@@ -321,21 +321,21 @@ def _henge_skip_cause(variants: dict[str, Any]) -> str:
 
 def _make_stack_adapter() -> CategoryAdapter:
     from loot_bench.tasks.stack.config import task_id_parts
-    from loot_bench.tasks.stack.variants import HENGE_VARIANTS
+    from loot_bench.tasks.stack.variants import PI_VARIANTS
 
     return CategoryAdapter(
         categories=("Stack",),
         obs_section_widths=(7,),
-        variants=HENGE_VARIANTS,
+        variants=PI_VARIANTS,
         id_parts=task_id_parts,
         category_of=lambda v: "Stack",
         family=lambda v: task_id_parts(v)[1],
         n_objects=lambda v: v.num_blocks,
         object_signatures=lambda v: v.block_colors,
         splittable=lambda v: True,
-        progress_and_gate=_henge_progress_and_gate,
-        skip_cause=_henge_skip_cause(HENGE_VARIANTS),
-        skip_diagnostic=_henge_skip_diagnostic,
+        progress_and_gate=_pi_progress_and_gate,
+        skip_cause=_pi_skip_cause(PI_VARIANTS),
+        skip_diagnostic=_pi_skip_diagnostic,
     )
 
 
@@ -945,9 +945,7 @@ def main() -> None:
     parser.add_argument(
         "--source-dir", required=True, help="source LeRobot dataset root"
     )
-    parser.add_argument(
-        "--source-task", required=True, help="e.g. LOOT-Stack-3Henges-Dk1"
-    )
+    parser.add_argument("--source-task", required=True, help="e.g. LOOT-Stack-3Pis-Dk1")
     parser.add_argument(
         "--target-task",
         action="append",

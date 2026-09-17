@@ -1,4 +1,4 @@
-"""Environment configuration for the henge (stack) task category."""
+"""Environment configuration for the pi (stack) task category."""
 
 from mjlab.entity import EntityCfg
 from mjlab.envs import ManagerBasedRlEnvCfg
@@ -11,9 +11,9 @@ from mjlab.sensor import ContactMatch, ContactSensorCfg
 from loot_bench.tasks.common.commands import GRIP_CONTACT_SENSOR_NAME
 from loot_bench.tasks.common.env_cfg import make_manipulation_env_cfg
 from loot_bench.tasks.common.table import table_entity_cfg
-from loot_bench.tasks.stack import mdp as henge_mdp
+from loot_bench.tasks.stack import mdp as pi_mdp
 from loot_bench.tasks.stack.assets import get_block_spec
-from loot_bench.tasks.stack.variants import BLOCKS_PER_LEVEL, HengeVariantCfg
+from loot_bench.tasks.stack.variants import BLOCKS_PER_LEVEL, PiVariantCfg
 
 COMMAND_NAME = "task"
 
@@ -21,7 +21,7 @@ SECONDS_PER_BLOCK = 25.0
 """Episode budget per block, so 75 / 150 / 225 s for 1 / 2 / 3 levels.
 
 ADR-016 has the ``Place`` demos (one carry-and-place) at median 5.9 s,
-p90 11.8 s, max 17.5 s. A henge block costs that *plus*, for a lintel, a
+p90 11.8 s, max 17.5 s. A pi block costs that *plus*, for a lintel, a
 knock-over and a re-grasp: ``joint4`` (``dk1.xml:173``) has only 22 deg of
 pitch from home, so a standing block cannot be rolled flat in the wrist and
 has to be tipped over and picked up again. Nine placements at p90 alone are
@@ -35,11 +35,11 @@ The consequence, accepted knowingly (ADR-020): at 225 s = 4500 steps QC's
 band ADR-016 validates. Do not "fix" it by shortening the episode."""
 
 
-def make_henge_env_cfg(
-    variant: HengeVariantCfg,
+def make_pi_env_cfg(
+    variant: PiVariantCfg,
     play: bool = False,
 ) -> ManagerBasedRlEnvCfg:
-    """Build the robot-agnostic henge cfg (see ``tasks/common/env_cfg.py``
+    """Build the robot-agnostic pi cfg (see ``tasks/common/env_cfg.py``
     for the placeholder/wiring convention)."""
     block_names = tuple(f"block_{i}" for i in range(variant.num_blocks))
     grasp_cfg = SceneEntityCfg("robot", site_names=())  # Set per-robot by wiring.
@@ -53,14 +53,14 @@ def make_henge_env_cfg(
     # No new observation term: level state is a function of the block poses.
     task_obs_terms = {
         "block_poses": ObservationTermCfg(
-            func=henge_mdp.block_poses,
+            func=pi_mdp.block_poses,
             params={"command_name": COMMAND_NAME},
         ),
     }
 
     task_rewards = {
         "task": RewardTermCfg(
-            func=henge_mdp.task_reward,
+            func=pi_mdp.task_reward,
             weight=1.0,
             params={"command_name": COMMAND_NAME},
         ),
@@ -68,7 +68,7 @@ def make_henge_env_cfg(
 
     task_terminations = {
         "success": TerminationTermCfg(
-            func=henge_mdp.henge_complete,
+            func=pi_mdp.pi_complete,
             params={"command_name": COMMAND_NAME},
         ),
     }
@@ -86,7 +86,7 @@ def make_henge_env_cfg(
         entities=entities,
         fixed_props=("table",),
         command_name=COMMAND_NAME,
-        command_cfg=henge_mdp.HengeCommandCfg(
+        command_cfg=pi_mdp.PiCommandCfg(
             block_names=block_names,
             variant=variant,
             grasp_cfg=grasp_cfg,

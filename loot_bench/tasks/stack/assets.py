@@ -1,4 +1,4 @@
-"""MjSpec builder for the henge block."""
+"""MjSpec builder for the pi block."""
 # pyright: reportAttributeAccessIssue=false
 # (mujoco ships no type stubs for the compiled MjSpec module)
 

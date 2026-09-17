@@ -6,9 +6,9 @@ Goal:
 - use a script to create demonstrations for smaller tasks
   - split at progress rewards
   - adapt rewards (scale progress rewards to [0,1], add episode success)
-  - adapt observations to fit task (e.g. only 3 blocks for 1Henge (remove the last 6 blocks from 3Henges))
+  - adapt observations to fit task (e.g. only 3 blocks for 1Pi (remove the last 6 blocks from 3Pis))
 
-Pay attention to the drawing of random numbers from a seed. First draw all randomness for the easiest task (e.g. 1Henge), and then continue step-wise to the hardest task (e.g. then 2Henges and after that 3Henges). This allows the cutoff to work.
+Pay attention to the drawing of random numbers from a seed. First draw all randomness for the easiest task (e.g. 1Pi), and then continue step-wise to the hardest task (e.g. then 2Pis and after that 3Pis). This allows the cutoff to work.
 
 ### Global Modifiers:
 - Margin
@@ -21,10 +21,10 @@ always randomize objects & goal poses (position and orientation) a little if not
 
 ## Category: Stack
 
-Build a henge: a *level* is one horizontal block (a lintel) held at a fixed
+Build a pi: a *level* is one horizontal block (a lintel) held at a fixed
 height by whatever stands under it, and the task is to stack one, two or
 three levels on top of each other. Only the lintel is scored, never the
-supports (`docs/adr/020-a-henge-level-is-a-horizontal-block-at-a-fixed-height.md`).
+supports (`docs/adr/020-a-pi-level-is-a-horizontal-block-at-a-fixed-height.md`).
 
 | **Evaluated Capabilities** | Description |
 | --- | --- |
@@ -34,12 +34,12 @@ supports (`docs/adr/020-a-henge-level-is-a-horizontal-block-at-a-fixed-height.md
 
 | **Task** | Levels | Blocks | Lintel centres (m) | Episode |
 | --- | --- | --- | --- | --- |
-| 1Henge | 1 | 3 | 0.075 | 75 s |
-| 2Henges | 2 | 6 | 0.075, 0.160 | 150 s |
-| 3Henges | 3 | 9 | 0.075, 0.160, 0.245 | 225 s |
+| 1Pi | 1 | 3 | 0.075 | 75 s |
+| 2Pis | 2 | 6 | 0.075, 0.160 | 150 s |
+| 3Pis | 3 | 9 | 0.075, 0.160, 0.245 | 225 s |
 
-There is no variation axis; the task ids are `LOOT-Stack-1Henge-Dk1`,
-`LOOT-Stack-2Henges-Dk1` and `LOOT-Stack-3Henges-Dk1`.
+There is no variation axis; the task ids are `LOOT-Stack-1Pi-Dk1`,
+`LOOT-Stack-2Pis-Dk1` and `LOOT-Stack-3Pis-Dk1`.
 
 Two builds complete a level and the criterion prefers neither:
 
@@ -53,17 +53,17 @@ Two builds complete a level and the criterion prefers neither:
 
 The trilithon costs a third block and stands. The T is faster and tips.
 Nothing rewards or forbids either; the physics decides, and its verdict only
-matters from 2Henges up, where a level has to carry the next one.
+matters from 2Pis up, where a level has to carry the next one.
 
 One block type serves as upright and as lintel: a square prism of
 0.065 x 0.020 x 0.020 m, 40.6 g. The cross-section is square because a block
 spawns at a random yaw and must grasp identically standing and lying. Blocks
 are coloured in tiers of three, navy, teal and white, one tier per level:
-1Henge's blocks are the first three of 2Henges, which are the first six of
-3Henges.
+1Pi's blocks are the first three of 2Pis, which are the first six of
+3Pis.
 
 Operator protocol, which the code cannot enforce: build level 1 from the navy
-blocks, level 2 from teal, level 3 from white, bottom-up, or a 3Henges
+blocks, level 2 from teal, level 3 from white, bottom-up, or a 3Pis
 recording will not split into the easier tasks. Grip lintels end-to-end (a
 grip across the width scrapes both uprights at zero clearance). Space
 trilithon uprights about 36 mm apart. Blocks spawn standing, so make a lintel
