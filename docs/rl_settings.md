@@ -15,9 +15,10 @@ If this file and a record disagree, the record is correct.
   recorded demonstrations, and the demonstrations came through the
   uncorrupted observation.
 - Proprioception (all tasks): joint positions, joint velocities, the
-  end-effector pose, and the finger-pad contact force (1 wide: the same
-  reduction the release gate reads, so the policy sees the quantity its
-  episode terminates on, `docs/adr/018-contact-only-release-gate.md`).
+  end-effector pose, and — except Ball, which declares no grip sensor —
+  the finger-pad contact force (1 wide: the same reduction the release
+  gate reads, so the policy sees the quantity its episode terminates on,
+  `docs/adr/018-contact-only-release-gate.md`).
 - The end-effector pose is 9 wide: the position, then the first two columns
   of the rotation matrix. It is never a quaternion
   (`docs/adr/007-ee-pose-publishes-a-6d-rotation.md`).
@@ -83,11 +84,17 @@ time:
 
 **Terminations (all tasks)**
 
-- `time_out`: the episode length is exceeded. It scales with the task's
-   object count, at 25 s per object where one is carried and placed (Place is
-   15 s; Stack's pis are 75 / 150 / 225 s for 3 / 6 / 9 blocks).
-- `success`: the gate above is fully satisfied.
-- A category can add more failure or end conditions, see below.
+- `time_out`: per-category budget, see table below. `success`: the gate
+  above is fully satisfied. Extra failure/end conditions per category,
+  see below.
+
+| Category | Episode length |
+| --- | --- |
+| Stack | 75 / 150 / 225 s (25 s per block) |
+| Domino | 20 s per domino, +30 s for `KnockOver` |
+| Sorter | 20 s per piece |
+| Ball | 10 / 12 / 16 / 20 s minigolf, 12 / 12 / 16 s throw |
+| Place | 15 s (300 steps) |
 
 **Randomization**
 
@@ -144,53 +151,59 @@ time:
 ### Domino
 
 - **Progress**: the placement fraction while building. The `KnockOver`
-  variants use half the placement fraction during the build phase, then half
-  the placement fraction plus half the toppled fraction during the topple
-  phase.
-- **Observations**: the pose of every domino, a per-slot placed flag, and a
-  `phase` flag (build or topple, `KnockOver` only).
-- **Success**: every domino stands upright and row-aligned (about 15 degrees
-  of tolerance). `KnockOver` also needs every domino to fall along the row,
-  all leaning the same way, and in row order.
+  variants use half the placement fraction during the build phase, then a
+  latched 0.5 plus half the toppled fraction during the topple phase.
+- **Observations**: the pose of every domino, a per-slot placed flag, the
+  per-slot goal poses as command, and a `phase` flag (build or topple,
+  `KnockOver` only).
+- **Success**: every domino within 15 mm × margin of its slot, upright and
+  row-aligned (15° × margin). `KnockOver` also needs every domino fallen
+  along the row (>45° tilt, within a 45° cone of the row axis), all leaning
+  the same way, and in row order.
 - **Randomization**: the dominoes stage from the fixed table at every reset;
   spawns and row separate in x by construction. The row itself is pinned in
-  x, except in the `RandomRow` variants, which redraw the row centre y and
-  yaw at every reset. The row spacing is always fixed, so the knock-over stays
-  possible.
+  x at 0.40, except in the `RandomRow` variants, which redraw the row centre
+  y (±0.08 m) and yaw (±0.35 rad). The row spacing is always fixed (0.05 m),
+  so the knock-over stays possible. Short rows are the first n slots of the
+  6-row.
 
 ### Shape Sorter
 
 - **Progress**: the fraction of the pieces that are latched as inserted.
 - **Observations**: the cube pose, the pose of every piece, and a per-socket
-  inserted flag.
+  inserted flag. The command (mouth positions + axes) exists but is not
+  observed.
 - **Success**: a one-way "crossed into the socket" detector per piece. Once a
   piece goes deep enough and aligned with the hole axis, it latches as
-  inserted and a pull-back cannot un-mark it. No at-rest check.
-- **Randomization**: the cube face and yaw are randomized (the mode changes
-  with the variant: a fixed orientation, no forced hole-down, or fully free).
-  The pieces stage from a fixed table in front of the sorter with the
-  insertion corridor kept clear.
+  inserted and a pull-back cannot un-mark it. Hole slack is 5 mm × margin.
+  No at-rest check.
+- **Randomization**: the cube sits at (0.375, 0) ±1 cm in every mode; only
+  the face-down face and yaw vary (fixed: dead star face; no-rotation: an
+  allowed face; full: any of the six). The pieces stage from a fixed table
+  in front of the sorter with the insertion corridor kept clear.
 
 ### Ball (Minigolf / Throw)
 
 - **Progress**: none. The reward is the sparse member of the convention: `-1`
   every step until the ball scores. A ball is either in the target zone or
   not, and the distance says little about where the throw will land.
-- **Observations**: the ball position and velocity, the field pose (which
-  holds the fixed positions of the obstacles, the ramp and so on), and the
-  wall pose where the variant has one.
-- **Success**: the horizontal distance to the goal is under a target radius.
+- **Observations**: the ball position (no orientation) and linear velocity,
+  the field pose (which holds the fixed positions of the obstacles, the
+  ramp and so on), the target as command, and the wall pose for
+  `Throw/WallVariation` only (other walls are baked into the field).
+- **Success**: the horizontal distance to the goal is under the target
+  radius (pit: physical hole radius 0.045, unscaled; throw: 0.04 × margin).
   A hole goal also needs the ball below the surface, and a flat goal only
-  needs it near the surface. The at-rest threshold is per-variant, not the
-  shared default.
-- **Extra terminations**: `out_of_bounds` (more than 1.2 m from the robot),
-  `off_platform` (minigolf, the ball fell off an edge outside any pit), and
-  `wall_collision` (throw with a wall, the ball hit the wall instead of
+  needs it near the surface. At-rest is 0.06 m/s, release is >0.08 m from
+  the grasp site.
+- **Extra terminations**: `out_of_bounds` (ball xy more than 1.2 m from the
+  env origin), `off_platform` (minigolf, the ball fell off an edge outside any pit), and
+  `wall_collision` (any variant with a wall, the ball hit the wall instead of
   clearing it).
-- **Randomization**: the ball spawn is jittered at every reset, and so is the
-  field pose (and the wall pose where the variant has a wall). The command
-  therefore tracks the target relative to the field's live pose, not as a
-  constant offset.
+- **Randomization**: the ball spawn (x 0.24–0.30, y ±0.08) and the field
+  pose (x ±0.02, y ±0.03); the wall pose only where the variant has a
+  movable wall (x ±0.06, sink 0..0.08). The command therefore tracks the
+  target relative to the field's live pose, not as a constant offset.
 
 ### Place
 
@@ -199,7 +212,8 @@ time:
   per-episode.
 - **Observations**: the cube pose, and the command, which is the env-local
   target point.
-- **Success**: the cube is within the target radius, at rest, and released.
+- **Success**: the cube is within 0.02 m × margin (3D) of the target, at
+  rest, and released.
 - **Randomization**: the cube spawn and the target are two independent axes,
   and each variant pins or samples them separately.
 - Place is the one-cube sanity check that the QC pipeline is brought up on.
