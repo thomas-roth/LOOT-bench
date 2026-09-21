@@ -1,0 +1,9 @@
+{
+    "start_pose_noise": 0.0,
+    "episode_seeds": {
+        "0": 2051713381,
+        "1": 669813540
+    },
+    "seed_device": "cuda",
+    "operator_id": 1
+}
