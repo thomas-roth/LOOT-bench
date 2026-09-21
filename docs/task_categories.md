@@ -45,7 +45,7 @@ supports (`docs/adr/020-a-pi-level-is-a-horizontal-block-at-a-fixed-height.md`).
 
 | **Variation** | Description |
 | --- | --- |
-| *(none)* | Ghost trilithon in the build-zone middle as the build guide: `LOOT-Stack-1Pi-Dk1`. |
+| *base* | Ghost trilithon in the build-zone middle as the build guide: `LOOT-Stack-1Pi-Dk1`. |
 | `FreePos` | Ghost out of the build zone, operator builds anywhere: `LOOT-Stack-1Pi-FreePos-Dk1`. Success is position-free both ways. |
 
 Two builds complete a level and the criterion prefers neither:
@@ -97,7 +97,7 @@ Build a domino line that can topple sequentially.
 
 | **Variation** | Description |
 | --- | --- |
-| *(none)* | Use identical basic dominoes only. The base variant carries no variation segment: `LOOT-Domino-2Pieces-Dk1`. |
+| *base* | Use identical basic dominoes only. The base variant carries no variation segment: `LOOT-Domino-2Pieces-Dk1`. |
 | `RandomRow` | Row centre y (±0.08 m) and yaw (±0.35 rad about ±π/2) redrawn every reset; row centre x stays pinned at 0.40. |
 | `DifferentDominoes` | Domino thickness and mass scale by 0.8^i along the row. Requires `ordered`. |
 | `KnockOver` | Topple the completed line as a chain: every domino falls along the row, same direction, in row order; phase observation build (`0`) / topple (`1`). |
