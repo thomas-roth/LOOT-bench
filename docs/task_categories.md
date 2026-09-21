@@ -52,30 +52,22 @@ Two builds complete a level and the criterion prefers neither:
 
 ```
   trilithon              T
-   +-----+            +-----+
-   |     |            |     |      lintel: one block lying flat
-   #     #               #         upright(s): block(s) standing on end
-  ---------          ---------     table
+   +-----+            +-----+      lintel: one block lying flat
+   #     #               #         upright(s): block(s) standing on end 
+   #     #               #         
 ```
 
-The trilithon costs a third block and stands. The T is faster and tips.
-Nothing rewards or forbids either; the physics decides, and its verdict only
-matters from 2Pis up, where a level has to carry the next one.
+The trilithon costs a third block, but stands more stable. The T is faster but 
+tips easily. Nothing rewards or forbids either; the physics decides, and its 
+verdict only matters from 2Pis up, where a level has to carry the next one.
 
 One block type serves as upright and as lintel: a square prism of
-0.065 x 0.020 x 0.020 m, 40.6 g. The cross-section is square because a block
-spawns at a random yaw and must grasp identically standing and lying. Blocks
-are coloured in tiers of three, navy, teal and white, one tier per level:
-1Pi's blocks are the first three of 2Pis, which are the first six of
-3Pis.
-
+0.065 x 0.020 x 0.020 m, 40.6 g. Blocks are coloured in tiers of three, navy, 
+teal and white, one tier per level: 1Pi's blocks are the first three of 2Pis, 
+which are the first six of 3Pis. 
 Operator protocol, which the code cannot enforce: build level 1 from the navy
 blocks, level 2 from teal, level 3 from white, bottom-up, or a 3Pis
-recording will not split into the easier tasks. Grip lintels end-to-end (a
-grip across the width scrapes both uprights at zero clearance). Space
-trilithon uprights about 36 mm apart. Blocks spawn standing, so make a lintel
-by knocking the block over with the closed gripper and re-grasping it; the
-wrist cannot roll it flat in one motion.
+recording will not split into the easier tasks.
 
 Spawns stage from the fixed table (object `i` on cell `i`, ±1 cm jitter),
 with the build site kept clear; see `docs/adr/019-fixed-spawn-points.md`.
