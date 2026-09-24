@@ -48,10 +48,7 @@ from mjlab.tasks.registry import load_env_cfg
 
 from loot_bench.qc.dataset import CONVENTION_NAME
 from loot_bench.qc.episode import EpisodeStats
-from loot_bench.tasks.common.actions import (
-    EE_DELTA_ACTION_NAME,
-    GRIPPER_ACTION_NAME,
-)
+from loot_bench.tasks.common.actions import JOINT_POS_ACTION_NAME
 from loot_bench.tasks.common.commands import (
     GRIP_CONTACT_SENSOR_NAME,
     OBJECT_CONTACT_SENSOR_NAME,
@@ -150,17 +147,22 @@ class LootEnv(gymnasium.Env):
 
         Published so a dataset can be checked against the MDP this env
         actually runs (``qc.dataset.check_dataset_matches_env``) rather than
-        against a copy of it. A method here, not a property on a term: no
-        single term owns the record.
+        against a copy of it. Read off the built joint term, so the check
+        compares against the convention in force rather than a copy of it.
         """
-        ee_delta = self._mjlab_env.action_manager.get_term(EE_DELTA_ACTION_NAME)
-        gripper = self._mjlab_env.action_manager.get_term(GRIPPER_ACTION_NAME)
+        term = self._mjlab_env.action_manager.get_term(JOINT_POS_ACTION_NAME)
         return {
             "convention": CONVENTION_NAME,
-            "delta_pos_scale": ee_delta.cfg.delta_pos_scale,
-            "delta_ori_scale": ee_delta.cfg.delta_ori_scale,
-            "gripper_scale": float(gripper.scale.reshape(-1)[0].item()),
-            "gripper_offset": float(gripper.offset.reshape(-1)[0].item()),
+            "action_scale": term.scale.detach()
+            .cpu()
+            .numpy()
+            .reshape(-1)
+            .astype("float32"),
+            "action_offset": term.offset.detach()
+            .cpu()
+            .numpy()
+            .reshape(-1)
+            .astype("float32"),
             "control_step_s": float(self._mjlab_env.step_dt),
             "start_pose_noise": self._start_pose_noise,
             "task_id": self.task_id,

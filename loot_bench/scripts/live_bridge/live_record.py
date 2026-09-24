@@ -79,12 +79,11 @@ from mjlab.viewer.native.visualizer import MujocoNativeDebugVisualizer
 import loot_bench  # noqa: F401
 from loot_bench.robots.trlc_dk1.dk1_constants import HOME_JOINT_POS, START_JOINT_POS
 from loot_bench.scripts.live_bridge.mapper import (
-    leader_to_delta_action,
+    lerobot_to_mjlab_raw_action,
 )
 from loot_bench.scripts.live_bridge.recorder import Recorder
 from loot_bench.scripts.live_bridge.recording_mixin import RecordingViewerMixin
 from loot_bench.scripts.utils.viewer_wrapper import NativeViewerWrapper
-from loot_bench.tasks.common.actions import EE_DELTA_ACTION_NAME
 
 
 def _get_pip_app() -> "QApplication":
@@ -107,8 +106,7 @@ USE_FOLLOWER_STATE_FOR_SIM = (
 )
 # Ghost-arm colors, feedback timing and the recording state machine all live
 # in recording_mixin. The episode-start gate lives in mapper.leader_is_aligned:
-# it asks whether one unclamped action reaches the leader from the reset pose,
-# which is a question about the action box, not about joint angles.
+# all 6 arm joints within 0.2 rad of the start pose.
 
 # Sourced from the robot constant so the pose the operator aligns to and the
 # pose the env resets to cannot drift apart.
@@ -255,13 +253,11 @@ def _hw_loop(
 
 
 class _LivePolicy:
-    """Viewer policy: the delta action chasing the latest leader pose.
+    """Viewer policy: returns the latest leader action as a joint action.
 
-    The delta is built from where the sim arm is *now*, so the recorded action
-    is the one env.step() takes and one a bounded policy could emit. The
-    current pose comes off EndEffectorDeltaAction.frame_pose — the buffer the
-    IK solver reads — not the ee_pose observation, which is another frame and
-    a lossy 6-D rotation.
+    The leader pose is converted through the same mapping the converter
+    inverts (same function, same gravity compensation), so the recorded
+    action is the one env.step() takes.
     """
 
     def __init__(self, env, action_list: list, device: str):
@@ -275,23 +271,13 @@ class _LivePolicy:
         the dataset holds exactly what ``env.step()`` was given rather than a
         second, re-derived copy of it (ADR-011)."""
 
-    def _current_grasp_pose(self) -> tuple[np.ndarray, np.ndarray]:
-        """The sim grasp site's pose in the robot base frame."""
-        inner = self._env.env
-        term = inner.action_manager.get_term(EE_DELTA_ACTION_NAME)
-        pos_w, quat_w = term.frame_pose
-        # frame_pose is world-frame; the leader's FK is base-frame. One
-        # env_origin apart, and silently wrong if not subtracted.
-        pos = (pos_w - inner.scene.env_origins)[0].detach().cpu().numpy()
-        return pos, quat_w[0].detach().cpu().numpy()
-
     def __call__(self, obs):
         leader_action = self.action_list[0]
         if leader_action is not None:
             self.latest_leader_action = leader_action
-            current_pos, current_quat = self._current_grasp_pose()
-            raw_action = leader_to_delta_action(
-                leader_action, current_pos, current_quat
+            raw_action = lerobot_to_mjlab_raw_action(
+                leader_action,
+                gravity_compensate=True,
             )
             self.latest_raw_action = raw_action
             self._last_raw_action = (

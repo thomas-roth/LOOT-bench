@@ -26,7 +26,7 @@ COMMAND_NAME = "task"
 # Half-width [rad] of the start-pose sample (ADR-008). On the task, not on a
 # launcher flag, so recorder and training run read one number. 0.0 is a
 # bit-identical start; raise it for start-state variety, but stay inside the
-# box mapper.leader_is_aligned gates on.
+# 0.2 rad joint gate mapper.leader_is_aligned opens episodes on.
 START_POSE_NOISE = 0.0
 
 

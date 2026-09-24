@@ -9,12 +9,7 @@ episode ends -- all live in :mod:`loot_bench.qc.transitions` and are tested
 without a simulator. This module adds the three things around them:
 
 * **The action.** The recording stores the raw action ``env.step()`` was given,
-  so this module copies it through rather than re-deriving it. It has to: under
-  delta control an action means "move this far from where you are", and the
-  pose it was measured against is not in the file. The old converter re-ran the
-  leader-pose conversion here, which only worked because the action was
-  absolute (ADR-016 licenses the change: "both terms exist at record time, so
-  the stored action is still exactly what the simulator stepped with").
+  so this module copies it through rather than re-deriving it.
 * **The order.** Episode structure is read off row order, so rows are sorted by
   ``(episode, frame)`` before anything looks at them.
 * **The stamp.** The convention record in force at record time
@@ -51,30 +46,28 @@ from numpy.typing import NDArray
 from loot_bench.qc.dataset import CONVENTION_NAME
 from loot_bench.qc.dataset import NUMERIC_STAMP_FIELDS as NUMERIC_STAMP_FIELDS
 from loot_bench.qc.dataset import STAMP_KEYS as STAMP_KEYS
+from loot_bench.qc.dataset import VECTOR_STAMP_FIELDS as VECTOR_STAMP_FIELDS
 from loot_bench.qc.dataset import check_dataset_matches_env as check_dataset_matches_env
 from loot_bench.qc.dataset import load_dataset as load_dataset
 from loot_bench.qc.transitions import QC_KEYS, assemble_transitions
 from loot_bench.scripts.live_bridge.dataset_extra_info import load_extra_info
-from loot_bench.scripts.live_bridge.mapper import gripper_scale_offset
-from loot_bench.tasks.common.actions import DELTA_ORI_SCALE, DELTA_POS_SCALE
+from loot_bench.scripts.live_bridge.mapper import action_scale_offset
 from loot_bench.tasks.common.env_cfg import CONTROL_STEP_S
 
 
 def action_convention(task_id: str, start_pose_noise: float) -> dict[str, object]:
     """The convention record a recording made right now is stamped with.
 
-    Read from the same constants the environment builds its action terms from,
-    so this is the recording's claim about the MDP rather than a copy of one.
-    ``check_dataset_matches_env`` compares it against what an env actually
-    reports.
+    The scale and offset are read off the same compiled-model helper the
+    action term is built from, so this is the recording's claim about the MDP
+    rather than a copy of one. ``check_dataset_matches_env`` compares it
+    against what an env actually reports.
     """
-    gripper_scale, gripper_offset = gripper_scale_offset()
+    scale, offset = action_scale_offset()
     return {
         "convention": CONVENTION_NAME,
-        "delta_pos_scale": DELTA_POS_SCALE,
-        "delta_ori_scale": DELTA_ORI_SCALE,
-        "gripper_scale": gripper_scale,
-        "gripper_offset": gripper_offset,
+        "action_scale": np.asarray(scale, dtype=np.float32),
+        "action_offset": np.asarray(offset, dtype=np.float32),
         "control_step_s": CONTROL_STEP_S,
         "start_pose_noise": float(start_pose_noise),
         "task_id": task_id,

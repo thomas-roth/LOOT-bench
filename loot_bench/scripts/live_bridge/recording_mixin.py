@@ -123,7 +123,7 @@ class RecordingViewerMixin:
         self.verbosity = VerbosityLevel.INFO
         print(
             "[INFO] Reset phase — move the leader arm to the ghost position "
-            "(within one action box of it) to start next episode"
+            "(within 0.2 rad per joint of it) to start next episode"
         )
 
     def _exit_reset_phase(self) -> None:
@@ -319,8 +319,8 @@ class RecordingViewerMixin:
                     self.env.step(actions)
                     self._step_count += 1
                     self._stats_steps += 1
-                    # Gate on leader pose; sim arm was reset already. One
-                    # action box wide, so the opening action never clamps.
+                    # Gate on leader pose; sim arm was reset already. All 6
+                    # arm joints within 0.2 rad of the start pose.
                     leader_action = getattr(self.policy, "latest_leader_action", None)
                     if leader_action is not None and leader_is_aligned(leader_action):
                         self._exit_reset_phase()
@@ -351,11 +351,9 @@ class RecordingViewerMixin:
 
                 # Only record if both the action and the robot obs are there.
                 # The stored action is the *raw action* the policy just handed
-                # to env.step(), not the leader pose behind it: under delta
-                # control an action means "move this far from where you are",
-                # so it cannot be re-derived later from the leader pose alone.
-                # Storing it directly is what keeps ADR-011's "the recording
-                # and the simulator saw one MDP" literally true.
+                # to env.step(), not the leader pose behind it. Storing it
+                # directly is what keeps ADR-011's "the recording and the
+                # simulator saw one MDP" literally true.
                 raw_action = getattr(self.policy, "latest_raw_action", None)
                 robot_obs = self._robot_obs_list[0]
                 if raw_action is not None and robot_obs is not None:

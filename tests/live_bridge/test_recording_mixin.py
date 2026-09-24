@@ -345,18 +345,15 @@ class TestSessionEnd:
 
 
 class TestResetPhaseAlignmentGate:
-    """What ends the reset phase (ADR-016).
+    """What ends the reset phase.
 
-    The gate reads the *leader*, and it is one action box wide rather than a
-    joint-space tolerance: that is exactly the condition under which the
-    episode's opening action does not clamp, so every stored action stays one
-    the simulator took and a bounded policy could have emitted. ADR-016
-    measured the alternative — 66 of 99 demos opened with the arm snapping
-    toward an already-parked leader.
+    The gate reads the *leader*: all 6 arm joints within 0.2 rad of the start
+    pose. That keeps the opening action inside the box, so every stored action
+    stays one the simulator took and a bounded policy could have emitted.
 
-    ``leader_is_aligned`` itself is pinned in ``tests/live_bridge/test_mapper.py``
-    against the real forward kinematics; here it is patched, because compiling
-    the DK1 is what this file's "no viewer, no simulator" contract rules out.
+    ``leader_is_aligned`` itself is pinned in ``tests/live_bridge/test_mapper.py``;
+    here it is patched, because compiling the DK1 is what this file's
+    "no viewer, no simulator" contract rules out.
     """
 
     def test_an_aligned_leader_ends_the_reset_phase(self, monkeypatch):

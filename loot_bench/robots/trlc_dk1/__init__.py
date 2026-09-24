@@ -36,9 +36,8 @@ def get_bimanual_dk1_interface() -> ManipulatorInterface:
     """The two-armed DK1. Declared, not registered against any task.
 
     Its actuator split names both arms, which is honest but not usable as it
-    stands: the end-effector delta term drives one IK frame, and twelve arm
-    joints under one 6-D objective are underdetermined. Registering a bimanual
-    task needs a second frame first (out of scope, ADR-016).
+    stands: no task wires a bimanual action term, and registering a bimanual
+    task needs per-arm terms first (out of scope).
     """
     return ManipulatorInterface(
         name=DK1_NAME_BIMANUAL,

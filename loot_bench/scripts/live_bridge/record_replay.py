@@ -224,13 +224,12 @@ class _ReplayAndRecord:
         if self._fallback_action_np is None:
             self._fallback_action_np = frame.leader_action.copy()
 
-        # The stored column *is* the raw action now (ADR-016), so there is
-        # nothing to map. Note what that costs: an absolute joint target was
-        # self-correcting, but replaying a delta sequence open-loop integrates
-        # its own error, so a replayed trajectory drifts from the recorded one
-        # instead of converging back onto it. Use `state_replay.py` when the
-        # question is what the episode looked like; use this when the question
-        # is what the actions do.
+        # The stored column *is* the raw action, so there is nothing to
+        # map. An absolute joint target is self-correcting: replaying the
+        # sequence open-loop converges back onto the recorded trajectory
+        # rather than integrating its error. Use `state_replay.py` when the
+        # question is what the episode looked like; use this when the
+        # question is what the actions do.
         return (
             torch.from_numpy(np.asarray(frame.leader_action, dtype=np.float32))
             .unsqueeze(0)

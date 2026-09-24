@@ -45,7 +45,7 @@ from loot_bench.scripts.live_bridge.dataset_extra_info import load_extra_info
 class Episode:
     """One recorded episode, fully materialized as numpy arrays."""
 
-    actions: np.ndarray  # (N, 7) raw actions as recorded (ADR-016: deltas)
+    actions: np.ndarray  # (N, 7) raw actions as recorded (absolute joints)
     state: np.ndarray  # (N, obs_dim) pre-step actor obs
     qpos: np.ndarray | None  # (N, nq) post-step sim qpos (ground truth)
     qvel: np.ndarray | None  # (N, nv) post-step sim qvel (ground truth)
@@ -361,9 +361,10 @@ def resimulate_and_compare(args, ep: Episode) -> bool:
             else:
                 obs_dev = float("nan")
 
-            # The stored column is the raw action itself (ADR-016). Deltas
-            # replayed open-loop integrate their error, so expect the qpos
-            # deviation below to grow along an episode.
+            # The stored column is the raw action itself. Absolute joint
+            # targets replayed open-loop converge back onto the recorded
+            # trajectory, so the qpos deviation below should stay small
+            # along an episode.
             raw = np.asarray(ep.actions[i], dtype=np.float32)
             _, rew, _dones, _ = env.step(torch.from_numpy(raw).unsqueeze(0).to(device))
 

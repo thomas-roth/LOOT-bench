@@ -18,7 +18,7 @@ from numpy.typing import NDArray
 
 from loot_bench.qc.transitions import QC_KEYS as QC_KEYS
 
-CONVENTION_NAME = "ee-delta-20hz"
+CONVENTION_NAME = "joint-absolute-20hz"
 """The action convention this repo currently records and trains under.
 
 Bump it whenever the meaning of an action changes in a way the other stamped
@@ -28,16 +28,23 @@ differ.
 """
 
 NUMERIC_STAMP_FIELDS = (
-    "delta_pos_scale",
-    "delta_ori_scale",
-    "gripper_scale",
-    "gripper_offset",
     "control_step_s",
     "start_pose_noise",
 )
-"""The stamp fields compared with a tolerance rather than by equality."""
+"""Scalar stamp fields compared with a tolerance rather than by equality."""
 
-_STAMP_FIELD_ORDER = ("convention", *NUMERIC_STAMP_FIELDS, "task_id")
+VECTOR_STAMP_FIELDS = (
+    "action_scale",
+    "action_offset",
+)
+"""Vector stamp fields compared elementwise with a tolerance."""
+
+_STAMP_FIELD_ORDER = (
+    "convention",
+    *VECTOR_STAMP_FIELDS,
+    *NUMERIC_STAMP_FIELDS,
+    "task_id",
+)
 """Every stamp field, ``convention`` first so a stale dataset names itself
 before any number below is compared. The single source both
 :func:`check_dataset_matches_env` and :data:`STAMP_KEYS` derive from --
@@ -47,12 +54,12 @@ STAMP_KEYS = frozenset(_STAMP_FIELD_ORDER)
 """Keys recording the MDP the dataset was built under.
 
 * ``convention`` — the name above. Catches every change at once.
-* ``delta_pos_scale`` / ``delta_ori_scale`` — [m] and [rad] one action unit
-  asks for. A recording made under a different box describes different motion.
-* ``gripper_scale`` / ``gripper_offset`` — the normalized stroke mapping. This
-  is the old ADR-011 stamp, narrowed to the one term that still has a scale.
-* ``control_step_s`` — [s] per action. Never stamped before, so changing the
-  rate used to be silent, which is exactly the failure ADR-011 exists for.
+* ``action_scale`` / ``action_offset`` — the normalized joint mapping. This
+  is the ADR-011 stamp: a recording made under a different convention
+  describes different motion.
+* ``control_step_s`` — [s] per action. Never stamped before ADR-016, so
+  changing the rate used to be silent, which is exactly the failure ADR-011
+  exists for.
 * ``start_pose_noise`` — [rad] half-width of the start-pose sample (ADR-008).
   Recording and evaluation have to begin at the same place.
 * ``task_id`` — closes an already-realised hole: every ``place`` variant shares
@@ -85,6 +92,13 @@ def _as_scalar(value: Any) -> Any:
         value = value.detach().cpu().numpy()
     array = np.asarray(value)
     return array.reshape(()).item() if array.size == 1 else array
+
+
+def _as_vector(value: Any) -> NDArray[np.float32]:
+    """One vector stamp value as float32, out of whatever container."""
+    if hasattr(value, "detach"):
+        value = value.detach().cpu().numpy()
+    return np.asarray(value, dtype=np.float32).reshape(-1)
 
 
 def check_dataset_matches_env(data: dict[str, NDArray], env: _Env) -> None:
@@ -129,13 +143,20 @@ def check_dataset_matches_env(data: dict[str, NDArray], env: _Env) -> None:
                 f"convention {convention['convention']!r} and has to be "
                 "re-recorded"
             )
-        stamped = _as_scalar(data[field])
-        expected = _as_scalar(convention[field])
-        same = (
-            bool(np.isclose(stamped, expected, atol=1e-6))
-            if field in NUMERIC_STAMP_FIELDS
-            else stamped == expected
-        )
+        if field in VECTOR_STAMP_FIELDS:
+            stamped = _as_vector(data[field])
+            expected = _as_vector(convention[field])
+            same = stamped.shape == expected.shape and bool(
+                np.allclose(stamped, expected, atol=1e-5)
+            )
+        elif field in NUMERIC_STAMP_FIELDS:
+            stamped = _as_scalar(data[field])
+            expected = _as_scalar(convention[field])
+            same = bool(np.isclose(stamped, expected, atol=1e-6))
+        else:
+            stamped = _as_scalar(data[field])
+            expected = _as_scalar(convention[field])
+            same = stamped == expected
         if not same:
             raise ValueError(
                 f"dataset {field} {stamped!r} but the environment's is "

@@ -12,12 +12,6 @@ from mjlab.managers.scene_entity_config import SceneEntityCfg
 from mjlab.sensor import ContactSensorCfg
 
 from loot_bench.robots.interface import ManipulatorInterface
-from loot_bench.tasks.common.actions import (
-    EE_DELTA_ACTION_NAME,
-    GRIPPER_ACTION_NAME,
-    EndEffectorDeltaActionCfg,
-    NormalizedJointPositionActionCfg,
-)
 from loot_bench.tasks.common.events import reset_joints_to_pose
 
 
@@ -33,15 +27,9 @@ def wire_manipulator_into_env(
 
     Adds the robot as the ``"robot"`` scene entity and sets the viewer body.
 
-    Both action terms are filled from the robot's declared actuator split: the
-    end-effector delta term gets ``arm_actuators``, the robot's grasp site as
-    its IK frame, and its ``ik_max_dq``; the gripper term gets
-    ``gripper_actuators``. This is the only place that knows a robot has an arm
-    and a gripper -- a task file never names either, and a robot declaring an
-    empty split fails when the term is built rather than at the first step of a
-    training run.
-
-    The grasp site is also written to the ``asset_cfg`` of the
+    The action term needs nothing from the robot: it reads each joint's travel
+    off the compiled model (see ``tasks.common.actions``). The grasp site is
+    written to the ``asset_cfg`` of the
     ``ee_pose`` observation term (present in every category via the shared
     env cfg) and to any command cfg carrying a ``grasp_cfg``. Sensors named
     in ``ee_contact_sensors`` get the
@@ -58,19 +46,6 @@ def wire_manipulator_into_env(
     unchanged, so ``start_pose_noise`` still means the same thing either way.
     """
     cfg.scene.entities["robot"] = manipulator.entity_cfg_fn()
-
-    ee_delta = cfg.actions[EE_DELTA_ACTION_NAME]
-    assert isinstance(ee_delta, EndEffectorDeltaActionCfg)
-    ee_delta.actuator_names = manipulator.arm_actuators
-    ee_delta.frame_name = manipulator.grasp_site
-    # Derived per-robot, never a literal. It is a torque cap rather than a rate
-    # limit -- see ManipulatorInterface.ik_max_dq, which also records why
-    # ADR-016's velocity-limit derivation cannot hold the arm up.
-    ee_delta.max_dq = manipulator.ik_max_dq
-
-    gripper = cfg.actions[GRIPPER_ACTION_NAME]
-    assert isinstance(gripper, NormalizedJointPositionActionCfg)
-    gripper.actuator_names = manipulator.gripper_actuators
 
     if manipulator.reset_joint_pos is not None:
         event = cfg.events["reset_robot_joints"]

@@ -30,8 +30,10 @@ DK1_GRASP_SITE = "grasp_site"
 DK1_EE_SUBTREE = "link6-7"
 DK1_VIEWER_BODY = "base"
 
-# The actuator split the two action terms are built from: the arm is the IK
-# chain, the gripper is the normalized stroke. Listed from ARM_JOINTS rather
+# The actuator split declared on the robot interface (arm vs gripper).
+# Under joint-absolute control the single action term drives every actuator
+# (``actuator_names=(".*",)``), so this split is currently unwired -- it is
+# kept so the interface stays robot-agnostic. Listed from ARM_JOINTS rather
 # than written out, so adding a joint to the arm cannot leave this stale.
 DK1_ARM_ACTUATORS_UNIMANUAL = tuple(ARM_JOINTS)
 DK1_GRIPPER_ACTUATORS_UNIMANUAL = ("gripper_left",)
@@ -100,70 +102,12 @@ def _home_keyframe(prefix: str = "") -> EntityCfg.InitialStateCfg:
 # Unimanual config: single DK1 arm.
 
 
-GRAVITY_COMPENSATED_BODIES: tuple[str, ...] = (
-    "link1-2",
-    "link2-3",
-    "link3-4",
-    "link4-5",
-    "link5-6",
-    "link6-7",
-    "camera_mount",
-    "finger_left",
-    "finger_right",
-)
-"""Every body the arm actuators hold up — the whole chain below ``base``.
-
-The fingers belong here even though their *own* joints see no gravity load
-(the racks slide along ±y, horizontal when the gripper points down, measured
-at 0.0 N): their 0.05 kg each still hangs off joint2 and joint3, and leaving
-them out leaves two thirds of the drift in place. Measured over 100 zero-action
-steps: 0.168 m uncompensated, 0.100 m with the links alone, 0.000 m with the
-fingers included. See :func:`_compensate_arm_gravity`."""
-
-
-def _compensate_arm_gravity(spec: mujoco.MjSpec) -> None:
-    """Cancel gravity on everything the arm actuators carry.
-
-    **Why the arm needs this.** Differential IK commands
-    ``q_target = q_current + dq``, re-anchored to the *measured* position every
-    substep, so there is no fixed setpoint to converge to: whatever sag the PD
-    actuators carry at the end of a control step becomes the baseline the next
-    control step measures from. The sag does not merely persist, it compounds
-    — measured on ``place``, a held zero action walked the grasp site 0.168 m
-    down into the table over 100 steps. Compensated it is 0.000 m, which is
-    what "a zero action holds the end-effector still" has to mean.
-
-    ADR-016 deletes the teleop-side gravity compensation on the grounds that
-    "DiffIK closes the loop on the measured pose and corrects sag itself".
-    That premise is false for mjlab's term. This puts the same correction where
-    it does hold: in the simulator, once, for every caller — rather than in the
-    recorder, where it distorted only the operator's trajectory. Both reference
-    domains arrive at the same place by another route (robomimic's OSC carries
-    a gravity feedforward in its torque law).
-
-    **Why this is safe for grasping.** ``gravcomp`` adds a vertical force at
-    each body's COM. Grip force is horizontal — the racks' own axis — so the
-    20 N cap and the sub-millimeter penetration that ``dk1_actuators`` tunes
-    for are untouched; ``tests/trlc_dk1/test_dk1_grasp.py`` pins that.
-
-    **Accepted sim-fidelity cost:** the real DK1's controller has no gravity
-    feedforward, so the sim arm now holds station better than the hardware.
-    Nothing in the benchmark reads the difference, and the alternative is an
-    MDP where standing still is impossible.
-    """
-    # The bimanual spec attaches two copies of this one, so it inherits the
-    # compensation with its own prefixes and needs no second call.
-    for name in GRAVITY_COMPENSATED_BODIES:
-        spec.body(name).gravcomp = 1.0
-
-
 def get_unimanual_spec() -> mujoco.MjSpec:
     spec = mujoco.MjSpec.from_file(str(_DK1_XML_PATH))
     # Exclude base/link1-2: interpenetrating meshes lock joint1 otherwise.
     spec.add_exclude(
         bodyname1="base", bodyname2="link1-2"
     )  # TODO: check if actually needed
-    _compensate_arm_gravity(spec)
     return spec
 
 
@@ -174,13 +118,12 @@ def get_unimanual_dk1_robot_cfg(full_collision: bool = False) -> EntityCfg:
         spec_fn=get_unimanual_spec,
         articulation=EntityArticulationInfoCfg(
             actuators=(*get_arm_actuators(), get_gripper_actuator()),
-            # 1.0, not the usual 0.9: differential IK reads the *soft* limits for
-            # its joint-limit residual, and shrinking them would leave the
-            # outer slice of every joint uncommandable -- the slice the
-            # operator teleoperates through (ADR-005, ADR-016). Nothing else
-            # in this repo reads them: reset_joints_to_pose clamps to the hard
-            # limits deliberately, and mjlab's own soft-limit consumers are
-            # all unused here.
+            # 1.0, not the usual 0.9: shrinking the soft limits would leave
+            # the outer slice of every joint uncommandable -- the slice the
+            # operator teleoperates through (ADR-005). Nothing else in this
+            # repo reads them: the joint term maps onto the hard limits and
+            # reset_joints_to_pose clamps to them deliberately, and mjlab's
+            # own soft-limit consumers are all unused here.
             soft_joint_pos_limit_factor=1.0,
         ),
     )

@@ -1,8 +1,11 @@
 """Shared workbench for all tasks. Categories pass core parts as parameters.
 
-The control rate and the action terms live here and nowhere else (ADR-016): a
+The control rate and the action term live here and nowhere else: a
 per-category fork would put two MDP conventions in one workbench. Categories
 choose their own ``episode_length_s``, not their rate or their action space.
+
+Joint-absolute normalized control at 20 Hz: one 7-wide term, ``[-1, 1]``
+spanning each joint's travel (see ``tasks/common/actions.py``).
 
 Robot placeholders are filled by wire_manipulator_into_env. No observation
 carries noise (ADR-015).
@@ -24,9 +27,7 @@ from mjlab.terrains import TerrainEntityCfg
 from mjlab.viewer import ViewerConfig
 
 from loot_bench.tasks.common.actions import (
-    EE_DELTA_ACTION_NAME,
-    GRIPPER_ACTION_NAME,
-    EndEffectorDeltaActionCfg,
+    JOINT_POS_ACTION_NAME,
     NormalizedJointPositionActionCfg,
 )
 from loot_bench.tasks.common.commands import GRIP_CONTACT_SENSOR_NAME
@@ -139,13 +140,13 @@ def make_manipulation_env_cfg(
         "critic": ObservationGroupCfg(dict(actor_terms)),
     }
 
-    # Two terms, 6 + 1 = 7 wide, in this order. Every robot-specific field is
-    # a placeholder filled by wire_manipulator_into_env from the robot's
-    # declared actuator split -- see tasks/common/actions.py for what the
-    # numbers mean and why the arm moves in task space.
+    # One joint-absolute term, 7 wide. Limits come from the compiled model;
+    # see tasks/common/actions.py. No per-robot wiring needed.
     actions: dict[str, ActionTermCfg] = {
-        EE_DELTA_ACTION_NAME: EndEffectorDeltaActionCfg(entity_name="robot"),
-        GRIPPER_ACTION_NAME: NormalizedJointPositionActionCfg(entity_name="robot"),
+        JOINT_POS_ACTION_NAME: NormalizedJointPositionActionCfg(
+            entity_name="robot",
+            actuator_names=(".*",),
+        )
     }
 
     events = {

@@ -12,6 +12,7 @@ import pytest
 from loot_bench.qc.convert import (
     NUMERIC_STAMP_FIELDS,
     STAMP_KEYS,
+    VECTOR_STAMP_FIELDS,
     action_convention,
     build_dataset,
     check_dataset_matches_env,
@@ -28,7 +29,7 @@ START_POSE_NOISE = 0.0
 
 
 def _action(value: float) -> list[float]:
-    """One recorded action: a 6-D end-effector delta, then the gripper.
+    """One recorded action: 7 absolute normalized joints.
 
     Inside the box by construction, because a recorded action is one the
     mapping already clamped -- see ``tests/live_bridge/test_mapper.py``.
@@ -88,9 +89,8 @@ class TestStartPoseNoiseStamp:
 
 class TestActionColumn:
     def test_the_recorded_action_is_copied_through(self):
-        """Not re-derived. A delta means "move this far from where you are",
-        and the pose it was measured against is not in the file -- so the only
-        action that is still true is the one ``env.step()`` was given."""
+        """Not re-derived. The only action that is still true is the one
+        ``env.step()`` was given."""
         out = _build(SUCCESS_THEN_TIMEOUT)
         # The last row of the timed-out episode is dropped, the successful
         # episode's rows all survive; row order is (episode, frame).
@@ -113,7 +113,7 @@ class TestActionColumn:
         with pytest.raises(ValueError, match="outside the action box"):
             _build(columns)
 
-    def test_action_width_is_the_delta_plus_the_gripper(self):
+    def test_action_width_is_seven_joints(self):
         out = _build(SUCCESS_THEN_TIMEOUT)
         assert out["actions"].shape[1] == ACTION_DIM
 
@@ -157,11 +157,15 @@ class TestStamp:
         RandS-RandT recording trains against a FixedS-FixedT env in silence."""
         assert _build(SUCCESS_THEN_TIMEOUT)["task_id"] == TASK_ID
 
-    def test_stamps_the_scales_the_action_terms_apply(self):
+    def test_stamps_the_scales_the_action_term_applies(self):
         out = _build(SUCCESS_THEN_TIMEOUT)
         expected = action_convention(TASK_ID, START_POSE_NOISE)
         for field in NUMERIC_STAMP_FIELDS:
             assert out[field] == pytest.approx(expected[field])
+        for field in VECTOR_STAMP_FIELDS:
+            np.testing.assert_array_almost_equal(
+                np.asarray(out[field]), np.asarray(expected[field])
+            )
 
     def test_still_publishes_the_training_keys(self):
         out = _build(SUCCESS_THEN_TIMEOUT)
@@ -218,6 +222,13 @@ class TestStampCheck:
         with pytest.raises(ValueError, match=field):
             check_dataset_matches_env(data, env)
 
+    @pytest.mark.parametrize("field", VECTOR_STAMP_FIELDS)
+    def test_a_differing_scale_is_rejected_by_name(self, field):
+        data = self._dataset()
+        env = _env_from(data, overrides={field: np.asarray(data[field]) * 2.0 + 1.0})
+        with pytest.raises(ValueError, match=field):
+            check_dataset_matches_env(data, env)
+
     def test_a_different_task_id_is_rejected(self):
         data = self._dataset()
         env = _env_from(data, task_id="LOOT-Place-RandS-RandT-Dk1")
@@ -226,14 +237,15 @@ class TestStampCheck:
 
     def test_a_different_convention_name_is_rejected(self):
         data = self._dataset()
-        env = _env_from(data, convention="joint-pos-50hz")
+        env = _env_from(data, convention="ee-delta-20hz")
         with pytest.raises(ValueError, match="convention"):
             check_dataset_matches_env(data, env)
 
     def test_a_dataset_from_the_old_convention_says_so(self):
-        """A pre-ADR-016 file stamps ``action_scale``/``action_offset`` and no
-        ``convention``. It has to name the convention rather than report
-        whichever number happens to differ."""
+        """A pre-joint-absolute file (e.g. ``ee-delta-20hz``) stamps
+        ``delta_pos_scale``/``delta_ori_scale`` and no ``action_scale``. It
+        has to name the convention rather than report whichever number
+        happens to differ."""
         data = self._dataset()
         stale = {k: v for k, v in data.items() if k != "convention"}
         stale["action_scale"] = np.full(ACTION_DIM, 0.5, dtype=np.float32)
@@ -252,20 +264,23 @@ class TestStampCheck:
             check_dataset_matches_env(data, _env_from(data, action_dim=3))
 
     def test_reads_a_torch_convention(self):
-        """An env builds its stamp out of the action terms' buffers, which are
+        """An env builds its stamp out of the action term's buffers, which are
         torch tensors on the sim device -- and numpy refuses a CUDA tensor
         outright, so a check that only ever saw floats would raise TypeError on
         every GPU run, which is every real run."""
         import torch
 
         data = self._dataset()
-        env = _env_from(
-            data,
-            overrides={
-                field: torch.as_tensor(float(data[field]))
-                for field in NUMERIC_STAMP_FIELDS
-            },
+        overrides = {
+            field: torch.as_tensor(float(data[field])) for field in NUMERIC_STAMP_FIELDS
+        }
+        overrides.update(
+            {
+                field: torch.as_tensor(np.asarray(data[field], dtype=np.float32))
+                for field in VECTOR_STAMP_FIELDS
+            }
         )
+        env = _env_from(data, overrides=overrides)
         check_dataset_matches_env(data, env)
 
 
@@ -415,8 +430,8 @@ class TestLoadDataset:
         data = _build(SUCCESS_THEN_TIMEOUT)
         path = tmp_path / "demos.npz"
         np.savez(path, **data)
-        env = _env_from(data, delta_pos_scale=float(data["delta_pos_scale"]) * 2.0)
-        with pytest.raises(ValueError, match="delta_pos_scale"):
+        env = _env_from(data, action_scale=np.asarray(data["action_scale"]) * 2.0)
+        with pytest.raises(ValueError, match="action_scale"):
             load_dataset(path, env)
 
     def test_a_reloaded_task_id_mismatch_still_raises(self, tmp_path):

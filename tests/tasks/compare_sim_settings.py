@@ -8,15 +8,16 @@ describe a repo that no longer exists, and neither is a one-line fix.
 (1) The profile table is pinned to older settings — `train` reads 0.005/4/10/20
 where the registered tasks now run 0.005/10/100/50, and `play` no longer
 differs from `train` in anything but `episode_length_s`. This staleness
-predates ADR-016. (2) `scripted_action` and the grasp scenario's lift-and-shake
-were written for absolute joint-position actions; ADR-016 made an action a
-*relative* end-effector delta, so a sinusoid that used to be a bounded joint
-sweep now integrates into drift. (`GRIPPER_CLOSE_ACTION = -2.0` names a scale
-that is gone, but the gripper term clamps to `[-1, 1]`, so it still means
-"fully closed" — the constant works, only its docstring is wrong.) Fixing (2)
-means re-deriving amplitudes against
-`DELTA_POS_SCALE`/`DELTA_ORI_SCALE` so the sweep stays in the workspace. The
-script still runs; its accuracy comparison is still internally consistent
+predates the eef-delta episode. (2) `scripted_action` and the grasp scenario's
+lift-and-shake were written for absolute joint-position actions; the eef-delta
+episode made an action a *relative* end-effector delta, so a sinusoid that
+used to be a bounded joint sweep integrated into drift. Under the restored
+joint-absolute convention the sinusoid is a bounded joint sweep again (only
+the rate changed: 50 Hz then, 20 Hz now, so the same time-constant command
+is sampled at fewer points per period). (`GRIPPER_CLOSE_ACTION = -2.0` names
+a scale that is gone, but the joint term clamps to `[-1, 1]`, so it still
+means "fully closed" — the constant works, only its docstring is wrong.)
+The script still runs; its accuracy comparison is still internally consistent
 (every profile is driven by the same command); what it no longer measures is
 the settings the benchmark actually uses.
 

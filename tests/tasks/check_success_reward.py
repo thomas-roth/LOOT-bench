@@ -12,14 +12,22 @@ import traceback
 from pathlib import Path
 from typing import cast
 
+import mujoco
 import numpy as np
 import torch
 from _render import domain_of, save_env_render
+from mjlab.entity import Entity
 from mjlab.envs import ManagerBasedRlEnv
 from mjlab.tasks.registry import load_env_cfg
 from mjlab.utils.lab_api.math import quat_from_angle_axis, quat_from_euler_xyz, quat_mul
 
 import loot_bench  # noqa: F401  (registers all tasks)
+from loot_bench.robots.trlc_dk1 import get_unimanual_dk1_interface
+from loot_bench.robots.trlc_dk1.dk1_actuators import ARM_JOINTS
+from loot_bench.robots.trlc_dk1.dk1_constants import (
+    START_JOINT_POS,
+    get_unimanual_dk1_robot_cfg,
+)
 from loot_bench.tasks.ball.mdp.commands import BallCommand
 from loot_bench.tasks.ball.variants import (
     BALL_RADIUS,
@@ -27,7 +35,7 @@ from loot_bench.tasks.ball.variants import (
     BALL_VARIANTS,
     TARGET_X,
 )
-from loot_bench.tasks.common.actions import delta_action_from_poses
+from loot_bench.tasks.common.actions import JOINT_POS_ACTION_NAME
 from loot_bench.tasks.common.env_cfg import CONTROL_STEP_S
 from loot_bench.tasks.common.success import bore_axis_cos_tilt
 from loot_bench.tasks.domino.mdp.commands import DominoCommand
@@ -242,6 +250,68 @@ _GRIP_OPEN = 2.0
 _GRIP_STEPS = 60  # sim steps for the fingers to close on the pinned block
 
 
+def _quat_conj(q: np.ndarray) -> np.ndarray:
+    out = q.copy()
+    out[1:] = -out[1:]
+    return out
+
+
+def _quat_mul(a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    w1, x1, y1, z1 = (float(v) for v in a)
+    w2, x2, y2, z2 = (float(v) for v in b)
+    return np.array(
+        [
+            w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2,
+            w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2,
+            w1 * y2 - x1 * z2 + y1 * w2 + z1 * x2,
+            w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2,
+        ]
+    )
+
+
+def _xmat_to_quat(m: np.ndarray) -> np.ndarray:
+    t = float(np.trace(m))
+    if t > 0:
+        s = math.sqrt(t + 1.0) * 2.0
+        return np.array(
+            [
+                0.25 * s,
+                (m[2, 1] - m[1, 2]) / s,
+                (m[0, 2] - m[2, 0]) / s,
+                (m[1, 0] - m[0, 1]) / s,
+            ]
+        )
+    if m[0, 0] > m[1, 1] and m[0, 0] > m[2, 2]:
+        s = math.sqrt(1.0 + m[0, 0] - m[1, 1] - m[2, 2]) * 2.0
+        return np.array(
+            [
+                (m[2, 1] - m[1, 2]) / s,
+                0.25 * s,
+                (m[0, 1] + m[1, 0]) / s,
+                (m[0, 2] + m[2, 0]) / s,
+            ]
+        )
+    if m[1, 1] > m[2, 2]:
+        s = math.sqrt(1.0 + m[1, 1] - m[0, 0] - m[2, 2]) * 2.0
+        return np.array(
+            [
+                (m[0, 2] - m[2, 0]) / s,
+                (m[0, 1] + m[1, 0]) / s,
+                0.25 * s,
+                (m[1, 2] + m[2, 1]) / s,
+            ]
+        )
+    s = math.sqrt(1.0 + m[2, 2] - m[0, 0] - m[1, 1]) * 2.0
+    return np.array(
+        [
+            (m[1, 0] - m[0, 1]) / s,
+            (m[0, 2] + m[2, 0]) / s,
+            (m[1, 2] + m[2, 1]) / s,
+            0.25 * s,
+        ]
+    )
+
+
 def _check_pi_held_lintel_excluded(device: str, *, render: bool = False) -> str | None:
     """A lintel gripped at level height must NOT earn level credit.
 
@@ -266,10 +336,10 @@ def _check_pi_held_lintel_excluded(device: str, *, render: bool = False) -> str 
     site_ids = cmd.grasp_cfg.site_ids
     env.step(_zeros(env, device))
 
-    def action(grip: float, delta: torch.Tensor | None = None) -> torch.Tensor:
+    def action(grip: float, arm: torch.Tensor | None = None) -> torch.Tensor:
         a = torch.zeros((ne, dim), device=device)
-        if delta is not None:
-            a[:, :-1] = delta
+        if arm is not None:
+            a[:, :-1] = arm
         a[:, -1] = grip
         return a
 
@@ -278,6 +348,72 @@ def _check_pi_held_lintel_excluded(device: str, *, render: bool = False) -> str 
             robot.data.site_pos_w[:, site_ids].squeeze(1),
             robot.data.site_quat_w[:, site_ids].squeeze(1),
         )
+
+    def arm_action_for(
+        target_pos: torch.Tensor, target_quat: torch.Tensor
+    ) -> torch.Tensor:
+        """Joint-space servo action holding the grasp site at the target.
+
+        Solves the arm joints once (damped least squares, seeded at the start
+        pose) and returns the normalized action holding them. The gripper
+        channel is left at zero for the caller to fill.
+        """
+        term = env.action_manager.get_term(JOINT_POS_ACTION_NAME)
+        arm_names = list(ARM_JOINTS.keys())
+        model = Entity(get_unimanual_dk1_robot_cfg()).compile()
+        data = mujoco.MjData(model)
+        grasp = get_unimanual_dk1_interface().grasp_site
+        site = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_SITE, grasp)
+        qpos_ids = np.array(
+            [
+                model.jnt_qposadr[
+                    mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, n)
+                ]
+                for n in arm_names
+            ]
+        )
+        dof_ids = np.array(
+            [
+                model.jnt_dofadr[mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_JOINT, n)]
+                for n in arm_names
+            ]
+        )
+        goal_p = target_pos[0].detach().cpu().numpy().astype(float)
+        goal_q = target_quat[0].detach().cpu().numpy().astype(float)
+        goal_q = goal_q / float(np.linalg.norm(goal_q))
+        q = np.array([START_JOINT_POS[n] for n in arm_names], dtype=float)
+        jacp = np.zeros((3, model.nv))
+        jacr = np.zeros((3, model.nv))
+        for _ in range(300):
+            data.qpos[qpos_ids] = q
+            mujoco.mj_forward(model, data)
+            pos_err = goal_p - np.array(data.site_xpos[site])
+            cur_q = np.array(
+                _xmat_to_quat(np.array(data.site_xmat[site]).reshape(3, 3))
+            )
+            err_q = _quat_mul(goal_q, _quat_conj(cur_q))
+            if err_q[0] < 0:
+                err_q = -err_q
+            angle = 2.0 * math.acos(min(1.0, float(err_q[0])))
+            ori_err = (
+                np.zeros(3)
+                if angle < 1e-9
+                else err_q[1:] / math.sin(angle / 2.0) * angle
+            )
+            if float(np.linalg.norm(pos_err)) < 1e-4 and float(angle) < 1e-3:
+                break
+            mujoco.mj_jacSite(model, data, jacp, jacr, site)
+            jac = np.vstack([jacp[:, dof_ids], jacr[:, dof_ids]])
+            err = np.concatenate([pos_err, 0.5 * ori_err])
+            dq = jac.T @ np.linalg.solve(jac @ jac.T + 0.05**2 * np.eye(6), err)
+            q = q + np.clip(dq, -0.1, 0.1)
+        joints = {name: float(v) for name, v in zip(arm_names, q, strict=True)}
+        assert "gripper" in term.target_names[-1], term.target_names
+        row = [joints[name] for name in term.target_names[:-1]]
+        full = torch.tensor([row], device=device)
+        gripper_target = (term.offset[0, -1] + term.scale[0, -1]).unsqueeze(0)
+        full = torch.cat([full, gripper_target.unsqueeze(0)], dim=-1)
+        return (((full - term.offset) / term.scale).clamp(-1.0, 1.0))[:, :-1]
 
     # Lower the open gripper to the lintel height over the build zone.
     home_quat = site_pose()[1].clone()
@@ -289,11 +425,9 @@ def _check_pi_held_lintel_excluded(device: str, *, render: bool = False) -> str 
         ],
         dim=-1,
     )
+    hold_arm = arm_action_for(target, home_quat)
     for _ in range(_DRIVE_STEPS):
-        pos, quat = site_pose()
-        env.step(
-            action(_GRIP_OPEN, delta_action_from_poses(pos, quat, target, home_quat))
-        )
+        env.step(action(_GRIP_OPEN, hold_arm))
     residual = float((site_pose()[0] - target).norm(dim=-1).max())
     if residual > 0.01:
         return f"grasp site never reached the lintel height (residual {residual * 1000:.1f} mm)"
