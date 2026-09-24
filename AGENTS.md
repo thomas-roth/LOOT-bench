@@ -1,1 +1,426 @@
-CLAUDE.md
+# AGENTS.md
+
+This file provides guidance to AI coding agents when working with code in this repository.
+
+## What this is
+
+`loot-bench` is a suite of long-horizon robot-manipulation benchmark tasks for
+the KIT "Generative AI for Autonomous Agents Praktikum" course, built on the
+**mjlab** framework (MuJoCo + PyTorch vectorized sim). It is an installable
+package (`loot_bench`, hatchling, flat layout) whose job is to **register tasks
+into mjlab's global registry** and provide the robot assets and task definitions;
+the play loop is mjlab's, and training is QC-FQL (offline-to-online RL), which
+lives in a **separate `qc` checkout** reached by `PYTHONPATH` — this repo holds
+only the seam to it, in `loot_bench/qc/`.
+
+Five task categories, 43 tasks total, currently registered for one robot
+(`-Dk1`) → task ids look like `LOOT-<Category>-<Task>[-<Variation>]-<Robot>`:
+`tasks/stack` (pi building; a level is one horizontal block, a lintel,
+carried by one or two blocks standing on end; registered as `Stack` x
+`1Pi`/`2Pis`/`3Pis`, no difficulty axis; both the T and the
+trilithon are legal, see ADR-020),
+`tasks/domino` (place and optionally knock over a row of dominoes; the row is
+at a **fixed** pose every reset, because a teleoperator needs a layout that
+does not move between takes — the `RandomRow` variant is the one that opts
+back into a sampled row centre-y and yaw with the row x pinned, and the domino
+*spawns* stage from the fixed spawn table in all of them, see ADR-019),
+`tasks/sorter` (insert shapes into a sorter board, registered as
+`Sorter`), `tasks/ball` (minigolf / throw a ball to a target), and
+`tasks/place` (carry one cube to a sampled target spot, registered as
+`Place`). Place is the one-cube sanity check the QC pipeline is brought up
+on — 15 s, i.e. 300 steps at 20 Hz, no difficulty axis; its four variants
+instead switch the two
+randomness axes independently (`RandS`/`FixedS` for the cube spawn,
+`RandT`/`FixedT` for the target), e.g. `LOOT-Place-FixedS-RandT-Dk1`.
+`tasks/peg_insertion` is an archived, unregistered category kept importable
+for reference (see its README).
+
+**Read `docs/adr/` before changing anything it touches.** Those records are the
+ground truth for *why* the repo is shaped this way; `CONTEXT.md` is the glossary
+that names the concepts. If your work contradicts a record, say so and reopen
+the decision — do not overturn it in silence. The rest of `docs/` is
+descriptive, not authoritative: `task_categories.md` (per-category overview),
+`sim_settings.md`, and `rl_settings.md`. A record always wins over them: they
+summarize the current code, and only `docs/adr/` states why.
+
+## Commands
+
+Use `uv run` for everything — the venv is managed by uv. The environment is at .venv/.
+
+```bash
+# Install (torch build picked by platform in pyproject.toml, also installs pre-commit hooks)
+bash install.sh            # or ./install.ps1 on Windows
+uv sync                    # manual editable install (cu128 on Linux/Windows, cpu on macOS)
+
+# Quality (CI = pre-commit; run before committing)
+uv run ruff check          # lint
+uv run ruff format         # format
+uv run pyright             # type check (config in pyrightconfig.json, basic mode)
+uv run pre-commit run --all-files
+
+# Play a task (wraps mjlab's player after importing loot_bench to register tasks)
+uv run loot-play LOOT-Stack-2Pis-Dk1
+
+# List all registered task IDs (mjlab's built-ins included; --filter/--count narrow it)
+uv run loot-list-tasks
+uv run loot-list-tasks --filter Domino
+uv run loot-list-tasks --filter LOOT --count
+
+# Teleop recording -> the .npz QC-FQL trains on (several sessions at once)
+uv run loot-convert-demos --success-dir dataset/demos/<task>/<stamp> \
+    --failure-dir dataset/demos/<task>/<stamp>_failure --output dataset/qc/demos.npz
+
+# One hard recording -> a demo set per easier same-family task, no re-simulation
+uv run loot-split-demos --source-dir dataset/demos/<task>/<stamp> \
+    --source-task LOOT-Stack-3Pis-Dk1 --output-dir dataset/demos_split
+
+# Several LeRobot sessions -> one LeRobot root (plus merged sidecar), for the
+# consumers that take one root (split_demos, replay readers, inspection)
+uv run loot-fuse-demos --src out/demos/success/<task>/<stamp_a> \
+    --src out/demos/success/<task>/<stamp_b> --out out/demos/fused/<task>/<stamp>
+
+# Verification scripts (see tests/tasks/README.md), not installed as console scripts
+uv run python tests/tasks/build_sim_registered_tasks.py
+uv run python tests/tasks/check_success_reward.py
+uv run python tests/tasks/compare_sim_settings.py
+uv run python tests/tasks/check_spawn_reachability.py --cpu
+
+# Native-viewer checks (see tests/viewer/README.md), need a display, not for CI
+uv run python tests/viewer/measure_viewer_fps.py
+uv run python tests/viewer/check_viewer_shutdown.py
+
+# Read a demo set before spending a training run on it (ADR-012, ~2 minutes).
+# Runs from the qc venv (it needs JAX), with both checkouts on the path.
+PYTHONPATH=<loot-bench>:<qc> <qc>/.venv/bin/python tests/qc/bc_gate.py out/qc/demos.npz
+
+# Launch a QC-FQL run in the separate qc checkout (must run inside tmux)
+./train_qc.sh LOOT-Place-FixedS-FixedT-Dk1 out/qc/demos.npz --offline_steps=100000
+run_scripts/LOOT-Place/critic-variants/critic-off_100k-100k.sh   # one critic variant
+```
+
+The pytest suite (`uv run pytest tests/`) unit-tests the pure kernels in
+`tasks/common/` (`tests/tasks/`), the QC seam without a simulator
+(`tests/qc/`: the converter, the transition assembly, the gym adapter, the
+BC gate), the teleop bridge (`tests/live_bridge/`, no hardware needed), the
+demo splitter on synthetic episodes (`tests/scripts/`), and
+the DK1 collision contract on the compiled model (`tests/trlc_dk1/`). See
+`tests/tasks/README.md`, `tests/qc/README.md`, `tests/scripts/README.md` and
+`tests/live_bridge/README.md` for what each script covers; all verification
+scripts accept `--cpu` to force CPU-only execution. `tests/viewer/` holds the
+manual native-viewer checks (FPS cap, shutdown segfault).
+
+## Architecture
+
+### Task category pattern (most work happens here)
+Every category under `loot_bench/tasks/<cat>/` follows the **same layout**, so
+adding/editing a category means mirroring an existing one:
+
+- `variants.py` — frozen dataclass `*VariantCfg` enumerating the task variations
+  (forms, colors, targets…), collected in a `*_VARIANTS` dict keyed by name.
+- `assets.py` — `mujoco.MjSpec` builders for the scene objects (`get_*_spec`).
+  Most objects are built procedurally in code; the exception is
+  sorter's STL cube and pieces, loaded from committed XML/STL files
+  (see the extra `xmls/` dir below).
+- `mdp/` — the per-category MDP terms: `success.py` (the category's pure
+  success criteria — simulator-free placement tests like `domino_upright_aligned`
+  and `ball_in_target_zone`, plus category-specific latches like the sorter's
+  `SorterLatch`; unit-tested in `tests/tasks/test_success.py`), `commands.py`
+   (a `CommandTerm` subclass that samples goals, spawns objects from the fixed
+   table on reset, and
+   computes the success metric — an *adapter* that gathers sim buffers for the
+   success criteria and the shared `tasks/common/success.py` / `fixed_spawns.py`
+   / `scatter.py`
+   helpers), `observations.py`, `rewards.py`, `terminations.py`.
+  `mdp/__init__.py` re-exports the terms.
+- `<cat>_env_cfg.py` — `make_<cat>_env_cfg(variant, play)` builds only the
+  category-shaped parts (entities, command, task observation/termination
+  terms, and the **one** task reward — no shaping terms and no penalties, see
+  ADR-006) and hands them to
+  `tasks/common/env_cfg.make_manipulation_env_cfg`, which owns the shared
+  skeleton (table, proprioceptive obs, actor/critic groups, reset events,
+  `start_pose_noise`, viewer/sim defaults, the `play` strip-down).
+- `config/__init__.py` — one `tasks/common/registration.register_category(...)`
+  call: it loops robots × variants, wires the robot in (via
+  `tasks/common/manipulator_wiring.wire_manipulator_into_env` with the
+  category's `ee_contact_sensors` and its `grip_contact_sensor` /
+  `object_contact_sensor`), and registers each task with mjlab's registry
+  using the shared RSL-RL PPO cfg
+  (`tasks/common/rl_cfg.manipulation_ppo_runner_cfg`, which takes an
+  `experiment_name` and nothing else) — mjlab's registry requires an
+  `rl_cfg`, but the actual training path is QC-FQL in the separate `qc`
+  checkout, not RSL-RL PPO.
+- `__init__.py` — empty (discovery happens one level up, see below).
+- *(sorter only)* `xmls/` — committed STL sorter assets
+  (`sorter.xml`, `piece_<shape>.xml`, STL meshes, `sorter_layout.json`),
+  generated once by `xmls/make_sorter_assets.py`.
+
+`tasks/common/` is the home of everything shared: the workbench builder
+(`env_cfg.py`), the manipulator wiring, the registration seam + PPO cfg, the
+action terms (`actions.py`: the end-effector delta and the gripper's
+normalized stroke), the one-reward convention
+(`rewards.py`: `MIN_SHORTFALL` and `shaped_task_reward`), the shared
+observation terms (`observations.py`: `ee_pose_w` and `rot6d_from_matrix`),
+the absolute-pose reset (`events.py`: `reset_joints_to_pose`), the shared
+success gating (`success.py`: `OBJECT_VEL_THRESHOLD` and the `SuccessGate`
+that combines a category's success criterion with the at-rest + released
+conditions), the `ContactReleaseGate` "gripper released"
+success gate (`commands.py`: the finger pads exert no grip force, read off
+the `grip_contact` sensor against `MIN_GRIP_FORCE`, see ADR-018), the fixed
+spawn tables (`fixed_spawns.py`: per-category hand-written cells, object `i`
+on cell `i` with ±1 cm jitter, seed-prefix safe, laid out clear of the work
+area by construction so no keep-out mask is needed, see ADR-019;
+`write_upright_spawn` in `scatter.py` sits the entities
+upright on the sampled cells and zeros their velocity), the shared
+`colors.py` palette,
+the table asset, and the debug markers.
+
+**Registration is automatic via discovery**: `tasks/__init__.py` calls mjlab's
+`import_packages` once (blacklist `["utils", ".mdp", "common", "peg_insertion"]`),
+which walks the category packages, imports each `config` subpackage and
+triggers `register_mjlab_task`. The `.mdp`/`common` blacklist entries keep
+the MDP and shared-helper modules from being scanned as task configs;
+`peg_insertion` is blacklisted because it's an archived, unregistered
+category. Top-level `loot_bench/__init__.py` imports `loot_bench.tasks`, so a
+single `import loot_bench` registers everything.
+
+### The QC training seam (`loot_bench/qc/`)
+Training is QC-FQL and it runs from a **separate checkout of upstream `qc`**
+(`ColinQiyangLi/qc`). This repo keeps only the seam (ADR-002). The in-repo
+copy of the trainer is deleted; do not bring one back.
+
+- `env.py` — `LootEnv`, a single gymnasium env over one mjlab task. It is
+  a seam and nothing else: no reward shaping, no observation rewriting, no
+  action remapping (ADR-009). Four choices there are load-bearing: auto-reset
+  is **off** (mjlab would return the *next* episode's first observation next to
+  `done`), observation corruption is off, `terminated`/`truncated` pass through
+  as mjlab reports them, and observations are **copied** out of simulator
+  memory (mjlab returns a view the next step overwrites).
+- `episode.py` — per-episode bookkeeping and the `info` dict `qc` reads.
+  Success is **latched** over the episode, keyed off the reward reaching
+  `SUCCESS_REWARD` (`0.0`). Contact
+  telemetry is published under **flat** keys (`pad_contact_force`,
+  `object_contact_force`); `qc/evaluation.py` consumes them by name and
+  imports `CONTACT_THRESHOLD` from here, so both are a cross-repo contract with
+  no version pin. After changing either
+  side, run a short eval and check `eval/pad_contact_runs` is non-zero.
+- `transitions.py` — recorded rows → `(s, a, r, s', done)`. `terminals` marks an
+  **episode boundary**, `masks` marks whether to **bootstrap**; they are not the
+  same column (ADR-010). Every episode end is a boundary, only a success is
+  absorbing. A timed-out episode's final row is **dropped**, because the
+  recorder stored no successor for it.
+- `convert.py` — the `loot-convert-demos` entry point. It copies the recorded
+  action through rather than re-deriving it (a delta is meaningless without the
+  pose it was measured against), sorts rows by `(episode, frame)`, and stamps
+  the convention record into the `.npz` (ADR-011). It raises on an action
+  outside the box and on recordings spanning more than one task. It is the only
+  module here that imports lerobot.
+- `dataset.py` — `load_dataset(path, env)` reads a dataset back and **raises** on
+  any convention-record mismatch against the environment it is handed
+  (ADR-011), including a missing stamp. It imports no lerobot on purpose: the `qc` venv loads
+  datasets and must stay free of the recording stack.
+
+`train_qc.sh` launches a run. It checks the things that are invisible in the
+code and cost a whole run when wrong (ADR-004): `loot-bench` reached by
+`PYTHONPATH` and never pip-installed in the `qc` venv, a CUDA-12 torch,
+`XLA_PYTHON_CLIENT_PREALLOCATE=false`, a run directory off NFS, a wandb login,
+and a tmux session. `run_scripts/<task>/` holds the per-experiment launchers
+that call it; each one is a single run (one seed) and tags its wandb run with
+its own file name through `LOOT_RUN_SCRIPT`. `LOOT-Place/critic-variants/` varies
+how much the critic acts (off / selection / steering) at two step budgets;
+`LOOT-Place/fixed-variants/` varies the spawn/target randomness and the
+offline/online split. `run_scripts/sweep.sh` is the exception to the one-run
+rule: it launches a sweep and owns its own `--wandb_tags`, so `train_qc.sh`
+skips the tag it would otherwise add.
+
+Two documents govern what to run: **ADR-012** says to read a new demonstration
+set with `tests/qc/bc_gate.py` before spending a training run (numbers only —
+it has no pass/fail bar, and a poor read is not a reason to re-record), and
+**ADR-014**
+lists the closed experiments that must not be run again (the discount, a dense
+reward arm, `horizon_length=1`, a `flow_steps` sweep, more eval-reset coverage).
+Read both before proposing an experiment.
+
+### Robot-agnostic design
+Tasks never hardcode robot details. `robots/interface.py` defines
+`ManipulatorInterface` (name, entity-cfg factory, grasp site, end-effector subtree, finger-pad geom
+regex, viewer body, start pose). It carries no action scale — those are one
+pair of constants in `tasks/common/actions.py`, shared by every robot — but it
+does declare the **actuator split** the two action terms are built from:
+`arm_actuators` (the IK chain), `gripper_actuators` (the normalized stroke),
+and `ik_max_dq`. All three are required. Deriving the arm as "every actuator
+that is not the gripper" was rejected: it makes the residue load-bearing, so a
+later robot's torso or wrist-camera joint silently joins the IK chain.
+`ik_max_dq` is a *torque* cap (`kp · max_dq`), not a rate limit — see its
+docstring before copying mjlab's default. Each robot package
+exposes its own `get_<robot>_interface()` factory —
+`robots/trlc_dk1/__init__.py` has `get_unimanual_dk1_interface()` and
+`get_bimanual_dk1_interface()`, `robots/yam/__init__.py` has
+`get_yam_interface()` (YAM comes from `mjlab.asset_zoo`). Currently only the
+unimanual DK1 is registered against tasks (see `config/__init__.py` in each
+task category). To support a new robot, add one `ManipulatorInterface`
+instance — the env cfgs read everything they need from it.
+
+### DK1 robot asset
+The TRLC-DK1 has no public MJCF; it was converted from the official URDF
+(github.com/robot-learning-co/trlc-dk1) into `robots/trlc_dk1/xml/dk1.xml`
+(hand-written) plus per-color OBJ visual meshes split out of the source GLBs by
+`robots/trlc_dk1/utils/convert_glb_meshes_to_obj.py` (a one-time tool, not part
+of the runtime). `dk1_constants.py` exposes `get_unimanual_dk1_robot_cfg()` /
+`get_bimanual_dk1_robot_cfg()` and `START_JOINT_POS`, the pose every episode
+begins from and the pose the teleop operator aligns the leader arm to. It is
+the home pose: q2=1.7, q3=1.7, q4=-1.5708 puts the downward gripper at
+≈(0.30, 0, 0.20). The gripper is a
+rack-and-pinion pair coupled by an equality constraint (only `gripper_left`
+actuated).
+
+## Conventions and gotchas
+
+- **Torch build is platform-pinned, not extra-gated.** There are no `cpu`/`cu128`
+  extras. `[tool.uv.sources]` in `pyproject.toml` pins `torch`/`torchvision` to
+  the `pytorch-cu128` index on Linux/Windows and `pytorch-cpu` on macOS (no CUDA
+  wheels exist there), baked into the base resolution. So a bare `uv sync` /
+  `uv run` resolves the right wheel and **never churns torch back to the CPU
+  wheel** — the old `--extra cu128` flag and the installers' `nvidia-smi` probing
+  are gone. `torch-backend = "auto"` is *not* used: it's only honored by the
+  `uv pip` interface, not `uv sync`/`uv lock` (uv issue #12994, unimplemented).
+  Tradeoff: no lean CPU-only build on Linux/Windows — CPU-only boxes still run
+  fine on the (larger, ~2.5 GB) cu128 wheels.
+- **mjlab is pinned to `>=1.5.1,<1.6`.** mjlab 1.6.0 refuses the DK1 collision
+  specification, so no task builds on it (ADR-003). The upper bound is a hard
+  constraint, not a preference: remove it only together with a DK1 asset that
+  compiles on 1.6. Inside that range use the newest release, and read the
+  installed source in `.venv` — the API has drifted from older snippets. E.g.
+  use `mjlab.utils.lab_api.math` (not `mjlab.utils.math`),
+  `RslRlOnPolicyRunnerCfg` with separate actor/critic `RslRlModelCfg` (not
+  `RslRlPpoRunnerCfg`), and `mjlab.viewer.debug_visualizer`.
+- **An action is a ±5 cm end-effector delta at 20 Hz.** Every task, one
+  convention, all of it in `tasks/common/actions.py` (ADR-016 — read it before
+  touching the action term, the control rate, or the teleop mapper). Two terms,
+  7 wide: `EndEffectorDeltaActionCfg` (mjlab's differential IK in relative mode
+  on the grasp site, `±1` = 0.05 m per position axis / 0.5 rad per rotation
+  axis) plus `NormalizedJointPositionActionCfg` for the gripper alone, where
+  `-1` is its closed limit and `+1` its open one, read off the compiled model.
+  Control step 0.05 s (`timestep` 0.005 × `decimation` 10). A zero action holds
+  the end-effector still.
+  - The clamp to `[-1, 1]` **is** the convention, not a safety net: DiffIK
+    scales whatever it is handed, so without it `delta_pos_scale` would be a
+    unit rather than a bound.
+  - The box is per-channel, not a norm. Say "±5 cm per axis", never "≤5 cm per
+    step" — all three position channels at once is 0.087 m.
+  - `delta_action_from_poses` is the *only* place a delta action is built. The
+    teleop bridge calls it through `live_bridge/mapper.leader_to_delta_action`,
+    so a recorded action and a policy action cannot mean different things;
+    `tests/tasks/test_actions.py` and `tests/live_bridge/test_mapper.py` pin
+    the two halves.
+  - The arm's gravity is compensated in the simulator (per-body `gravcomp`,
+    `dk1_constants._compensate_arm_gravity`). DiffIK re-anchors its setpoint to
+    the measured pose every substep, so PD sag compounds rather than being
+    corrected — uncompensated, a held zero action walks the arm 0.168 m into
+    the table over 100 steps.
+- **One task reward, in `[-1, 0]`, exactly `0` only at success** (ADR-006,
+  `tasks/common/rewards.py`). Every task ends on success, so a positive
+  per-step reward would pay a policy to hover at the goal and never touch it.
+  A non-success step is floored at `-MIN_SHORTFALL` (1e-3), because QC's
+  `--sparse` maps `(rewards != 0.0) * -1.0` and would relabel a true zero a
+  success. The reward **lags the observation by one control step** on purpose:
+  mjlab runs the reward and termination managers before the command manager,
+  so success in step `k` is paid at step `k + 1`, the step that also
+  terminates. The lag is the same when recording and when evaluating, so it
+  cancels — never correct it on one side alone. Rewards are not scaled by the
+  timestep (`scale_rewards_by_dt=False`), or the numbers in a recorded dataset
+  would follow the decimation.
+- **Observations carry no noise, on any term or group** (ADR-015). Observation
+  noise is a robustness device for an on-policy run that collects its own data.
+  Training is offline from recorded demonstrations, and the demonstrations came
+  through the uncorrupted observation, so noise would split the offline and
+  online halves apart. `actor` and `critic` are now the same terms. If
+  sim-to-real robustness is ever wanted, put the noise back in **one** place
+  (`make_manipulation_env_cfg`) and **record the demonstrations through it**.
+- **`ee_pose` publishes a 6D rotation, not a quaternion** (ADR-007). The term is
+  9 wide: position, then the first two columns of the rotation matrix
+  (`tasks/common/observations.rot6d_from_matrix`). mjlab's `quat_from_matrix`
+  picks its branch with an `argmax` over candidates that tie, and the DK1 grasp
+  site sits on that tie, so float noise flipped the sign of one smooth motion on
+  14 of 120 steps. Body poses keep their quaternion — `data.xquat` is integrated
+  continuously and never runs the unstable branch.
+- **Episodes start at the robot's home pose** (ADR-008).
+  `tasks/common/events.reset_joints_to_pose` resets to an **absolute** pose
+  (`ManipulatorInterface.reset_joint_pos`, the DK1's `START_JOINT_POS`) plus a
+  uniform sample of half-width `start_pose_noise`, default `0.0`. mjlab's
+  `reset_joints_by_offset` resets relative to the MJCF keyframe, 1.7 rad away
+  on joints 2 and 3 — a policy trained on demos and evaluated from a state it
+  had never seen. Sampled positions clamp to the **hard** joint limits, and the
+  gripper is never sampled. Only `place` passes a value explicitly
+  (`place_env_cfg.py`, currently `0.0`); every other category takes
+  `make_manipulation_env_cfg`'s `0.0` default. A run can override the task
+  value with `train_qc.sh --start_pose_noise` or `LOOT_START_POSE_NOISE`, but
+  the dataset stamp then has to agree (ADR-011). Keep any value inside the recorder's
+  alignment gate, which is one action box wide (`mapper.leader_is_aligned`). Measure start-state variety with peak-to-peak range,
+  never standard deviation.
+- **Fixed props (boards, fields) are fixed-base entities** — a `MjSpec` body with
+  *no* free joint, which mjlab auto-wraps as a mocap body. Position them with
+  `EntityCfg(init_state=EntityCfg.InitialStateCfg(pos=...))`, **not** the spec
+  body `pos` (mjlab overwrites a fixed-base root body's pose from `init_state`).
+  Add a `reset_root_state_uniform` event with `asset_cfg=SceneEntityCfg(name)` so
+  the prop is pinned to `env_origins + init_state.pos` each reset. Free bodies
+  (pieces, pegs, ball) are placed each reset by the command's `_resample_command`.
+- **Procedural geometry is the default**: holes/bores are built as rings of box
+  "walls" (MuJoCo has no boolean subtraction). Non-primitive shapes
+  (triangle/hex pegs) are convex-hull meshes added inline via
+  `spec.add_mesh().uservert`. A *solid* box has no cavity, so a hole must be a
+  frame/ring around a gap. The exception is sorter's STL board and
+  pieces: committed XML+STL assets loaded via `MjSpec.from_file`
+  (`sorter/xmls/`), regenerated by `xmls/make_sorter_assets.py` — don't
+  edit the generated files by hand.
+- **Keep geometry and the success metric from drifting** by deriving both from one
+  source (e.g. `sorter/assets.load_sorter_layout()` is the single source
+  for both the cube's hole geometry and the command term's success metric).
+- mujoco-heavy modules need `# pyright: reportAttributeAccessIssue=false` at the
+  top (mujoco ships no stubs for the compiled `MjSpec`).
+- ruff line-length is 88; format with double quotes. Lint+format+pyright run as
+  pre-commit hooks on commit.
+- **A run's `--agent.num_qs` must stay at 2 or more.** qc's
+  `utils/networks.Value` ensemblizes only for `num_ensembles > 1`, so
+  `num_qs=1` returns a critic output with no ensemble axis, and every
+  `axis=0` q aggregation in `agents/acfql.py` then reduces over the batch
+  instead. With `actor_type=best-of-n` that collapses the selected action to
+  a single row and the first update dies on a concatenate shape error. Shrink
+  a critic nothing reads with `value_hidden_dims` instead.
+- Test renders are written to `out/render/<domain>/`; training logs to `logs/` and
+  `wandb/`. The `examples/` dir holds reference mjlab code, not part of the package.
+- **`out/` is scratch, `dataset/` is kept.** `out/` is gitignored: the teleop
+  recorder writes its sessions to `out/demos/success|failure/<task>/<stamp>/`. A
+  session worth keeping is moved into `dataset/demos/<task>/<stamp>/`, which is
+  committed, with the failure half of the same session as the sibling
+  `dataset/demos/<task>/<stamp>_failure/` (the `success/`+`failure/` split becomes a
+  suffix there). Read demos from `dataset/demos/`; record new ones into
+  `out/demos/`. `loot-convert-demos` is run against already-kept sessions, so its
+  `.npz` goes straight to `dataset/qc/`, committed like the demos it came from.
+- **Split demos before recording easier tasks by hand.** `loot-split-demos`
+  (`scripts/split_demos.py`) relabels a hard Stack/Domino/Sorter recording into
+  every easier same-family task offline, reusing the categories' own success
+  kernels and `tasks/common/rewards.shaped_task_reward`. It reproduces the
+  environment's one-step reward lag and its held-block progress exclusion, and
+  self-checks by recomputing the source episode's own reward. When an
+   observation layout, a success kernel or the pad-force release threshold changes,
+  that self-check is what fails — fix the splitter, do not loosen the tolerance.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and PRDs live as local markdown under `.scratch/<feature-slug>/`; no external tracker. See `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` + `docs/adr/` at the repo root created lazily by `/domain-modeling`. See `docs/agents/domain.md`.
+
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+Rules:
+- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
