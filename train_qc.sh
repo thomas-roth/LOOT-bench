@@ -15,6 +15,8 @@
 #   QC_DIR                the qc checkout          (default: ../qc)
 #   QC_PYTHON             its interpreter          (default: $QC_DIR/.venv/bin/python)
 #   RUN_DIR               where runs are written   (default: /var/tmp/$USER/qc-runs)
+#   UV_CACHE_DIR          uv cache location        (default: /var/tmp/$USER/uv-cache)
+#   IMAGEIO_FFMPEG_EXE    ffmpeg for eval videos   (default: the venv's bundled binary)
 #   WANDB_MODE            online | offline | disabled  (default: online)
 #   LOOT_RUN_SCRIPT        names the launching script; becomes the script-<name>
 #                         wandb tag                (default: train_qc)
@@ -102,6 +104,24 @@ esac
 [ -f "$QC_DIR/main.py" ] || die "no qc checkout at $QC_DIR (set QC_DIR)"
 [ -x "$QC_PYTHON" ] || die "no interpreter at $QC_PYTHON (set QC_PYTHON)"
 
+# Keep the uv cache off the tmpfs RAM disk (see docs/adr/004): default to
+# node-local disk, explicit UV_CACHE_DIR wins.
+UV_CACHE_DIR="${UV_CACHE_DIR:-/var/tmp/${USER:-$(id -un)}/uv-cache}"
+export UV_CACHE_DIR
+
+# Eval videos need an ffmpeg binary. Prefer the one bundled with the venv's
+# imageio-ffmpeg (local disk once staged); an explicit IMAGEIO_FFMPEG_EXE
+# wins, e.g. a manually curated build.
+if [ -z "${IMAGEIO_FFMPEG_EXE:-}" ]; then
+  for _ff in "$QC_DIR"/.venv/lib/python*/site-packages/imageio_ffmpeg/binaries/ffmpeg-*; do
+    [ -x "$_ff" ] || continue
+    IMAGEIO_FFMPEG_EXE="$_ff"
+    export IMAGEIO_FFMPEG_EXE
+    break
+  done
+  unset _ff
+fi
+
 # --- wandb tags --------------------------------------------------------------
 #
 # A tag has to travel as a flag: wandb.init receives tags= explicitly, which
@@ -137,6 +157,13 @@ done
 
 PYTHONPATH="$REPO:$QC_DIR${PYTHONPATH:+:$PYTHONPATH}"
 export PYTHONPATH
+
+# Staged sweeps re-exec from node-local disk but keep the caller's CWD (the
+# NFS checkout). `python -` prepends CWD ("") ahead of PYTHONPATH, so
+# `import loot_bench` would resolve to the NFS checkout and trip the guard
+# below. PYTHONSAFEPATH=1 (Python >= 3.11) drops CWD for stdin/-c/-m; the
+# final `exec main.py` is unaffected (sys.path[0] is the script dir there).
+export PYTHONSAFEPATH=1
 
 # Without this JAX takes about 75 % of the card at import and mjlab's simulator
 # has nothing left to allocate. Set before any qc code runs, not inside it.
@@ -187,6 +214,17 @@ case "$RUN_FS" in
 nfs*) die "$RUN_DIR is on $RUN_FS, which can EACCES mid-run. Set RUN_DIR to local disk." ;;
 unknown) echo "[warn] cannot read the filesystem type of $RUN_DIR" >&2 ;;
 esac
+
+# Staged sweeps run everything from node-local disk; fail fast if a path
+# still points at NFS (e.g. an un-staged override of QC_DIR/QC_PYTHON).
+if [ -n "${SWEEP_STAGED:-}" ]; then
+  for _p in "$REPO" "$QC_DIR" "$DATASET"; do
+    case "$(stat -f -c %T "$_p" 2>/dev/null || echo unknown)" in
+    nfs*) die "staged run but $_p is on NFS; restage first" ;;
+    esac
+  done
+  unset _p
+fi
 
 if [ -n "${UV_CACHE_DIR:-}" ] && [ "$(stat -f -c %T "$UV_CACHE_DIR" 2>/dev/null || echo unknown)" = "tmpfs" ]; then
   echo "[warn] UV_CACHE_DIR=$UV_CACHE_DIR is on a RAM disk; it fills and breaks installs" >&2
