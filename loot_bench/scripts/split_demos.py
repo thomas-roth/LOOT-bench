@@ -244,12 +244,12 @@ def _domino_progress_and_gate(
 def _sorter_progress_and_gate(
     variant: Any, state: FrameState
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Shape sorter: fraction of pieces latched into their own hole.
+    """Sorter: fraction of pieces latched into their own hole.
 
     A piece latches independently of the others, so the first-k flags of the
     persistent ``socket_inserted`` slice are exactly the target task's. The
     env's gate has no at-rest term (``vel_threshold=inf`` in
-    ``ShapeSorterCommand``): the socket holds a latched piece, so (unlike the
+    ``SorterCommand``): the socket holds a latched piece, so (unlike the
     domino adapter above) no ``OBJECT_VEL_THRESHOLD`` check applies. Release
     still gates, read off the recorded pad force like every category.
     """
@@ -361,13 +361,13 @@ def _make_domino_adapter() -> CategoryAdapter:
 
 
 def _make_sorter_adapter() -> CategoryAdapter:
-    from loot_bench.tasks.shape_sorter.config import task_id_parts
-    from loot_bench.tasks.shape_sorter.variants import SHAPE_SORTER_VARIANTS
+    from loot_bench.tasks.sorter.config import task_id_parts
+    from loot_bench.tasks.sorter.variants import SORTER_VARIANTS
 
     return CategoryAdapter(
         categories=("Sorter",),
         obs_section_widths=(7, 1),
-        variants=SHAPE_SORTER_VARIANTS,
+        variants=SORTER_VARIANTS,
         id_parts=task_id_parts,
         category_of=lambda v: "Sorter",
         family=lambda v: task_id_parts(v)[1],

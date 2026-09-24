@@ -107,7 +107,7 @@ left of the pinned row lane by construction; see `docs/adr/019-fixed-spawn-point
 
 ## Category: Sorter
 
-Insert every peg into its matching hole in a shape sorter. Each peg fits only its corresponding hole.
+Insert every peg into its matching hole in a sorter. Each peg fits only its corresponding hole.
 
 | **Evaluated Capabilities**  | Description |
 | --- | --- |

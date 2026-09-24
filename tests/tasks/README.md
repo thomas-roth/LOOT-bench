@@ -99,7 +99,7 @@ The Domino KnockOver check builds the row (teleport), then tips only the first
 domino past its tip-over point and simulates the chain reaction, so it verifies
 the row topples along the row axis, all leaning the same way, in row order,
 not just that objects end up "fallen".
-The shape-sorter check reorients the free cube so the target hole faces up, then drives the piece through the mouth in two stations so the latched outside-to-inside crossing fires.
+The sorter check reorients the free cube so the target hole faces up, then drives the piece through the mouth in two stations so the latched outside-to-inside crossing fires.
 The pi check teleports a three-level trilithon into `LOOT-Stack-3Pis-Dk1`, lets it settle for 2 s, and prints the acceptance-gate numbers per lintel (centre error against `HEIGHT_TOL`, `|cos|` against `TILT_COS_MAX`) before asserting the levels score; record them in `docs/sim_settings.md` when they change.
 Two more pi checks pin the held-block exclusion against the real grip sensor: `1Pi-HeldLintel` lowers the gripper to the level-1 height and confirms a lintel gripped there earns no level credit until released, `1Pi-EmptyGrip` confirms an empty closed gripper registers no grip force (so a resting block near the fingers is not wrongly excluded).
 This confirms the metric *can* fire when objects are placed correctly; it does not verify that reward shaping guides a policy there.

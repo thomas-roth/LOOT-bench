@@ -1,13 +1,13 @@
-"""Shape-sorter variants.
+"""Sorter variants.
 
 A variant fixes the shape count and one spawn mode:
 
-- ShapeSorter{2,3,4,5}FixedOrientation: the cube always spawns at the same
+- Sorter{2,3,4,5}FixedOrientation: the cube always spawns at the same
   deterministic pose (only its xy position is jittered).
-- ShapeSorter{2,3,4,5}NoRotation: the cube spawns face-down on one of the faces
+- Sorter{2,3,4,5}NoRotation: the cube spawns face-down on one of the faces
   whose hole is *not* needed this variant (plus a random yaw), so no required
   hole ever starts against the table.
-- ShapeSorter{2,3,4,5}Full: the cube spawns face-down on any of its six faces
+- Sorter{2,3,4,5}Full: the cube spawns face-down on any of its six faces
   (plus a random yaw) -- a required hole may start facing the table, so
   reorienting the cube may be necessary.
 
@@ -32,7 +32,7 @@ HARDEST_COUNT = 5
 """The largest shape count: the spawn table, the seed-prefix draws and the
 tier boundaries all size for it, so a shorter variant's reset is the longer
 one's prefix. Keep this equal to the largest ``num_pieces`` in
-``SHAPE_SORTER_VARIANTS``, or a new hardest variant shifts every shorter
+``SORTER_VARIANTS``, or a new hardest variant shifts every shorter
 variant's spawns."""
 
 # The shared color palette must hold at least ``HARDEST_COUNT`` many colors;
@@ -64,7 +64,7 @@ FACE_DOWN_SHAPES: tuple[str, ...] = (
     "triangle",
 )
 
-# Shapes tail-extend: ShapeSorter2's shapes are shapes 0..1 of ShapeSorter5.
+# Shapes tail-extend: Sorter2's shapes are shapes 0..1 of Sorter5.
 # Ordered by difficulty, so the tail extensions are the hard shapes: the
 # circle/rect core, then square, then hexagon, then triangle.
 _SHAPES_BY_COUNT: dict[int, tuple[Shape, ...]] = {
@@ -81,9 +81,9 @@ def allowed_faces(shapes: tuple[Shape, ...]) -> tuple[int, ...]:
 
 
 @dataclass(frozen=True)
-class ShapeSorterVariantCfg:
+class SorterVariantCfg:
     name: str
-    """Variant identifier used in the task id (e.g. "ShapeSorter3Full")."""
+    """Variant identifier used in the task id (e.g. "Sorter3Full")."""
     shapes: tuple[Shape, ...]
     """One piece/hole per shape, in tail-extending index order."""
     spawn: SpawnMode = "fixed"
@@ -111,28 +111,28 @@ class ShapeSorterVariantCfg:
         assert self.margin > 0.0, "margin must be positive"
 
 
-SHAPE_SORTER_VARIANTS: dict[str, ShapeSorterVariantCfg] = {
+SORTER_VARIANTS: dict[str, SorterVariantCfg] = {
     v.name: v
     for n in (2, 3, 4, 5)
     for v in (
-        ShapeSorterVariantCfg(
-            name=f"ShapeSorter{n}FixedOrientation",
+        SorterVariantCfg(
+            name=f"Sorter{n}FixedOrientation",
             shapes=_SHAPES_BY_COUNT[n],
             spawn="fixed",
         ),
-        ShapeSorterVariantCfg(
-            name=f"ShapeSorter{n}NoRotation",
+        SorterVariantCfg(
+            name=f"Sorter{n}NoRotation",
             shapes=_SHAPES_BY_COUNT[n],
             spawn="no_rotation",
         ),
-        ShapeSorterVariantCfg(
-            name=f"ShapeSorter{n}Full",
+        SorterVariantCfg(
+            name=f"Sorter{n}Full",
             shapes=_SHAPES_BY_COUNT[n],
             spawn="full",
         ),
     )
 }
 
-assert max(len(v.shapes) for v in SHAPE_SORTER_VARIANTS.values()) == HARDEST_COUNT, (
+assert max(len(v.shapes) for v in SORTER_VARIANTS.values()) == HARDEST_COUNT, (
     "HARDEST_COUNT must equal the largest variant's shape count"
 )

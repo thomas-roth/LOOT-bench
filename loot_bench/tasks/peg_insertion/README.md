@@ -1,9 +1,9 @@
 # Peg-insertion task category (archived)
 
 **Archived, unregistered.** This category predates the `tasks/task_categories`
-revamp; its shape-sorter family was carried forward and rebuilt as
-`tasks/shape_sorter` (every piece must latch, not just one commanded target;
-STL assets moved to `shape_sorter/xmls/`). What's left here — a single peg
+revamp; its sorter family was carried forward and rebuilt as
+`tasks/sorter` (every piece must latch, not just one commanded target;
+STL assets moved to `sorter/xmls/`). What's left here — a single peg
 into a fixed bore, and the two-sheet alignment puzzle — has no registered
 task ids, no `config/`, and is not covered by the test suite. It is kept
 importable and pyright-clean (in case a future category wants to borrow the
@@ -50,7 +50,7 @@ condition.
 - joint positions/velocities, EE pose
 - the board's own pose (env-local position + quaternion) — a single pose for
   the whole rigid board/socket assembly (fixed and constant per task, but
-  included for completeness/parity with shape_sorter's cube pose)
+  included for completeness/parity with sorter's cube pose)
 - all peg poses (env-local position + quaternion, object-major)
 - per-socket inserted flags
 - two-sheet only: top-sheet pose (env-local position + quaternion)

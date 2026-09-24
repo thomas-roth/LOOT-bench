@@ -36,16 +36,16 @@ from loot_bench.tasks.domino.mdp.commands import (
     domino_spawn_is_clear,
 )
 from loot_bench.tasks.domino.variants import BASE_HALF_EXTENTS, HARDEST_COUNT
-from loot_bench.tasks.shape_sorter import assets as sorter_assets
-from loot_bench.tasks.shape_sorter.assets import BOARD_POS, load_sorter_layout
-from loot_bench.tasks.shape_sorter.mdp import commands as sorter_commands
-from loot_bench.tasks.shape_sorter.mdp.commands import (
+from loot_bench.tasks.sorter import assets as sorter_assets
+from loot_bench.tasks.sorter.assets import BOARD_POS, load_sorter_layout
+from loot_bench.tasks.sorter.mdp import commands as sorter_commands
+from loot_bench.tasks.sorter.mdp.commands import (
     SORTER_CORRIDOR_HALF_WIDTH,
     SORTER_SPAWN_CELLS,
     sorter_spawn_is_clear,
 )
-from loot_bench.tasks.shape_sorter.variants import HARDEST_COUNT as SORTER_HARDEST_COUNT
-from loot_bench.tasks.shape_sorter.variants import SHAPE_SORTER_VARIANTS
+from loot_bench.tasks.sorter.variants import HARDEST_COUNT as SORTER_HARDEST_COUNT
+from loot_bench.tasks.sorter.variants import SORTER_VARIANTS
 from loot_bench.tasks.stack.mdp.commands import (
     BUILD_HALO_MARGIN,
     BUILD_ZONE_HALF_WIDTH,
@@ -408,8 +408,7 @@ class TestSorterTable:
         cells = torch.tensor(SORTER_SPAWN_CELLS)
         assert cells.shape == (SORTER_HARDEST_COUNT, 2)
         assert (
-            max(v.num_pieces for v in SHAPE_SORTER_VARIANTS.values())
-            == SORTER_HARDEST_COUNT
+            max(v.num_pieces for v in SORTER_VARIANTS.values()) == SORTER_HARDEST_COUNT
         )
 
     def test_min_separation_matches_prd(self):
@@ -442,12 +441,11 @@ class TestSorterTable:
         assert not hasattr(sorter_assets, "SORTER_SPAWN_JITTER")
 
     def test_random_positions_variation_is_gone(self):
-        assert "ShapeSorter2RandomPositions" not in SHAPE_SORTER_VARIANTS
-        assert "ShapeSorter3RandomPositions" not in SHAPE_SORTER_VARIANTS
-        assert "ShapeSorter4RandomPositions" not in SHAPE_SORTER_VARIANTS
-        assert "ShapeSorter5RandomPositions" not in SHAPE_SORTER_VARIANTS
+        assert "Sorter2RandomPositions" not in SORTER_VARIANTS
+        assert "Sorter3RandomPositions" not in SORTER_VARIANTS
+        assert "Sorter4RandomPositions" not in SORTER_VARIANTS
+        assert "Sorter5RandomPositions" not in SORTER_VARIANTS
         assert all(
-            not getattr(v, "wide_positions", False)
-            for v in SHAPE_SORTER_VARIANTS.values()
+            not getattr(v, "wide_positions", False) for v in SORTER_VARIANTS.values()
         )
         assert not hasattr(sorter_commands, "_WIDE_CELLS")

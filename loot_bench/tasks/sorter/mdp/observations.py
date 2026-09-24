@@ -1,4 +1,4 @@
-"""Observation terms for the shape-sorter task category."""
+"""Observation terms for the sorter task category."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 import torch
 
 from loot_bench.tasks.common.observations import flatten_object_poses, flatten_pose
-from loot_bench.tasks.shape_sorter.mdp.commands import get_command as _command
+from loot_bench.tasks.sorter.mdp.commands import get_command as _command
 
 if TYPE_CHECKING:
     from mjlab.envs import ManagerBasedRlEnv

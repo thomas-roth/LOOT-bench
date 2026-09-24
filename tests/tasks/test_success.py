@@ -22,8 +22,8 @@ from loot_bench.tasks.domino.mdp.success import (
     domino_upright_aligned,
 )
 from loot_bench.tasks.place.mdp.success import place_progress, place_reached
-from loot_bench.tasks.shape_sorter.mdp.success import SorterLatch
-from loot_bench.tasks.shape_sorter.variants import SHAPE_SORTER_VARIANTS, allowed_faces
+from loot_bench.tasks.sorter.mdp.success import SorterLatch
+from loot_bench.tasks.sorter.variants import SORTER_VARIANTS, allowed_faces
 from loot_bench.tasks.stack.mdp.success import (
     block_is_horizontal,
     pi_levels_complete,
@@ -559,53 +559,51 @@ class TestChainToppleSuccess:
 
 
 # ---------------------------------------------------------------------------
-# shape_sorter: no_rotation allowed-face sets
+# sorter: no_rotation allowed-face sets
 # ---------------------------------------------------------------------------
 
 
 class TestNoRotationFaces:
     def _allowed(self, name: str) -> set[int]:
-        return set(allowed_faces(SHAPE_SORTER_VARIANTS[name].shapes))
+        return set(allowed_faces(SORTER_VARIANTS[name].shapes))
 
     def test_allowed_faces_shrink_and_nest_with_shape_count(self):
-        a2 = self._allowed("ShapeSorter2NoRotation")
-        a3 = self._allowed("ShapeSorter3NoRotation")
-        a4 = self._allowed("ShapeSorter4NoRotation")
-        a5 = self._allowed("ShapeSorter5NoRotation")
+        a2 = self._allowed("Sorter2NoRotation")
+        a3 = self._allowed("Sorter3NoRotation")
+        a4 = self._allowed("Sorter4NoRotation")
+        a5 = self._allowed("Sorter5NoRotation")
         assert a5 <= a4 <= a3 <= a2
         assert len(a5) < len(a4) < len(a3) < len(a2)
 
     def test_allowed_faces_never_empty(self):
         # The star socket is never a required shape, so its face index is
         # always allowed, however many shapes the variant needs.
-        assert self._allowed("ShapeSorter5NoRotation")
+        assert self._allowed("Sorter5NoRotation")
 
 
 # ---------------------------------------------------------------------------
-# shape_sorter variants: hardest count, tail-extension, single-source tolerances
+# sorter variants: hardest count, tail-extension, single-source tolerances
 # ---------------------------------------------------------------------------
 
 
 class TestSorterVariants:
     def test_hardest_count_matches_largest_variant(self):
-        from loot_bench.tasks.shape_sorter.variants import HARDEST_COUNT
+        from loot_bench.tasks.sorter.variants import HARDEST_COUNT
 
         assert HARDEST_COUNT == 5
-        assert (
-            max(v.num_pieces for v in SHAPE_SORTER_VARIANTS.values()) == HARDEST_COUNT
-        )
+        assert max(v.num_pieces for v in SORTER_VARIANTS.values()) == HARDEST_COUNT
 
     def test_shapes_tail_extend(self):
-        shapes5 = SHAPE_SORTER_VARIANTS["ShapeSorter5Full"].shapes
-        for name in ("ShapeSorter2Full", "ShapeSorter3Full", "ShapeSorter4Full"):
-            shapes = SHAPE_SORTER_VARIANTS[name].shapes
+        shapes5 = SORTER_VARIANTS["Sorter5Full"].shapes
+        for name in ("Sorter2Full", "Sorter3Full", "Sorter4Full"):
+            shapes = SORTER_VARIANTS[name].shapes
             assert shapes == shapes5[: len(shapes)]
 
     def test_rejects_non_prefix_shapes(self):
-        from loot_bench.tasks.shape_sorter.variants import ShapeSorterVariantCfg
+        from loot_bench.tasks.sorter.variants import SorterVariantCfg
 
         with pytest.raises(AssertionError):
-            ShapeSorterVariantCfg(
+            SorterVariantCfg(
                 name="Bad",
                 shapes=("triangle", "circle", "rect"),  # type: ignore[list-item]
                 spawn="full",
@@ -613,8 +611,8 @@ class TestSorterVariants:
 
     def test_tolerances_are_single_sourced(self):
         """The command term reads the variants module's tolerances."""
-        from loot_bench.tasks.shape_sorter.mdp import commands as sorter_commands
-        from loot_bench.tasks.shape_sorter.variants import HOLE_SLACK
+        from loot_bench.tasks.sorter.mdp import commands as sorter_commands
+        from loot_bench.tasks.sorter.variants import HOLE_SLACK
 
-        assert sorter_commands.ShapeSorterCommandCfg.hole_slack == HOLE_SLACK
+        assert sorter_commands.SorterCommandCfg.hole_slack == HOLE_SLACK
         assert pytest.approx(0.005) == HOLE_SLACK

@@ -74,7 +74,7 @@ time:
   (0.1 N) — contact-only, no gripper-joint check
   (`docs/adr/018-contact-only-release-gate.md`).
 
-- Exception: **Shape Sorter skips the at-rest check** (its gate threshold is
+- Exception: **Sorter skips the at-rest check** (its gate threshold is
   infinite). The socket holds the piece, so the insertion is credited
   immediately.
 - Exception: **Ball uses a distance test for the release**, not the gripper
@@ -167,7 +167,7 @@ time:
   so the knock-over stays possible. Short rows are the first n slots of the
   6-row.
 
-### Shape Sorter
+### Sorter
 
 - **Progress**: the fraction of the pieces that are latched as inserted.
 - **Observations**: the cube pose, the pose of every piece, and a per-socket

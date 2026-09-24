@@ -14,7 +14,7 @@ per-category deep dives.
 ### Tasks and registration
 
 **Category**:
-One of the five registered task families (stack, domino, shape sorter, ball,
+One of the five registered task families (stack, domino, sorter, ball,
 place) plus the archived, unregistered peg insertion; a package under
 `tasks/` with variants, assets and MDP terms.
 _Avoid_: domain (overloaded with domain randomization)
@@ -112,7 +112,7 @@ the gating)
 **SuccessGate**:
 The universal success gating: success criterion met AND scored objects at
 rest AND released, latched per episode. The at-rest threshold is per
-category: the shape sorter sets it to infinity, because a piece that has
+category: the sorter sets it to infinity, because a piece that has
 crossed its hole is scored while it still tumbles inside the cube.
 
 **Released**:
@@ -134,7 +134,7 @@ color, so a teleoperator can read which piece belongs to which slot. The
 built and `1` once the topple is required.
 
 **SorterLatch**:
-The shape sorter's scoring rule: a piece scores the moment it crosses the
+The sorter's scoring rule: a piece scores the moment it crosses the
 mouth plane through its own hole into the cube, and stays scored while it
 tumbles inside.
 

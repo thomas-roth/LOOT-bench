@@ -1,4 +1,4 @@
-"""MjSpec builders and layout for the shape-sorter task category.
+"""MjSpec builders and layout for the sorter task category.
 
 The cube and its pieces are STL/XML assets committed under ``xmls/``
 (generated once by ``xmls/make_sorter_assets.py`` from the CAD STLs; don't
@@ -9,7 +9,7 @@ bodies; the command term drops them at reset and re-derives the hole frames
 from the cube's live pose every step (see ``mdp/commands.py``).
 
 This module is a copy of the STL-sorter half of ``insertion/assets.py``
-(pared down to what the shape sorter needs: no peg/board/socket_layout
+(pared down to what the sorter needs: no peg/board/socket_layout
 machinery, which stays specific to the archived peg/two_sheet insertion
 kinds).
 """
@@ -26,7 +26,7 @@ from pathlib import Path
 import mujoco
 
 from loot_bench.tasks.common.colors import COLOR_VALUES
-from loot_bench.tasks.shape_sorter.variants import Shape
+from loot_bench.tasks.sorter.variants import Shape
 
 _XML_DIR = Path(__file__).resolve().parent / "xmls"
 SORTER_XML = _XML_DIR / "sorter.xml"
@@ -100,7 +100,7 @@ def load_sorter_layout() -> SorterLayout:
 
 
 def get_sorter_spec() -> mujoco.MjSpec:
-    """The free-body STL shape-sorter cube (visual mesh + convex parts).
+    """The free-body STL sorter cube (visual mesh + convex parts).
 
     A ``<freejoint/>`` body authored in ``xmls/sorter.xml``; the command term
     places it on every reset.

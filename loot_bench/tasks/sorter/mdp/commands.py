@@ -1,4 +1,4 @@
-"""Shape-sorter command. Owns hole poses, spawns, and insertion latching."""
+"""Sorter command. Owns hole poses, spawns, and insertion latching."""
 
 from __future__ import annotations
 
@@ -26,18 +26,18 @@ from loot_bench.tasks.common.debug_markers import PENDING_ALPHA, marker_color
 from loot_bench.tasks.common.fixed_spawns import SPAWN_JITTER, sample_fixed_spawns
 from loot_bench.tasks.common.scatter import write_upright_spawn
 from loot_bench.tasks.common.success import SuccessGate
-from loot_bench.tasks.shape_sorter.assets import (
+from loot_bench.tasks.sorter.assets import (
     BOARD_POS,
     PIECE_SCALE,
     load_sorter_layout,
 )
-from loot_bench.tasks.shape_sorter.mdp.success import (
+from loot_bench.tasks.sorter.mdp.success import (
     SorterLatch,
     peg_axial_lateral,
 )
-from loot_bench.tasks.shape_sorter.variants import (
+from loot_bench.tasks.sorter.variants import (
     HOLE_SLACK,
-    ShapeSorterVariantCfg,
+    SorterVariantCfg,
     allowed_faces,
 )
 
@@ -94,28 +94,28 @@ def sorter_spawn_is_clear(x: float, y: float, object_radius: float) -> bool:
     return abs(y) >= SORTER_CORRIDOR_HALF_WIDTH + object_radius
 
 
-def get_command(env: ManagerBasedRlEnv, name: str) -> ShapeSorterCommand:
-    return cast(ShapeSorterCommand, env.command_manager.get_term(name))
+def get_command(env: ManagerBasedRlEnv, name: str) -> SorterCommand:
+    return cast(SorterCommand, env.command_manager.get_term(name))
 
 
 @dataclass(kw_only=True)
-class ShapeSorterCommandCfg(CommandTermCfg):
+class SorterCommandCfg(CommandTermCfg):
     cube_name: str
     piece_names: tuple[str, ...]
     """One piece entity per shape, in the variant's (tail-extending) index
     order."""
-    variant: ShapeSorterVariantCfg
+    variant: SorterVariantCfg
     hole_slack: float = HOLE_SLACK
     """Radial slack (m) added to every hole's bounding radius (x margin)."""
 
-    def build(self, env: ManagerBasedRlEnv) -> ShapeSorterCommand:
-        return ShapeSorterCommand(self, env)
+    def build(self, env: ManagerBasedRlEnv) -> SorterCommand:
+        return SorterCommand(self, env)
 
 
-class ShapeSorterCommand(CommandTerm):
-    cfg: ShapeSorterCommandCfg
+class SorterCommand(CommandTerm):
+    cfg: SorterCommandCfg
 
-    def __init__(self, cfg: ShapeSorterCommandCfg, env: ManagerBasedRlEnv):
+    def __init__(self, cfg: SorterCommandCfg, env: ManagerBasedRlEnv):
         super().__init__(cfg, env)
         variant = cfg.variant
         self.variant = variant

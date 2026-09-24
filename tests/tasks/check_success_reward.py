@@ -32,8 +32,8 @@ from loot_bench.tasks.common.env_cfg import CONTROL_STEP_S
 from loot_bench.tasks.common.success import bore_axis_cos_tilt
 from loot_bench.tasks.domino.mdp.commands import DominoCommand
 from loot_bench.tasks.place.mdp.commands import PlaceCommand
-from loot_bench.tasks.shape_sorter.assets import BOARD_POS, load_sorter_layout
-from loot_bench.tasks.shape_sorter.mdp.commands import ShapeSorterCommand
+from loot_bench.tasks.sorter.assets import BOARD_POS, load_sorter_layout
+from loot_bench.tasks.sorter.mdp.commands import SorterCommand
 from loot_bench.tasks.stack.mdp.commands import GUIDE_UPRIGHT_SPACING, PiCommand
 from loot_bench.tasks.stack.variants import (
     BLOCK_HALF_EXTENTS,
@@ -506,7 +506,7 @@ def _check_domino_knockover(device: str, *, render: bool = False) -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# Shape sorter
+# Sorter
 # ---------------------------------------------------------------------------
 
 
@@ -530,7 +530,7 @@ def _vec_to_up_quat(ax: np.ndarray, device: str) -> torch.Tensor:
     )
 
 
-def _check_shape_sorter_full(device: str, *, render: bool = False) -> str | None:
+def _check_sorter_full(device: str, *, render: bool = False) -> str | None:
     """Per socket: reorient the cube hole-up, two-station insert; all latch.
 
     The cube can only present one hole up at a time, so pieces are latched in
@@ -543,7 +543,7 @@ def _check_shape_sorter_full(device: str, *, render: bool = False) -> str | None
     """
     task_id = "LOOT-Sorter-3Shapes-Full-Dk1"
     env = _make_env(task_id, device)
-    cmd = cast(ShapeSorterCommand, env.command_manager.get_term("task"))
+    cmd = cast(SorterCommand, env.command_manager.get_term("task"))
     zeros = _zeros(env, device)
     env.step(zeros)
 
@@ -730,7 +730,7 @@ _CHECKS: list[tuple[str, str]] = [
     ("Stack     1Pi-EmptyGrip", "pi_empty_gripper"),
     ("Domino    3Pieces       ", "domino_3pieces"),
     ("Domino    3Pieces-KnockOver", "domino_knockover"),
-    ("Sorter    3Shapes-Full ", "shape_sorter_full"),
+    ("Sorter    3Shapes-Full ", "sorter_full"),
     ("Ball      Minigolf-Direct", "ball_minigolf_direct"),
     ("Ball      Minigolf-UsingWall", "ball_minigolf_using_wall"),
     ("Ball      Throw-U       ", "ball_throw_u"),
@@ -750,8 +750,8 @@ def _dispatch(key: str, device: str, *, render: bool = False) -> str | None:
         return _check_domino_3pieces(device, render=render)
     if key == "domino_knockover":
         return _check_domino_knockover(device, render=render)
-    if key == "shape_sorter_full":
-        return _check_shape_sorter_full(device, render=render)
+    if key == "sorter_full":
+        return _check_sorter_full(device, render=render)
     if key == "ball_minigolf_direct":
         return _check_ball_at_target(
             device, "LOOT-Ball-Minigolf-Direct-Dk1", render=render

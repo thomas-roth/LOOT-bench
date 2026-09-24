@@ -29,8 +29,8 @@ from loot_bench.tasks.common.actions import delta_action_from_poses
 from loot_bench.tasks.common.fixed_spawns import SPAWN_JITTER
 from loot_bench.tasks.domino.mdp.commands import DOMINO_SPAWN_CELLS
 from loot_bench.tasks.place.mdp.commands import FIXED_SPAWN_XY, FIXED_TARGET_XY
-from loot_bench.tasks.shape_sorter.assets import BOARD_POS
-from loot_bench.tasks.shape_sorter.mdp.commands import SORTER_SPAWN_CELLS
+from loot_bench.tasks.sorter.assets import BOARD_POS
+from loot_bench.tasks.sorter.mdp.commands import SORTER_SPAWN_CELLS
 from loot_bench.tasks.stack.mdp.commands import PI_SPAWN_CELLS
 
 _BUILD_TASK = "LOOT-Stack-3Pis-Dk1"

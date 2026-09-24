@@ -1,4 +1,4 @@
-"""Environment configuration for the shape-sorter task category."""
+"""Environment configuration for the sorter task category."""
 
 from mjlab.entity import EntityCfg
 from mjlab.envs import ManagerBasedRlEnvCfg
@@ -10,19 +10,19 @@ from mjlab.sensor import ContactMatch, ContactSensorCfg
 from loot_bench.tasks.common.commands import GRIP_CONTACT_SENSOR_NAME
 from loot_bench.tasks.common.env_cfg import make_manipulation_env_cfg
 from loot_bench.tasks.common.table import table_entity_cfg
-from loot_bench.tasks.shape_sorter import mdp as sorter_mdp
-from loot_bench.tasks.shape_sorter.assets import get_sorter_piece_spec, get_sorter_spec
-from loot_bench.tasks.shape_sorter.variants import ShapeSorterVariantCfg
+from loot_bench.tasks.sorter import mdp as sorter_mdp
+from loot_bench.tasks.sorter.assets import get_sorter_piece_spec, get_sorter_spec
+from loot_bench.tasks.sorter.variants import SorterVariantCfg
 
 COMMAND_NAME = "task"
 SECONDS_PER_PIECE = 20.0
 
 
-def make_shape_sorter_env_cfg(
-    variant: ShapeSorterVariantCfg,
+def make_sorter_env_cfg(
+    variant: SorterVariantCfg,
     play: bool = False,
 ) -> ManagerBasedRlEnvCfg:
-    """Build the robot-agnostic shape-sorter cfg (see ``tasks/common/env_cfg.py``
+    """Build the robot-agnostic sorter cfg (see ``tasks/common/env_cfg.py``
     for the placeholder/wiring convention)."""
     piece_names = tuple(f"piece_{i}" for i in range(variant.num_pieces))
 
@@ -79,7 +79,7 @@ def make_shape_sorter_env_cfg(
         entities=entities,
         fixed_props=("table",),
         command_name=COMMAND_NAME,
-        command_cfg=sorter_mdp.ShapeSorterCommandCfg(
+        command_cfg=sorter_mdp.SorterCommandCfg(
             cube_name="cube",
             piece_names=piece_names,
             variant=variant,

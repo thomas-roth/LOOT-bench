@@ -887,7 +887,7 @@ class _GripperRay(NamedTuple):
 
 
 # Sorter-cube outer half extents (m), matching ``cube.half_size`` in
-# ``tasks/shape_sorter/xmls/sorter_layout.json``. Kept as a local constant
+# ``tasks/sorter/xmls/sorter_layout.json``. Kept as a local constant
 # (like the other thresholds above) so the category-agnostic recorder does
 # not import a task category.
 _SORTER_CUBE_HALF = (0.05, 0.05, 0.05)

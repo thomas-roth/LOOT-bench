@@ -2,7 +2,7 @@
 
 Contains the :class:`SuccessGate` that combines a task's criterion with the
 universal at-rest + released conditions, plus the bore/hole geometry kernels
-(``bore_axial_lateral``/``bore_axis_cos_tilt``) shared by the shape-sorter and
+(``bore_axial_lateral``/``bore_axis_cos_tilt``) shared by the sorter and
 (archived) peg-insertion categories.
 Only tensor math (unit-tested in ``tests/tasks/test_success.py``), no mjlab imports.
 
@@ -24,7 +24,7 @@ def bore_axial_lateral(
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Decompose object-to-mouth offsets along/across a bore/hole axis.
 
-    Shared by the shape-sorter and (archived) peg-insertion categories, whose
+    Shared by the sorter and (archived) peg-insertion categories, whose
     peg/hole geometry is otherwise identical.
 
     Args:

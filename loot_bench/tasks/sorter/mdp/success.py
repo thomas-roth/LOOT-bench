@@ -1,4 +1,4 @@
-"""Pure success criteria for the shape-sorter category.
+"""Pure success criteria for the sorter category.
 
 Plain tensor math, no mjlab or environment imports: the command term
 (``commands.py``) acts as the adapter that gathers sim buffers and calls
@@ -28,7 +28,7 @@ __all__ = ["peg_axial_lateral", "SorterLatch"]
 
 
 class SorterLatch:
-    """Latched mouth-plane crossing for the shape sorter.
+    """Latched mouth-plane crossing for the sorter.
 
     A piece scores the moment it passes through its own hole into the cube:
     it must be inside the insertion channel above the crossing plane on the
