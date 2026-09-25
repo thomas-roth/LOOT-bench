@@ -4,7 +4,7 @@ The control rate and the action term live here and nowhere else: a
 per-category fork would put two MDP conventions in one workbench. Categories
 choose their own ``episode_length_s``, not their rate or their action space.
 
-Joint-absolute normalized control at 20 Hz: one 7-wide term, ``[-1, 1]``
+Joint-absolute normalized control at 50 Hz: one 7-wide term, ``[-1, 1]``
 spanning each joint's travel (see ``tasks/common/actions.py``).
 
 Robot placeholders are filled by wire_manipulator_into_env. No observation
@@ -36,16 +36,11 @@ from loot_bench.tasks.common.observations import ee_pose_w, pad_contact_force_ob
 SIM_TIMESTEP = 0.005
 """[s] physics timestep, shared by every task."""
 
-CONTROL_DECIMATION = 10
-"""Physics steps per control step. 10 x 0.005 s is 20 Hz.
-
-Both QC-validated reference domains run at 20 Hz, and ``horizon_length=5``
-then spans 0.25 s -- the middle of the band QC's own Fig. 6 sweeps as working.
-At the previous 50 Hz the same chunk spanned 0.10 s, nearer the failing end.
-See ADR-016."""
+CONTROL_DECIMATION = 4
+"""Physics steps per control step. 4 x 0.005 s is 50 Hz."""
 
 CONTROL_STEP_S = SIM_TIMESTEP * CONTROL_DECIMATION
-"""[s] one control step, 0.05 s. Stamped into every dataset, so changing the
+"""[s] one control step, 0.02 s. Stamped into every dataset, so changing the
 rate invalidates recordings loudly instead of silently (ADR-011)."""
 
 

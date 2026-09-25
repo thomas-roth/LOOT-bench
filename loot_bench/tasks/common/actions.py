@@ -1,9 +1,8 @@
-"""Joint-position actions with [-1, 1] spanning each joint travel, at 20 Hz.
+"""Joint-position actions with [-1, 1] spanning each joint travel, at 50 Hz.
 
 Limits come from the compiled model. This is the pre-ADR-016 joint-absolute
-convention (last used at 50 Hz before the eef-delta merge) moved to the
-current 20 Hz control rate: only the rate changed, the meaning of an action
-did not.
+convention (last used at 50 Hz before the eef-delta merge), restored at its
+original 50 Hz control rate.
 """
 
 from __future__ import annotations

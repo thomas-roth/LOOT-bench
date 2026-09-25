@@ -18,7 +18,7 @@ from numpy.typing import NDArray
 
 from loot_bench.qc.transitions import QC_KEYS as QC_KEYS
 
-CONVENTION_NAME = "joint-absolute-20hz"
+CONVENTION_NAME = "joint-absolute-50hz"
 """The action convention this repo currently records and trains under.
 
 Bump it whenever the meaning of an action changes in a way the other stamped
