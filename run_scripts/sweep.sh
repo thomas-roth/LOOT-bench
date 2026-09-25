@@ -26,6 +26,8 @@
 #                      --resume). Without either flag, an existing GROUP_DIR
 #                      aborts the launch instead of overwriting it.
 #   --dry-run          print the runs that would start, start none
+#   --stage-local      stage code, venv, base python and the dataset to
+#                      node-local disk and run there (see below); off by default
 #
 # Resuming is a same-host operation: RUN_DIR defaults to node-local /var/tmp
 # (and train_qc.sh refuses shared filesystems), so another host sees no
@@ -49,32 +51,65 @@
 # A failed run does not stop the others; the failures are named at the end and
 # the exit status is non-zero. Ctrl-C stops the whole sweep.
 #
-# The sweep stages code, venv, base python and the one dataset file to
-# node-local disk and re-execs there, so training never touches Kerberized
-# NFS at runtime and needs no ticket renewal. Layout: shared
-# /var/tmp/$USER/stage/_venv/<dists-hash>/ plus per-revision
+# When the checkout lives on Kerberized NFS, the repository, the venvs and
+# the dataset are read over it, so the sweep refuses to start without a
+# renewable ticket (kinit -r 14d) and renews it from a detached watcher
+# logging to <group>/krb-renew.log. A run dying with status 126/135 means
+# the ticket died: every such death waits out the outage together (the mount
+# is probed every 60 s, up to 60 min) and relaunches when it reads again; a
+# cell that dies that way 3 times counts as failed without stopping the rest.
+# On a checkout without sec=krb5 (local disk, or NFS with sec=sys) the ticket
+# parts are skipped: repo_needs_ticket skips the supervisor re-exec and the
+# watcher below, so no ticket is ever required.
+#
+# With --stage-local the sweep instead stages code, venv, base python and the
+# one dataset file to node-local disk and re-execs there, so training never
+# touches Kerberized NFS at runtime and needs no ticket renewal. Layout:
+# shared /var/tmp/$USER/stage/_venv/<dists-hash>/ plus per-revision
 # stage/<g3a>-<qc>/ with code + dataset (re-synced every launch, seconds).
 # A commit never re-copies the ~9G venv; a package change alters the hash
-# and is picked up automatically. Staging itself needs a valid ticket for a
-# few minutes; only --dry-run skips it (and runs nothing).
+# and is picked up automatically. Staging reads NFS, so on a Kerberized mount
+# it needs a valid ticket for a few minutes (and fails fast without one);
+# --dry-run never stages (and runs nothing).
 #
 # Environment: RUN_DIR (default /var/tmp/$USER/qc-runs), LOOT_RUN_SCRIPT (the
-# script-<name> tag; a wrapper sets it), STAGE_ROOT (default
-# /var/tmp/$USER/stage), QC_SRC (default $REPO/../qc), SWEEP_STAGE_ONLY=1 to
+# script-<name> tag; a wrapper sets it), SWEEP_RENEW_INTERVAL (seconds between
+# ticket renewals, default 1800; 0 turns the renewal off against advice),
+# SWEEP_OUTAGE_BUDGET (seconds one outage may last before giving up, default
+# 3600; 0 waits forever), SWEEP_PROBE_INTERVAL (seconds between mount probes
+# during an outage, default 60), STAGE_ROOT (default /var/tmp/$USER/stage,
+# --stage-local only), QC_SRC (default $REPO/../qc, --stage-local only),
+# SWEEP_STAGE_LOCAL=1 (same as --stage-local), SWEEP_STAGE_ONLY=1 to
 # only stage and exit, SWEEP_RESTAGE=1 to force a fresh venv copy,
 # plus what train_qc.sh reads.
 
 set -euo pipefail
 
-# REPO is the source checkout; after the stage-and-reexec below it is remapped
-# to the node-local stage copy (see SWEEP_STAGED).
-REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# REPO is the source checkout; a staged re-exec remaps it to the node-local
+# stage copy below (see SWEEP_STAGED), and SWEEP_REPO carries the real tree
+# across the supervisor re-exec (the staged supervisor copy would otherwise
+# mistake its staging dir for the repo).
+REPO="${SWEEP_REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 RUN_DIR="${RUN_DIR:-/var/tmp/${USER:-$(id -un)}/qc-runs}"
 export RUN_DIR
 ORIG_ARGV=("$@")
 
 LOOT_RUN_SCRIPT="${LOOT_RUN_SCRIPT:-$(basename "${BASH_SOURCE[0]}" .sh)}"
 export LOOT_RUN_SCRIPT
+
+# Whether node-local staging is on. Pre-scanned here (rather than in the
+# option loop below) because the supervisor re-exec below needs it before
+# argument parsing; the loop re-sets the same variable when it consumes the
+# flag, so both agree. SWEEP_STAGE_LOCAL=1 is the same opt-in for wrappers.
+STAGE_LOCAL=0
+[ "${SWEEP_STAGE_LOCAL:-0}" = 1 ] && STAGE_LOCAL=1
+for _arg in "$@"; do
+  case "$_arg" in
+  --) break ;; # main.py flags live past here and must not opt in
+  --stage-local) STAGE_LOCAL=1 ;;
+  esac
+done
+unset _arg
 
 DEFAULT_NUM_SEEDS=3
 DEFAULT_ALPHAS="1,10,100"
@@ -131,6 +166,31 @@ is_value() {
 # later path resolves inside the stage.
 if [ -n "${SWEEP_STAGED:-}" ] && [ -n "${STAGE_DIR:-}" ]; then
   REPO="$STAGE_DIR/g3a-bench"
+fi
+
+# Whether the repo lives on a Kerberized mount. Defined with the other early
+# helpers (rather than with the ticket watcher) because the re-exec below
+# needs it before argument parsing.
+repo_needs_ticket() {
+  local opts
+  opts="$(findmnt -no OPTIONS --target "$REPO" 2>/dev/null)" || return 1
+  case "$opts" in
+  *sec=krb5*) return 0 ;;
+  *) return 1 ;;
+  esac
+}
+
+# The supervisor itself is read lazily off the same Kerberized mount that kills
+# the runs, so there it stages itself onto node-local disk and re-execs instead
+# of dying with "error reading input file" mid-sweep. "$@" is still untouched.
+# Skipped for --stage-local, which re-execs the whole tree from local disk
+# anyway.
+if [ "$STAGE_LOCAL" -eq 0 ] && [ -z "${SWEEP_LOCAL:-}" ] && repo_needs_ticket; then
+  if mkdir -p "$RUN_DIR/.sweep-bin" 2>/dev/null &&
+    cp "${BASH_SOURCE[0]}" "$RUN_DIR/.sweep-bin/sweep.sh" 2>/dev/null; then
+    SWEEP_LOCAL=1 SWEEP_REPO="$REPO" exec bash "$RUN_DIR/.sweep-bin/sweep.sh" "$@"
+  fi
+  echo "[sweep] WARNING: cannot stage the supervisor on local disk; running off NFS." >&2
 fi
 
 # --- arguments ---------------------------------------------------------------
@@ -190,6 +250,12 @@ while [ $# -gt 0 ]; do
     ;;
   --overwrite)
     OVERWRITE=1
+    shift
+    ;;
+  --stage-local)
+    # Sweep infrastructure, like --dry-run/--resume: consumed here, never
+    # forwarded to main.py, tagged, or named into the group.
+    STAGE_LOCAL=1
     shift
     ;;
   --run-group)
@@ -407,7 +473,7 @@ if [ -z "${SWEEP_STAGED:-}" ]; then
   G3A_SHA="$(git -C "$REPO" rev-parse HEAD 2>/dev/null || true)"
 fi
 
-# --- stage to node-local disk ------------------------------------------------
+# --- stage to node-local disk (--stage-local only) ---------------------------
 #
 # Training mmap()s the venv for hours; on sec=krb5p NFS a lapsed/deleted PAM
 # ticket SIGBUSes the run. So the sweep runs entirely from /var/tmp. Layout:
@@ -416,10 +482,13 @@ fi
 # The venv is keyed by installed dist names, not by git: a commit never
 # re-copies 9G, and a package change is picked up automatically. Checkpoints
 # stay in GROUP_DIR.
-if [ -z "${SWEEP_STAGED:-}" ] && [ "$DRY_RUN" -eq 0 ]; then
+if [ "$STAGE_LOCAL" -eq 1 ] && [ -z "${SWEEP_STAGED:-}" ] && [ "$DRY_RUN" -eq 0 ]; then
   QC_SRC="${QC_SRC:-$REPO/../qc}"
   STAGE_ROOT="${STAGE_ROOT:-/var/tmp/${USER:-$(id -un)}/stage}"
-  _short() { printf '%s' "${1:0:12}"; [ -n "$1" ] || printf 'nogit'; }
+  _short() {
+    printf '%s' "${1:0:12}"
+    [ -n "$1" ] || printf 'nogit'
+  }
   STAGE_DIR="$STAGE_ROOT/$(_short "$G3A_SHA")-$(_short "$QC_SHA")"
   export STAGE_DIR
   mkdir -p "$STAGE_DIR"
@@ -637,7 +706,10 @@ write_sweep_json() {
   printf '%s\n' "${EFF_ARGV[@]}" >"$tok"
   TASK="$TASK_ID" DATASET="$DATASET" MTIME="$DS_MTIME" SIZE="$DS_SIZE" \
     DSSHA="$DS_SHA256" \
-    ALPHAS="$ALPHAS" SEEDS="$(IFS=,; echo "${seeds[*]}")" GROUP="$RUN_GROUP" \
+    ALPHAS="$ALPHAS" SEEDS="$(
+      IFS=,
+      echo "${seeds[*]}"
+    )" GROUP="$RUN_GROUP" \
     TOKFILE="$tok" QCSHA="$QC_SHA" G3ASHA="$G3A_SHA" OUTFILE="$tmp" python3 - <<'PY'
 import json, os
 toks = open(os.environ['TOKFILE']).read().splitlines()
@@ -717,10 +789,126 @@ echo "[sweep] runs     $GROUP_DIR"
 
 # --- the kerberos ticket -----------------------------------------------------
 #
-# Obsolete: the sweep runs staged from node-local disk (see stage step above),
-# so training never touches sec=krb5p NFS at runtime. Staging itself needs a
-# valid ticket for a few minutes; a lapsed ticket fails fast at the rsync
-# above instead of SIGBUSing hours in.
+# When $REPO, the venvs and the dataset are read over NFS mounted with sec=krb5p,
+# a sweep outlives a login ticket. (On a checkout without sec=krb5 there is no
+# ticket, and start_renewer below returns at once.) When the ticket expires the runs do not fail
+# gracefully: they die with SIGBUS (status 135, the .venv pages they mmap'd
+# stop being readable) or status 126 (train_qc.sh can no longer be executed).
+# So the sweep refuses to start without a renewable ticket, renews it from a
+# detached watcher, and treats 126/135 as infra failure: the dead cells wait
+# out the outage together and relaunch when the mount reads again.
+# (--stage-local runs from node-local disk instead and skips all of this;
+# staging itself needs a valid ticket for a few minutes, and a lapsed ticket
+# fails fast at the rsync above instead of SIGBUSing hours in.)
+RENEW_INTERVAL="${SWEEP_RENEW_INTERVAL:-1800}"
+RENEW_PID=""
+RENEW_LOG=""
+WATCH_PIDFILE=""
+PAM_CCACHE="/tmp/krb5cc_$(id -u)"
+
+# The watcher's body. Runs detached (setsid, stdio on local disk), so it
+# survives the supervisor. Everything arrives by environment: SWEEP_PID,
+# WATCH_GROUP (the run_group to look for), RENEW_INTERVAL, RENEW_LOG,
+# WATCH_PIDFILE.
+_sweep_renew_loop() {
+  set +e +u
+  echo "$$" >"$WATCH_PIDFILE"
+  rlog() { printf '[renew %s] %s\n' "$(date '+%m-%d %H:%M:%S')" "$1" >>"$RENEW_LOG"; }
+  expiry() { klist 2>/dev/null | awk 'NR==5 {print $3, $4}'; }
+
+  rlog "watching sweep $SWEEP_PID, group $WATCH_GROUP, every ${RENEW_INTERVAL}s"
+  command -v pgrep >/dev/null 2>&1 ||
+    rlog "WARNING: no pgrep; orphaned runs cannot be detected"
+
+  dead_rounds=0
+  while :; do
+    sleep "$RENEW_INTERVAL"
+    if ! kill -0 "$SWEEP_PID" 2>/dev/null; then
+      # The sweep is gone but orphaned runs may live on: stay only while a
+      # run of this group is still alive.
+      if command -v pgrep >/dev/null 2>&1 && pgrep -f "run_group=$WATCH_GROUP" >/dev/null 2>&1; then
+        rlog "sweep gone but runs live on; keeping the ticket"
+      else
+        rlog "sweep gone and no runs left; exiting"
+        return 0
+      fi
+    fi
+    if kinit -R >>"$RENEW_LOG" 2>&1; then
+      dead_rounds=0
+      rlog "renewed, ticket expires $(expiry)"
+      continue
+    fi
+    # Renewal is proactive (every 30 min against a 10 h ticket), so one miss
+    # is a blip: two more tries a minute apart before calling it a round lost.
+    tries=1
+    while [ "$tries" -lt 3 ] && ! kinit -R >>"$RENEW_LOG" 2>&1; do
+      tries=$((tries + 1))
+      sleep 60
+    done
+    if [ "$tries" -lt 3 ]; then
+      dead_rounds=0
+      rlog "renewed after retry, ticket expires $(expiry)"
+      continue
+    fi
+    dead_rounds=$((dead_rounds + 1))
+    rlog "WARNING: kinit -R failed 3x (dead round $dead_rounds/3)"
+    if [ "$dead_rounds" -ge 3 ]; then
+      rlog "ticket unrecoverable; stopping sweep $SWEEP_PID"
+      kill -TERM "$SWEEP_PID" 2>/dev/null || true
+      return 1
+    fi
+  done
+}
+
+start_renewer() {
+  [ "$RENEW_INTERVAL" != 0 ] || {
+    repo_needs_ticket &&
+      echo "[sweep] WARNING: renewal off (SWEEP_RENEW_INTERVAL=0) on a Kerberized mount; the runs die with the ticket." >&2
+    return 0
+  }
+  repo_needs_ticket || return 0
+  command -v kinit >/dev/null 2>&1 || die "$REPO needs a Kerberos ticket, but kinit is missing"
+  command -v setsid >/dev/null 2>&1 || die "setsid is missing; cannot detach the ticket watcher"
+  # Refused here rather than hours in, when the first run touches the share.
+  klist -s 2>/dev/null || die "no valid Kerberos ticket for $REPO; run kinit first"
+  klist 2>/dev/null | grep -q 'renew until' ||
+    die "the ticket is not renewable; run 'kinit -r 14d' before a long sweep"
+  # PAM deletes its own cache when any session of this user logs out, including
+  # one that has nothing to do with the sweep; renewing does not bring it back.
+  case "${KRB5CCNAME:-FILE:$PAM_CCACHE}" in
+  *"$PAM_CCACHE")
+    die "KRB5CCNAME is PAM's $PAM_CCACHE, deleted on any logout; use a private ccache (see ~/.bashrc) and kinit again"
+    ;;
+  esac
+  mkdir -p "$GROUP_DIR"
+  RENEW_LOG="$GROUP_DIR/krb-renew.log"
+  WATCH_PIDFILE="$GROUP_DIR/.krb-renew.pid"
+  # Detached, stdio on local disk: it must not die with the supervisor. The
+  # pidfile carries the real pid across the setsid fork.
+  export -f _sweep_renew_loop
+  SWEEP_PID="$$" WATCH_GROUP="$RUN_GROUP" RENEW_INTERVAL="$RENEW_INTERVAL" \
+    RENEW_LOG="$RENEW_LOG" WATCH_PIDFILE="$WATCH_PIDFILE" \
+    setsid bash -c '_sweep_renew_loop' _sweep_renewer \
+    </dev/null >>"$RENEW_LOG" 2>&1 &
+  disown 2>/dev/null || true
+  i=0
+  while [ ! -s "$WATCH_PIDFILE" ] && [ "$i" -lt 50 ]; do
+    sleep 0.1
+    i=$((i + 1))
+  done
+  [ -s "$WATCH_PIDFILE" ] || die "ticket watcher failed to start; see $RENEW_LOG"
+  RENEW_PID="$(cat "$WATCH_PIDFILE")"
+  echo "[sweep] ticket   renewed every ${RENEW_INTERVAL}s by detached pid $RENEW_PID, log $RENEW_LOG"
+}
+
+# Both traps call this before stop_rest, whose bare `wait` would otherwise wait
+# for a renewer that never returns.
+stop_renewer() {
+  [ -n "$RENEW_PID" ] || return 0
+  kill "$RENEW_PID" 2>/dev/null || true
+  RENEW_PID=""
+  if [ -n "${WATCH_PIDFILE:-}" ]; then rm -f "$WATCH_PIDFILE"; fi
+}
 
 # --- launch ------------------------------------------------------------------
 
@@ -738,8 +926,8 @@ start_run() {
   )"
 
   # A cell that already logged keeps its history and continues its
-  # checkpoints: a resumed cell, or a restarted cell in a fresh sweep with
-  # identical flags and group (exactly what --resume continues).
+  # checkpoints: a resumed cell, or a cell relaunched after a 126/135 outage
+  # in a fresh sweep (same flags, same group: exactly what --resume continues).
   resume_flag=(${RESUME_TAIL[@]+"${RESUME_TAIL[@]}"})
   if [ "$RESUME" -eq 0 ] && [ -f "$log_dir/train.log" ]; then
     resume_flag=(--resume)
@@ -782,6 +970,8 @@ start_run() {
   fi
   LAST_PID="$!" # the caller's handle on the run just started
   cell_of["$LAST_PID"]="$base"
+  cell_alpha["$LAST_PID"]="$alpha"
+  cell_seed["$LAST_PID"]="$seed"
   echo "[sweep] alpha $alpha seed $seed started, pid $LAST_PID, log $log_dir/train.log"
 }
 
@@ -834,12 +1024,24 @@ if [ "$DRY_RUN" -eq 1 ]; then
 fi
 
 declare -A cell_of=()    # pid -> directory base (alpha-<a>_seed-<s>)
+declare -A cell_alpha=() # pid -> alpha, for relaunching outage deaths
+declare -A cell_seed=()  # pid -> seed, for relaunching outage deaths
+declare -A relaunches=() # 126/135 relaunches per cell; MAX_RELAUNCHES strikes and the cell fails
 running=()
 failed=()
+OUT_CELLS=() # cells dead with 126/135, awaiting relaunch once the mount recovers
 LAST_PID=""  # set by start_run, read by its caller right after
 
-# What the runs execute: the staged train_qc.sh and interpreter (both local
-# after the stage step above). Dry-run path needs the same defaults.
+OUTAGE_BUDGET="${SWEEP_OUTAGE_BUDGET:-3600}" # one outage may wait this long before the sweep gives up; 0 waits forever
+PROBE_EVERY="${SWEEP_PROBE_INTERVAL:-60}"    # seconds between mount probes during an outage
+MAX_RELAUNCHES=3
+case "$OUTAGE_BUDGET" in '' | *[!0-9]*) die "SWEEP_OUTAGE_BUDGET wants seconds, got '$OUTAGE_BUDGET'" ;; esac
+case "$PROBE_EVERY" in '' | *[!0-9]*) die "SWEEP_PROBE_INTERVAL wants seconds, got '$PROBE_EVERY'" ;; esac
+[ "$PROBE_EVERY" -gt 0 ] || die "SWEEP_PROBE_INTERVAL must be above 0"
+
+# What the outage probe checks the readability of: the stock train_qc.sh
+# interpreter (its pages are what SIGBUS when the ticket dies), if present.
+# A staged run exports both from the stage step above instead.
 QC_DIR="${QC_DIR:-$REPO/../qc}"
 QC_PYTHON="${QC_PYTHON:-$QC_DIR/.venv/bin/python}"
 
@@ -850,7 +1052,14 @@ stop_rest() {
   done
   wait 2>/dev/null || true
 }
-trap 'echo "[sweep] stopping, killing the runs" >&2; stop_rest; exit 130' INT TERM
+trap 'echo "[sweep] stopping, killing the runs" >&2; stop_renewer; stop_rest; exit 130' INT TERM
+trap stop_renewer EXIT
+
+# Staged runs never touch sec=krb5p NFS at runtime (see stage step above), so
+# only the checkout path renews the ticket.
+if [ "$STAGE_LOCAL" -eq 0 ]; then
+  start_renewer
+fi
 
 # One sweeper per group: two concurrent sweeps would launch the same cells
 # twice, interleaving CSVs and clobbering checkpoints.
@@ -877,20 +1086,24 @@ pid_dead() {
   [ "$st" = Z ]
 }
 
-# File one run's outcome: drop it from the schedule, then sort it into done
-# or failed. Unknown pids (already filed) are ignored, so reaping the same
-# pid twice is harmless.
+# File one run's outcome: drop it from the schedule, then sort it into done,
+# failed, or awaiting relaunch after an outage. Unknown pids (already filed)
+# are ignored, so reaping the same pid twice is harmless.
 record_outcome() { # $1 = pid, $2 = exit status
-  local pid="$1" status="$2" rest=() p cell
+  local pid="$1" status="$2" rest=() p cell alpha seed
   for p in ${running[@]+"${running[@]}"}; do
     [ "$p" = "$pid" ] || rest+=("$p")
   done
   running=(${rest[@]+"${rest[@]}"})
   cell="${cell_of[$pid]:-}"
   [ -n "$cell" ] || return 0
-  unset "cell_of[$pid]"
+  alpha="${cell_alpha[$pid]:-}"
+  seed="${cell_seed[$pid]:-}"
+  unset "cell_of[$pid]" "cell_alpha[$pid]" "cell_seed[$pid]"
   if [ "$status" -eq 0 ]; then
     echo "[sweep] $cell done"
+  elif [ "$STAGE_LOCAL" -eq 0 ] && { [ "$status" -eq 126 ] || [ "$status" -eq 135 ]; }; then
+    OUT_CELLS+=("$alpha $seed")
   else
     echo "[sweep] $cell failed with status $status, see $GROUP_DIR/$cell/train.log" >&2
     failed+=("$cell")
@@ -910,6 +1123,17 @@ drain_dead() {
   done
 }
 
+# One shared probe: is the repo, the venv and the dataset readable again? The
+# kinit -R is opportunistic (the watcher owns the schedule) and may recover
+# faster than its 30 min cadence.
+probe_ok() {
+  if repo_needs_ticket; then
+    kinit -R >/dev/null 2>&1 || true
+  fi
+  [ -x "$REPO/train_qc.sh" ] && [ -r "$DATASET" ] &&
+    { [ ! -e "$QC_PYTHON" ] || [ -x "$QC_PYTHON" ]; }
+}
+
 # How to continue this exact group (found by the script-<name> tag).
 resume_hint() {
   local w
@@ -921,6 +1145,62 @@ resume_hint() {
   fi
 }
 
+# The outage outlasted the budget: stop the wedged runs (a --resume restarts
+# them from their checkpoints) and say how to continue.
+give_up() {
+  echo "[sweep] group $RUN_GROUP: mount still unreadable after ${OUTAGE_BUDGET}s; giving up." >&2
+  echo "[sweep] Not the experiment (status 126/135 is infra). Before resuming, check 'klist -s' and 'df -h /dev/shm': a full shm dies with the same SIGBUS." >&2
+  if [ -n "${RENEW_LOG:-}" ]; then
+    echo "[sweep] See also the tail of $RENEW_LOG." >&2
+  fi
+  resume_hint
+  echo "[sweep] wedged runs stopped; completed checkpoints remain for --resume." >&2
+  stop_rest
+  exit 1
+}
+
+# Every 126/135 death waits out the outage together: probe until the mount
+# recovers (bounded by the budget), then relaunch the dead cells as one batch.
+# A cell that dies this way MAX_RELAUNCHES times counts as failed; the rest go on.
+# Checkout path only: staged runs never read NFS, so 126/135 there is a real
+# failure filed by record_outcome above. Off a krb mount there is likewise no
+# outage to wait out: the probe passes at once and the cell just relaunches,
+# still bounded by MAX_RELAUNCHES.
+ride_outage() {
+  local start now n cell alpha seed base
+  start="$(date +%s)"
+  echo "[sweep] infra outage (status 126/135); probing every ${PROBE_EVERY}s for up to ${OUTAGE_BUDGET}s" >&2
+  while :; do
+    drain_dead # runs that died alongside, including during the sleep below
+    if probe_ok; then
+      break
+    fi
+    now="$(date +%s)"
+    if [ "$OUTAGE_BUDGET" -ne 0 ] && [ "$((now - start))" -ge "$OUTAGE_BUDGET" ]; then
+      give_up
+    fi
+    echo "[sweep] mount still unreadable; retrying in ${PROBE_EVERY}s" >&2
+    sleep "$PROBE_EVERY" || true
+  done
+  echo "[sweep] mount readable again; relaunching ${#OUT_CELLS[@]} run(s)" >&2
+  for cell in ${OUT_CELLS[@]+"${OUT_CELLS[@]}"}; do
+    # An outage entry is "<alpha> <seed>"; the base is rebuilt, never reparsed.
+    alpha="${cell%% *}"
+    seed="${cell##* }"
+    base="$(cell_base "$alpha" "$seed")"
+    n="${relaunches[$base]:-0}"
+    if [ "$n" -ge "$MAX_RELAUNCHES" ]; then
+      echo "[sweep] $base died with 126/135 $((n + 1)) times; marking failed, the rest continue" >&2
+      failed+=("$base")
+      continue
+    fi
+    relaunches[$base]=$((n + 1))
+    start_run "$alpha" "$seed"
+    running+=("$LAST_PID")
+  done
+  OUT_CELLS=()
+}
+
 reap_one() {
   local status=0 done_pid=""
   wait -n -p done_pid ${running[@]+"${running[@]}"} || status=$?
@@ -928,6 +1208,9 @@ reap_one() {
     record_outcome "$done_pid" "$status"
   else
     drain_dead # wait errored without reaping (stale list); reconcile without blocking
+  fi
+  if [ "$STAGE_LOCAL" -eq 0 ] && [ "${#OUT_CELLS[@]}" -gt 0 ]; then
+    ride_outage
   fi
 }
 
