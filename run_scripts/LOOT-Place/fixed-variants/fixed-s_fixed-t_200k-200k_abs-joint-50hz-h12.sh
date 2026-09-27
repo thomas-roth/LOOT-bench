@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export LOOT_RUN_SCRIPT="$(basename "${BASH_SOURCE[0]}" .sh)"
+
+exec "$HERE/../../sweep.sh" \
+  place_fixed-s_fixed-t_200k-200k_joint-abs-50hz_nql-False_h12 \
+  LOOT-Place-FixedS-FixedT-Dk1 \
+  dataset/qc/place_fixed-s_fixed-t_100-demos_regen-50hz.npz \
+  "$@" \
+  --alphas 10000 \
+  -- \
+  --offline_steps 200000 \
+  --online_steps 200000 \
+  --eval_interval 30000 \
+  --horizon_length 12 \
+  --agent.normalize_q_loss=False
