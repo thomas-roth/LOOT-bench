@@ -4,6 +4,8 @@ The QC pipeline's sanity check: 36 observations, a 7-wide action, a 15 s
 episode. The budget is its only departure from the shared workbench.
 """
 
+import os
+
 from mjlab.entity import EntityCfg
 from mjlab.envs import ManagerBasedRlEnvCfg
 from mjlab.managers.observation_manager import ObservationTermCfg
@@ -29,13 +31,46 @@ COMMAND_NAME = "task"
 # box mapper.leader_is_aligned gates on.
 START_POSE_NOISE = 0.0
 
+DENSE_REWARD_ENV_VAR = "LOOT_PLACE_DENSE_REWARD"
+"""Opt back into the shaped place reward. Read when ``make_place_env_cfg``
+gets no explicit ``dense_reward``: ``1``/``true``/``yes``/``on`` selects it,
+anything else (or unset) keeps the sparse default.
+
+On the env var, not on a second task id, so one registration covers both
+densities and recorder and training run read one switch (``train_qc.sh
+--dense`` exports it). Record and train under the same setting: the
+dataset carries the reward its session was flown with, and nothing checks the
+density at load time.
+"""
+
+
+def _dense_reward_from_env() -> bool:
+    return os.environ.get(DENSE_REWARD_ENV_VAR, "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
 
 def make_place_env_cfg(
     variant: PlaceVariantCfg,
     play: bool = False,
+    dense_reward: bool | None = None,
 ) -> ManagerBasedRlEnvCfg:
     """Build the robot-agnostic place cfg (see ``tasks/common/env_cfg.py``
-    for the placeholder/wiring convention)."""
+    for the placeholder/wiring convention).
+
+    Args:
+        variant: which spawn/target randomness to build.
+        play: strip the cfg down for the teleop player.
+        dense_reward: the shaped travel-fraction reward when true, the
+            sparse -1-until-placed reward when false. ``None`` (the
+            registration default) reads ``LOOT_PLACE_DENSE_REWARD``.
+    """
+    if dense_reward is None:
+        dense_reward = _dense_reward_from_env()
+    reward_func = place_mdp.dense_task_reward if dense_reward else place_mdp.task_reward
     entities: dict[str, EntityCfg] = {
         "table": table_entity_cfg(),
         "cube": EntityCfg(spec_fn=lambda: get_cube_spec(CUBE_COLOR, name="cube")),
@@ -50,7 +85,7 @@ def make_place_env_cfg(
 
     task_rewards = {
         "task": RewardTermCfg(
-            func=place_mdp.task_reward,
+            func=reward_func,
             weight=1.0,
             params={"command_name": COMMAND_NAME},
         ),

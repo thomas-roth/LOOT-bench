@@ -22,6 +22,10 @@
 #                         wandb tag                (default: train_qc)
 #   LOOT_START_POSE_NOISE  override task start-pose noise [rad] (default: task value)
 #                         or pass --start_pose_noise
+#   LOOT_PLACE_DENSE_REWARD  set to 1 to train a Place task under its shaped
+#                         travel-fraction reward (default: sparse); or pass
+#                         --dense. Only Place reads it; other categories
+#                         ignore it. Record and train under the same setting.
 #   LOOT_ALLOW_NO_TMUX     set to 1 to run outside tmux
 #   CUDA_VISIBLE_DEVICES, and any other variable the run should inherit
 
@@ -61,9 +65,23 @@ shift 2
 # Accepts --start_pose_noise as a flag, or the LOOT_START_POSE_NOISE env var.
 # The value is passed to qc/main.py:main under --loot_start_pose_noise.
 LOOT_START_POSE_NOISE="${LOOT_START_POSE_NOISE:-}"
+# Place is sparse by default; --dense opts back into its shaped
+# travel-fraction reward. Consumed here (not forwarded): qc/main.py knows no
+# such flag. Exported as LOOT_PLACE_DENSE_REWARD, which make_place_env_cfg
+# reads at import time -- the qc process imports loot_bench fresh, so the
+# registered cfg is dense exactly when the recorder's was.
+LOOT_PLACE_DENSE_REWARD="${LOOT_PLACE_DENSE_REWARD:-0}"
 EXTRA_ARGS=()
 while [ $# -gt 0 ]; do
   case "$1" in
+  --dense)
+    LOOT_PLACE_DENSE_REWARD=1
+    shift
+    ;;
+  --dense=*)
+    LOOT_PLACE_DENSE_REWARD="${1#*=}"
+    shift
+    ;;
   --start_pose_noise)
     [ $# -ge 2 ] || die "$1 needs a value (half-width [rad])"
     LOOT_START_POSE_NOISE="$2"
@@ -88,6 +106,11 @@ if [ -n "$LOOT_START_POSE_NOISE" ]; then
   EXTRA_ARGS+=("--loot_start_pose_noise=$LOOT_START_POSE_NOISE")
   set -- "${EXTRA_ARGS[@]}"
 fi
+case "$LOOT_PLACE_DENSE_REWARD" in
+1 | true | yes | on) LOOT_PLACE_DENSE_REWARD=1 ;;
+*) LOOT_PLACE_DENSE_REWARD=0 ;;
+esac
+export LOOT_PLACE_DENSE_REWARD
 
 case "$TASK_ID" in
 LOOT-*) ;;
@@ -261,6 +284,7 @@ fi
 
 echo "[launch] task     $TASK_ID"
 echo "[launch] dataset  $DATASET"
+echo "[launch] dense    $LOOT_PLACE_DENSE_REWARD (Place only)"
 if [ -n "${LOOT_START_POSE_NOISE:-}" ]; then
   echo "[launch] start_pose_noise $LOOT_START_POSE_NOISE"
 fi

@@ -207,9 +207,11 @@ time:
 
 ### Place
 
-- **Progress**: the fraction of the spawn-to-target travel completed,
-  normalized by the constant `MAX_TRAVEL_DIST` and not by anything
-  per-episode.
+- **Reward**: sparse by default (-1 until the cube is placed, 0 on success).
+  The spawn-to-target travel fraction, normalized by the constant
+  `MAX_TRAVEL_DIST`, survives only as the opt-in dense reward
+  (`make_place_env_cfg(dense_reward=True)`, `LOOT_PLACE_DENSE_REWARD=1`,
+  `train_qc.sh --dense`).
 - **Observations**: the cube pose, and the command, which is the env-local
   target point.
 - **Success**: the cube is within 0.02 m × margin (3D) of the target, at

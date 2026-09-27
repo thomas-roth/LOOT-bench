@@ -8,6 +8,12 @@ from loot_bench.tasks.place.mdp.observations import (
     cube_pose as cube_pose,
 )
 from loot_bench.tasks.place.mdp.rewards import (
+    dense_task_reward as dense_task_reward,
+)
+from loot_bench.tasks.place.mdp.rewards import (
+    sparse_task_reward as sparse_task_reward,
+)
+from loot_bench.tasks.place.mdp.rewards import (
     task_reward as task_reward,
 )
 from loot_bench.tasks.place.mdp.terminations import (
