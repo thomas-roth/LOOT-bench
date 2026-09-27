@@ -26,6 +26,8 @@
 #                      --resume). Without either flag, an existing GROUP_DIR
 #                      aborts the launch instead of overwriting it.
 #   --dry-run          print the runs that would start, start none
+#   --stage-local      stage code, venv, base python and the dataset to
+#                      node-local disk and run there (see below); off by default
 #
 # Resuming is a same-host operation: RUN_DIR defaults to node-local /var/tmp
 # (and train_qc.sh refuses shared filesystems), so another host sees no
@@ -49,31 +51,65 @@
 # A failed run does not stop the others; the failures are named at the end and
 # the exit status is non-zero. Ctrl-C stops the whole sweep.
 #
-# The repository, the venvs and the dataset are read over Kerberized NFS here,
-# so the sweep refuses to start without a renewable ticket (kinit -r 14d) and
-# renews it from a detached watcher logging to <group>/krb-renew.log. A run
-# dying with status 126/135 means the ticket died, not the experiment: every
-# such death waits out the outage together (the mount is probed every 60 s, up
-# to 60 min) and relaunches when it reads again; a cell that dies that way 3
-# times counts as failed without stopping the rest.
+# When the checkout lives on Kerberized NFS, the repository, the venvs and
+# the dataset are read over it, so the sweep refuses to start without a
+# renewable ticket (kinit -r 14d) and renews it from a detached watcher
+# logging to <group>/krb-renew.log. A run dying with status 126/135 means
+# the ticket died: every such death waits out the outage together (the mount
+# is probed every 60 s, up to 60 min) and relaunches when it reads again; a
+# cell that dies that way 3 times counts as failed without stopping the rest.
+# On a checkout without sec=krb5 (local disk, or NFS with sec=sys) the ticket
+# parts are skipped: repo_needs_ticket skips the supervisor re-exec and the
+# watcher below, so no ticket is ever required.
+#
+# With --stage-local the sweep instead stages code, venv, base python and the
+# one dataset file to node-local disk and re-execs there, so training never
+# touches Kerberized NFS at runtime and needs no ticket renewal. Layout:
+# shared /var/tmp/$USER/stage/_venv/<dists-hash>/ plus per-revision
+# stage/<g3a>-<qc>/ with code + dataset (re-synced every launch, seconds).
+# A commit never re-copies the ~9G venv; a package change alters the hash
+# and is picked up automatically. Staging reads NFS, so on a Kerberized mount
+# it needs a valid ticket for a few minutes (and fails fast without one);
+# --dry-run never stages (and runs nothing).
 #
 # Environment: RUN_DIR (default /var/tmp/$USER/qc-runs), LOOT_RUN_SCRIPT (the
 # script-<name> tag; a wrapper sets it), SWEEP_RENEW_INTERVAL (seconds between
 # ticket renewals, default 1800; 0 turns the renewal off against advice),
 # SWEEP_OUTAGE_BUDGET (seconds one outage may last before giving up, default
 # 3600; 0 waits forever), SWEEP_PROBE_INTERVAL (seconds between mount probes
-# during an outage, default 60), plus what train_qc.sh reads.
+# during an outage, default 60), STAGE_ROOT (default /var/tmp/$USER/stage,
+# --stage-local only), QC_SRC (default $REPO/../qc, --stage-local only),
+# SWEEP_STAGE_LOCAL=1 (same as --stage-local), SWEEP_STAGE_ONLY=1 to
+# only stage and exit, SWEEP_RESTAGE=1 to force a fresh venv copy,
+# plus what train_qc.sh reads.
 
 set -euo pipefail
 
-# SWEEP_REPO carries the real tree across the supervisor re-exec below (the
-# staged copy would otherwise mistake its staging dir for the repo).
+# REPO is the source checkout; a staged re-exec remaps it to the node-local
+# stage copy below (see SWEEP_STAGED), and SWEEP_REPO carries the real tree
+# across the supervisor re-exec (the staged supervisor copy would otherwise
+# mistake its staging dir for the repo).
 REPO="${SWEEP_REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 RUN_DIR="${RUN_DIR:-/var/tmp/${USER:-$(id -un)}/qc-runs}"
 export RUN_DIR
+ORIG_ARGV=("$@")
 
 LOOT_RUN_SCRIPT="${LOOT_RUN_SCRIPT:-$(basename "${BASH_SOURCE[0]}" .sh)}"
 export LOOT_RUN_SCRIPT
+
+# Whether node-local staging is on. Pre-scanned here (rather than in the
+# option loop below) because the supervisor re-exec below needs it before
+# argument parsing; the loop re-sets the same variable when it consumes the
+# flag, so both agree. SWEEP_STAGE_LOCAL=1 is the same opt-in for wrappers.
+STAGE_LOCAL=0
+[ "${SWEEP_STAGE_LOCAL:-0}" = 1 ] && STAGE_LOCAL=1
+for _arg in "$@"; do
+  case "$_arg" in
+  --) break ;; # main.py flags live past here and must not opt in
+  --stage-local) STAGE_LOCAL=1 ;;
+  esac
+done
+unset _arg
 
 DEFAULT_NUM_SEEDS=3
 DEFAULT_ALPHAS="1,10,100"
@@ -125,6 +161,13 @@ is_value() {
   esac
 }
 
+# Running staged: the stage step below re-execs this script from node-local
+# disk with SWEEP_STAGED=1 and STAGE_DIR set. Remap the repo root so every
+# later path resolves inside the stage.
+if [ -n "${SWEEP_STAGED:-}" ] && [ -n "${STAGE_DIR:-}" ]; then
+  REPO="$STAGE_DIR/g3a-bench"
+fi
+
 # Whether the repo lives on a Kerberized mount. Defined with the other early
 # helpers (rather than with the ticket watcher) because the re-exec below
 # needs it before argument parsing.
@@ -140,7 +183,9 @@ repo_needs_ticket() {
 # The supervisor itself is read lazily off the same Kerberized mount that kills
 # the runs, so there it stages itself onto node-local disk and re-execs instead
 # of dying with "error reading input file" mid-sweep. "$@" is still untouched.
-if [ -z "${SWEEP_LOCAL:-}" ] && repo_needs_ticket; then
+# Skipped for --stage-local, which re-execs the whole tree from local disk
+# anyway.
+if [ "$STAGE_LOCAL" -eq 0 ] && [ -z "${SWEEP_LOCAL:-}" ] && repo_needs_ticket; then
   if mkdir -p "$RUN_DIR/.sweep-bin" 2>/dev/null &&
     cp "${BASH_SOURCE[0]}" "$RUN_DIR/.sweep-bin/sweep.sh" 2>/dev/null; then
     SWEEP_LOCAL=1 SWEEP_REPO="$REPO" exec bash "$RUN_DIR/.sweep-bin/sweep.sh" "$@"
@@ -205,6 +250,12 @@ while [ $# -gt 0 ]; do
     ;;
   --overwrite)
     OVERWRITE=1
+    shift
+    ;;
+  --stage-local)
+    # Sweep infrastructure, like --dry-run/--resume: consumed here, never
+    # forwarded to main.py, tagged, or named into the group.
+    STAGE_LOCAL=1
     shift
     ;;
   --run-group)
@@ -411,9 +462,135 @@ EFF_ARGV=(
 
 DS_MTIME="$(stat -c %Y "$DATASET")"
 DS_SIZE="$(stat -c %s "$DATASET")"
-QC_SHA=""
-if [ -f "$REPO/../qc/main.py" ]; then
-  QC_SHA="$(git -C "$REPO/../qc" rev-parse HEAD 2>/dev/null || true)"
+DS_SHA256="$(sha256sum "$DATASET" | cut -d' ' -f1)"
+# Staged re-exec carries both shas in the environment (the stage has no .git
+# to re-derive them from); only resolve them on the first pass.
+if [ -z "${SWEEP_STAGED:-}" ]; then
+  QC_SHA=""
+  if [ -f "$REPO/../qc/main.py" ]; then
+    QC_SHA="$(git -C "$REPO/../qc" rev-parse HEAD 2>/dev/null || true)"
+  fi
+  G3A_SHA="$(git -C "$REPO" rev-parse HEAD 2>/dev/null || true)"
+fi
+
+# --- stage to node-local disk (--stage-local only) ---------------------------
+#
+# Training mmap()s the venv for hours; on sec=krb5p NFS a lapsed/deleted PAM
+# ticket SIGBUSes the run. So the sweep runs entirely from /var/tmp. Layout:
+#   stage/_venv/<hash>/   the qc venv + base python, shared across revisions
+#   stage/<g3a>-<qc>/      code + dataset, re-synced every launch (seconds)
+# The venv is keyed by installed dist names, not by git: a commit never
+# re-copies 9G, and a package change is picked up automatically. Checkpoints
+# stay in GROUP_DIR.
+if [ "$STAGE_LOCAL" -eq 1 ] && [ -z "${SWEEP_STAGED:-}" ] && [ "$DRY_RUN" -eq 0 ]; then
+  QC_SRC="${QC_SRC:-$REPO/../qc}"
+  STAGE_ROOT="${STAGE_ROOT:-/var/tmp/${USER:-$(id -un)}/stage}"
+  _short() {
+    printf '%s' "${1:0:12}"
+    [ -n "$1" ] || printf 'nogit'
+  }
+  STAGE_DIR="$STAGE_ROOT/$(_short "$G3A_SHA")-$(_short "$QC_SHA")"
+  export STAGE_DIR
+  mkdir -p "$STAGE_DIR"
+  if command -v flock >/dev/null 2>&1; then
+    exec 8>"$STAGE_DIR/.stage.lock" || die "cannot lock $STAGE_DIR"
+    flock 8 || die "cannot lock $STAGE_DIR"
+  fi
+  # Staging reads NFS; fail fast with a clear message instead of mid-rsync.
+  _mnt_opts="$(findmnt -no OPTIONS --target "$REPO" 2>/dev/null || true)"
+  case "$_mnt_opts" in
+  *sec=krb5*)
+    klist -s 2>/dev/null || die "no valid Kerberos ticket for $REPO; run kinit first (staging reads NFS for a few minutes)"
+    ;;
+  esac
+  unset _mnt_opts
+  if [ -n "${SWEEP_RESTAGE:-}" ]; then
+    rm -rf "$STAGE_ROOT/_venv"
+  fi
+  # The venv has no pip (uv-managed), so fingerprint it by installed
+  # distribution names (name-version is in each dist-info); any upgrade,
+  # downgrade, add or remove changes the key.
+  VENV_DISTS=("$QC_SRC"/.venv/lib/python*/site-packages/*.dist-info)
+  [ -e "${VENV_DISTS[0]}" ] || die "cannot fingerprint $QC_SRC/.venv (no dist-info found)"
+  VENV_FINGERPRINT="$(printf '%s\n' "${VENV_DISTS[@]##*/}" | sort | sha256sum | cut -c1-12)"
+  unset VENV_DISTS
+  VENV_DIR="$STAGE_ROOT/_venv/$VENV_FINGERPRINT"
+  if [ ! -f "$VENV_DIR/manifest.json" ]; then
+    echo "[sweep] staging venv to $VENV_DIR (first copy ~9G, once per pip set)"
+    mkdir -p "$VENV_DIR/qc" "$VENV_DIR/python"
+    rsync -aH --delete --exclude=__pycache__/ \
+      "$QC_SRC/.venv/" "$VENV_DIR/qc/.venv/"
+    BASE_PY="$(readlink -f "$QC_SRC/.venv/bin/python")"
+    BASE_ROOT="$(cd "$(dirname "$BASE_PY")/.." && pwd)"
+    rsync -aH --delete "$BASE_ROOT/" "$VENV_DIR/python/$(basename "$BASE_ROOT")/"
+    # Repoint the venv at the staged base python (pyvenv.cfg home + symlink).
+    STAGED_BASE="$VENV_DIR/python/$(basename "$BASE_ROOT")/bin/$(basename "$BASE_PY")"
+    ln -sf "$STAGED_BASE" "$VENV_DIR/qc/.venv/bin/python"
+    if [ -f "$VENV_DIR/qc/.venv/pyvenv.cfg" ]; then
+      sed -i "s|^home = .*|home = $VENV_DIR/python/$(basename "$BASE_ROOT")/bin|" \
+        "$VENV_DIR/qc/.venv/pyvenv.cfg"
+    fi
+    # Console-script shebangs carry the old absolute venv path; training calls
+    # $QC_PYTHON directly so this is best-effort only.
+    grep -rl "^#!/disk/users" "$VENV_DIR/qc/.venv/bin/" 2>/dev/null |
+      while IFS= read -r f; do
+        sed -i "s|^#!/disk/users[^ ]*|#!$VENV_DIR/qc/.venv/bin/python|" "$f" 2>/dev/null || true
+      done
+    VENV_FINGERPRINT="$VENV_FINGERPRINT" VENV_DIR="$VENV_DIR" python3 - <<'PY'
+import json, os
+json.dump({
+    "dist_sha256_12": os.environ["VENV_FINGERPRINT"],
+    "venv": os.environ["VENV_DIR"],
+}, open(os.path.join(os.environ["VENV_DIR"], "manifest.json"), "w"), indent=2)
+PY
+    echo "[sweep] staged venv $VENV_DIR"
+  fi
+  echo "[sweep] syncing code to $STAGE_DIR (seconds)"
+  mkdir -p "$STAGE_DIR/g3a-bench/dataset/qc" "$STAGE_DIR/qc"
+  rsync -a --delete \
+    --exclude=.venv --exclude=.git --exclude=out/ \
+    --exclude=.ruff_cache --exclude=.pytest_cache \
+    --exclude=.claude/ --exclude=.opencode/ --exclude=.serena/ \
+    --exclude=graphify-out/ --exclude=dataset/ \
+    "$REPO/" "$STAGE_DIR/g3a-bench/"
+  rsync -a "$DATASET" "$STAGE_DIR/g3a-bench/dataset/qc/"
+  rsync -a --delete \
+    --exclude=.venv --exclude=.git --exclude=__pycache__/ \
+    --exclude=logs/ --exclude=plot_data/ \
+    "$QC_SRC/" "$STAGE_DIR/qc/"
+  # The code tree links the shared venv instead of carrying its own copy.
+  rm -rf "$STAGE_DIR/qc/.venv"
+  ln -s "$VENV_DIR/qc/.venv" "$STAGE_DIR/qc/.venv"
+  G3A_SHA="$G3A_SHA" QC_SHA="$QC_SHA" STAGE_DIR="$STAGE_DIR" VENV_DIR="$VENV_DIR" python3 - <<'PY'
+import json, os
+json.dump({
+    "g3a_sha": os.environ["G3A_SHA"],
+    "qc_sha": os.environ["QC_SHA"],
+    "stage": os.environ["STAGE_DIR"],
+    "venv": os.environ["VENV_DIR"],
+}, open(os.path.join(os.environ["STAGE_DIR"], "manifest.json"), "w"), indent=2)
+PY
+  exec 8>&- # release the stage lock; the stage is safe to share now
+  if [ -n "${SWEEP_STAGE_ONLY:-}" ]; then
+    echo "[sweep] stage-only, done: $STAGE_DIR (venv $VENV_DIR)"
+    exit 0
+  fi
+  SWEEP_STAGED=1 STAGE_DIR="$STAGE_DIR" G3A_SHA="$G3A_SHA" QC_SHA="$QC_SHA" \
+    exec bash "$STAGE_DIR/g3a-bench/run_scripts/sweep.sh" "${ORIG_ARGV[@]}"
+fi
+
+# Local runtime env: everything the run touches lives on node-local disk.
+if [ -n "${SWEEP_STAGED:-}" ]; then
+  QC_DIR="$STAGE_DIR/qc"
+  QC_PYTHON="$QC_DIR/.venv/bin/python"
+  export QC_DIR QC_PYTHON
+  LOCAL_TMP="/var/tmp/${USER:-$(id -un)}/tmp"
+  mkdir -p "$LOCAL_TMP"
+  export TMPDIR="$LOCAL_TMP"
+  export XDG_CACHE_HOME="/var/tmp/${USER:-$(id -un)}/cache"
+  export MPLCONFIGDIR="$LOCAL_TMP/mpl"
+  mkdir -p "$XDG_CACHE_HOME" "$MPLCONFIGDIR"
+  echo "[sweep] running staged from $STAGE_DIR"
 fi
 
 # --- resume / overwrite ------------------------------------------------------
@@ -496,7 +673,15 @@ check_resume_compat() {
   want="$(jget run_group)"
   [ "$want" = "$RUN_GROUP" ] || die "--resume: group $RUN_GROUP is not the stored $want"
   want="$(jget dataset)"
-  [ "$want" = "$DATASET" ] || die "--resume: dataset $DATASET is not the stored $want"
+  if [ "$want" != "$DATASET" ]; then
+    # The stage dir embeds the revision, so a commit moves the path even
+    # when the file is identical. Content identity decides, not the path.
+    if [ "$(jget dataset_sha256)" = "$DS_SHA256" ] && [ -n "$DS_SHA256" ]; then
+      echo "[sweep] NOTE: dataset restaged at $DATASET (stored $want); sha256 matches, continuing." >&2
+    else
+      die "--resume: dataset $DATASET is not the stored $want"
+    fi
+  fi
   want="$(jget dataset_mtime)"
   [ "$want" = "$DS_MTIME" ] || die "--resume: dataset changed since this sweep started; start a new group instead"
   want="$(jget dataset_size)"
@@ -510,14 +695,22 @@ check_resume_compat() {
   if [ -n "$sha" ] && [ -n "$QC_SHA" ] && [ "$sha" != "$QC_SHA" ]; then
     echo "[sweep] WARNING: qc checkout $QC_SHA differs from stored $sha; resuming across code changes." >&2
   fi
+  sha="$(jget g3a_sha)"
+  if [ -n "$sha" ] && [ -n "$G3A_SHA" ] && [ "$sha" != "$G3A_SHA" ]; then
+    echo "[sweep] WARNING: g3a-bench checkout $G3A_SHA differs from stored $sha; resuming across code changes." >&2
+  fi
 }
 
 write_sweep_json() {
   local tmp="$GROUP_DIR/.sweep.json.tmp.$$" tok="$GROUP_DIR/.sweep.tokens.tmp.$$"
   printf '%s\n' "${EFF_ARGV[@]}" >"$tok"
   TASK="$TASK_ID" DATASET="$DATASET" MTIME="$DS_MTIME" SIZE="$DS_SIZE" \
-    ALPHAS="$ALPHAS" SEEDS="$(IFS=,; echo "${seeds[*]}")" GROUP="$RUN_GROUP" \
-    TOKFILE="$tok" QCSHA="$QC_SHA" OUTFILE="$tmp" python3 - <<'PY'
+    DSSHA="$DS_SHA256" \
+    ALPHAS="$ALPHAS" SEEDS="$(
+      IFS=,
+      echo "${seeds[*]}"
+    )" GROUP="$RUN_GROUP" \
+    TOKFILE="$tok" QCSHA="$QC_SHA" G3ASHA="$G3A_SHA" OUTFILE="$tmp" python3 - <<'PY'
 import json, os
 toks = open(os.environ['TOKFILE']).read().splitlines()
 doc = {
@@ -526,10 +719,12 @@ doc = {
     'dataset': os.environ['DATASET'],
     'dataset_mtime': os.environ['MTIME'],
     'dataset_size': os.environ['SIZE'],
+    'dataset_sha256': os.environ.get('DSSHA') or None,
     'alphas': os.environ['ALPHAS'].split(','),
     'seeds': [int(s) for s in os.environ['SEEDS'].split(',')],
     'argv_tokens': toks,
     'qc_sha': os.environ.get('QCSHA') or None,
+    'g3a_sha': os.environ.get('G3ASHA') or None,
 }
 open(os.environ['OUTFILE'], 'w').write(json.dumps(doc, indent=2) + '\n')
 PY
@@ -593,14 +788,18 @@ echo "[sweep] tags     $(
 echo "[sweep] runs     $GROUP_DIR"
 
 # --- the kerberos ticket -----------------------------------------------------
-
-# $REPO, the venvs and the dataset are read over NFS mounted with sec=krb5p, and
-# a sweep outlives a login ticket. When the ticket expires the runs do not fail
+#
+# When $REPO, the venvs and the dataset are read over NFS mounted with sec=krb5p,
+# a sweep outlives a login ticket. (On a checkout without sec=krb5 there is no
+# ticket, and start_renewer below returns at once.) When the ticket expires the runs do not fail
 # gracefully: they die with SIGBUS (status 135, the .venv pages they mmap'd
 # stop being readable) or status 126 (train_qc.sh can no longer be executed).
 # So the sweep refuses to start without a renewable ticket, renews it from a
 # detached watcher, and treats 126/135 as infra failure: the dead cells wait
 # out the outage together and relaunch when the mount reads again.
+# (--stage-local runs from node-local disk instead and skips all of this;
+# staging itself needs a valid ticket for a few minutes, and a lapsed ticket
+# fails fast at the rsync above instead of SIGBUSing hours in.)
 RENEW_INTERVAL="${SWEEP_RENEW_INTERVAL:-1800}"
 RENEW_PID=""
 RENEW_LOG=""
@@ -825,8 +1024,8 @@ if [ "$DRY_RUN" -eq 1 ]; then
 fi
 
 declare -A cell_of=()    # pid -> directory base (alpha-<a>_seed-<s>)
-declare -A cell_alpha=()  # pid -> alpha, for relaunching outage deaths
-declare -A cell_seed=()   # pid -> seed, for relaunching outage deaths
+declare -A cell_alpha=() # pid -> alpha, for relaunching outage deaths
+declare -A cell_seed=()  # pid -> seed, for relaunching outage deaths
 declare -A relaunches=() # 126/135 relaunches per cell; MAX_RELAUNCHES strikes and the cell fails
 running=()
 failed=()
@@ -842,6 +1041,7 @@ case "$PROBE_EVERY" in '' | *[!0-9]*) die "SWEEP_PROBE_INTERVAL wants seconds, g
 
 # What the outage probe checks the readability of: the stock train_qc.sh
 # interpreter (its pages are what SIGBUS when the ticket dies), if present.
+# A staged run exports both from the stage step above instead.
 QC_DIR="${QC_DIR:-$REPO/../qc}"
 QC_PYTHON="${QC_PYTHON:-$QC_DIR/.venv/bin/python}"
 
@@ -855,7 +1055,11 @@ stop_rest() {
 trap 'echo "[sweep] stopping, killing the runs" >&2; stop_renewer; stop_rest; exit 130' INT TERM
 trap stop_renewer EXIT
 
-start_renewer
+# Staged runs never touch sec=krb5p NFS at runtime (see stage step above), so
+# only the checkout path renews the ticket.
+if [ "$STAGE_LOCAL" -eq 0 ]; then
+  start_renewer
+fi
 
 # One sweeper per group: two concurrent sweeps would launch the same cells
 # twice, interleaving CSVs and clobbering checkpoints.
@@ -898,7 +1102,7 @@ record_outcome() { # $1 = pid, $2 = exit status
   unset "cell_of[$pid]" "cell_alpha[$pid]" "cell_seed[$pid]"
   if [ "$status" -eq 0 ]; then
     echo "[sweep] $cell done"
-  elif [ "$status" -eq 126 ] || [ "$status" -eq 135 ]; then
+  elif [ "$STAGE_LOCAL" -eq 0 ] && { [ "$status" -eq 126 ] || [ "$status" -eq 135 ]; }; then
     OUT_CELLS+=("$alpha $seed")
   else
     echo "[sweep] $cell failed with status $status, see $GROUP_DIR/$cell/train.log" >&2
@@ -958,6 +1162,10 @@ give_up() {
 # Every 126/135 death waits out the outage together: probe until the mount
 # recovers (bounded by the budget), then relaunch the dead cells as one batch.
 # A cell that dies this way MAX_RELAUNCHES times counts as failed; the rest go on.
+# Checkout path only: staged runs never read NFS, so 126/135 there is a real
+# failure filed by record_outcome above. Off a krb mount there is likewise no
+# outage to wait out: the probe passes at once and the cell just relaunches,
+# still bounded by MAX_RELAUNCHES.
 ride_outage() {
   local start now n cell alpha seed base
   start="$(date +%s)"
@@ -1001,7 +1209,7 @@ reap_one() {
   else
     drain_dead # wait errored without reaping (stale list); reconcile without blocking
   fi
-  if [ "${#OUT_CELLS[@]}" -gt 0 ]; then
+  if [ "$STAGE_LOCAL" -eq 0 ] && [ "${#OUT_CELLS[@]}" -gt 0 ]; then
     ride_outage
   fi
 }
