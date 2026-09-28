@@ -16,7 +16,7 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 export LOOT_RUN_SCRIPT="$(basename "${BASH_SOURCE[0]}" .sh)"
 
 exec "$REPO/train_qc.sh" LOOT-Place-RandS-RandT-Dk1 \
-  "$REPO/dataset/qc/place_rand-s_rand-t_100-demos_2026-09-04_14-09-57.npz" \
+  "$REPO/dataset/qc/place_rand-s_rand-t_99-demos_2026-09-11.npz" \
   --agent.actor_type=distill-ddpg-select \
   --agent.normalize_q_loss=True \
   --seed=42 \
