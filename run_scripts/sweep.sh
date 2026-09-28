@@ -70,7 +70,10 @@
 # A commit never re-copies the ~9G venv; a package change alters the hash
 # and is picked up automatically. Staging reads NFS, so on a Kerberized mount
 # it needs a valid ticket for a few minutes (and fails fast without one);
-# --dry-run never stages (and runs nothing).
+# --dry-run never stages (and runs nothing). The wandb key is snapshotted to
+# WANDB_API_KEY in the environment at stage time (never written to the
+# world-readable stage) and WANDB_* dirs point at local disk, so online runs
+# survive ticket expiry without renewal.
 #
 # Environment: RUN_DIR (default /var/tmp/$USER/qc-runs), LOOT_RUN_SCRIPT (the
 # script-<name> tag; a wrapper sets it), SWEEP_RENEW_INTERVAL (seconds between
@@ -460,7 +463,6 @@ EFF_ARGV=(
   ${USER_FLAGS[@]+"${USER_FLAGS[@]}"}
 )
 
-DS_MTIME="$(stat -c %Y "$DATASET")"
 DS_SIZE="$(stat -c %s "$DATASET")"
 DS_SHA256="$(sha256sum "$DATASET" | cut -d' ' -f1)"
 # Staged re-exec carries both shas in the environment (the stage has no .git
@@ -504,6 +506,19 @@ if [ "$STAGE_LOCAL" -eq 1 ] && [ -z "${SWEEP_STAGED:-}" ] && [ "$DRY_RUN" -eq 0 
     ;;
   esac
   unset _mnt_opts
+  # Staged runs never touch NFS at runtime, including ~/.netrc on a krb
+  # mount: snapshot the wandb key while the ticket is valid and carry it in
+  # the environment across the re-exec below. No secret is written to the
+  # stage (world-readable /var/tmp); only process env (same uid + root).
+  WANDB_MODE="${WANDB_MODE:-online}"
+  export WANDB_MODE
+  if [ "$WANDB_MODE" = "online" ] && [ -z "${WANDB_API_KEY:-}" ]; then
+    if [ -x "$QC_SRC/.venv/bin/python" ]; then
+      WANDB_API_KEY="$("$QC_SRC/.venv/bin/python" -c 'import wandb; print(wandb.api.api_key or "")' 2>/dev/null || true)"
+      export WANDB_API_KEY
+    fi
+    [ -n "${WANDB_API_KEY:-}" ] || die "no wandb login. Run \`wandb login\`, or launch with WANDB_MODE=offline."
+  fi
   if [ -n "${SWEEP_RESTAGE:-}" ]; then
     rm -rf "$STAGE_ROOT/_venv"
   fi
@@ -576,10 +591,13 @@ PY
     exit 0
   fi
   SWEEP_STAGED=1 STAGE_DIR="$STAGE_DIR" G3A_SHA="$G3A_SHA" QC_SHA="$QC_SHA" \
+    WANDB_MODE="$WANDB_MODE" WANDB_API_KEY="${WANDB_API_KEY:-}" \
     exec bash "$STAGE_DIR/g3a-bench/run_scripts/sweep.sh" "${ORIG_ARGV[@]}"
 fi
 
 # Local runtime env: everything the run touches lives on node-local disk.
+# WANDB_* points the SDK at local disk too, so online runs survive ticket
+# expiry without renewal (and without reading ~/.netrc mid-run).
 if [ -n "${SWEEP_STAGED:-}" ]; then
   QC_DIR="$STAGE_DIR/qc"
   QC_PYTHON="$QC_DIR/.venv/bin/python"
@@ -590,6 +608,10 @@ if [ -n "${SWEEP_STAGED:-}" ]; then
   export XDG_CACHE_HOME="/var/tmp/${USER:-$(id -un)}/cache"
   export MPLCONFIGDIR="$LOCAL_TMP/mpl"
   mkdir -p "$XDG_CACHE_HOME" "$MPLCONFIGDIR"
+  export WANDB_DIR="$LOCAL_TMP/wandb"
+  export WANDB_CACHE_DIR="$XDG_CACHE_HOME/wandb"
+  export WANDB_CONFIG_DIR="/var/tmp/${USER:-$(id -un)}/config/wandb"
+  mkdir -p "$WANDB_DIR" "$WANDB_CACHE_DIR" "$WANDB_CONFIG_DIR"
   echo "[sweep] running staged from $STAGE_DIR"
 fi
 
@@ -682,10 +704,13 @@ check_resume_compat() {
       die "--resume: dataset $DATASET is not the stored $want"
     fi
   fi
-  want="$(jget dataset_mtime)"
-  [ "$want" = "$DS_MTIME" ] || die "--resume: dataset changed since this sweep started; start a new group instead"
   want="$(jget dataset_size)"
   [ "$want" = "$DS_SIZE" ] || die "--resume: dataset changed since this sweep started; start a new group instead"
+  # Content identity decides, not filesystem metadata: mtime changes on
+  # checkout/rsync while sha256+size prove the bytes are identical.
+  if [ -n "$(jget dataset_sha256)" ] && [ -n "$DS_SHA256" ]; then
+    [ "$(jget dataset_sha256)" = "$DS_SHA256" ] || die "--resume: dataset content changed (sha256); start a new group instead"
+  fi
   if ! diff <(jget_lines argv_tokens | sort | uniq -c) \
     <(printf '%s\n' "${EFF_ARGV[@]}" | sort | uniq -c) >/dev/null; then
     die "--resume: effective main.py flags differ from $SWEEP_JSON (wrapper edited?). Compare and start a new group, or restore the flags."
@@ -704,7 +729,7 @@ check_resume_compat() {
 write_sweep_json() {
   local tmp="$GROUP_DIR/.sweep.json.tmp.$$" tok="$GROUP_DIR/.sweep.tokens.tmp.$$"
   printf '%s\n' "${EFF_ARGV[@]}" >"$tok"
-  TASK="$TASK_ID" DATASET="$DATASET" MTIME="$DS_MTIME" SIZE="$DS_SIZE" \
+  TASK="$TASK_ID" DATASET="$DATASET" SIZE="$DS_SIZE" \
     DSSHA="$DS_SHA256" \
     ALPHAS="$ALPHAS" SEEDS="$(
       IFS=,
@@ -717,7 +742,6 @@ doc = {
     'run_group': os.environ['GROUP'],
     'task': os.environ['TASK'],
     'dataset': os.environ['DATASET'],
-    'dataset_mtime': os.environ['MTIME'],
     'dataset_size': os.environ['SIZE'],
     'dataset_sha256': os.environ.get('DSSHA') or None,
     'alphas': os.environ['ALPHAS'].split(','),
